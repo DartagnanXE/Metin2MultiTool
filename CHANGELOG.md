@@ -3,6 +3,25 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.0.3] — 2026-05-31
+
+Zwei neue Funktionen: **eingebaute Update-Benachrichtigung** und eine
+**konfigurierbare Goldener-Thunfisch-Aktion**.
+
+### Neu
+
+- **Auto-Update (ab jetzt eingebaut):** Beim Start prueft die App im Hintergrund
+  (eigener Thread, blockiert das UI nie) die GitHub-Releases. Gibt es eine
+  neuere Version, erscheint ein dezentes Banner — **ein Klick laedt die neue
+  Portable, ersetzt sie an Ort und Stelle und startet neu.** Bewusst
+  **nutzer-initiiert** (kein stilles Auto-Download -> schont die AV-Lage),
+  Admin-bewusst. Die Installer-Variante oeffnet stattdessen die Release-Seite.
+  Neue `version.py` als einzige Versions-Quelle (auch fuer beide Specs).
+- **Goldener-Thunfisch-Aktion waehlbar:** In den Einstellungen festlegen, was der
+  Bot beim Fang eines goldenen Thunfischs tut — **1 = Freilassen, 2 =
+  Aufschneiden, 3 = Als Koeder benutzen**. **Default jetzt 3** (vorher das
+  mittlere Feld). Der Bot loggt die geklickte Position zur Verifikation.
+
 ## [1.0.2] — 2026-05-31
 
 **Wichtiges Fix-Update — behebt, dass das Angeln in der EXE nicht funktionierte.**

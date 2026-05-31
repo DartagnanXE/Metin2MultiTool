@@ -29,6 +29,10 @@ SOLVER_MODES = ('standard', 'trained')
 APP_MODES = ('fishing', 'puzzle')
 COLOR_PATCHES = (3, 5)
 
+# Golden-Tuna-Dialog: welcher der 3 senkrecht gestapelten Knoepfe geklickt
+# wird. 1 = Freilassen, 2 = Aufschneiden, 3 = Als Koeder benutzen (Default).
+GOLDEN_TUNA_ACTIONS = (1, 2, 3)
+
 # Erlaubte Sonderpunkt-Schluessel fuer ``mark_keypoints`` (Overrides der
 # geometry-Defaults). Jeder Wert ist ein [x, y]-Integer-Paar (Referenzkoordinate
 # auf dem 260x170-Board). Unbekannte Schluessel werden bei der Validierung
@@ -55,6 +59,7 @@ DEFAULTS = {
         'start_game_time': 2.0,
         'stop_after_enabled': False,
         'stop_after_minutes': 0,
+        'golden_tuna_action': 3,
     },
     'puzzle': {
         'detection_mode': 'default',
@@ -159,6 +164,11 @@ def validate(cfg):
             fishing.get('stop_after_enabled', False))
         minutes = _coerce_int(fishing.get('stop_after_minutes'), 0)
         fishing['stop_after_minutes'] = minutes if minutes >= 0 else 0
+        action = _coerce_int(fishing.get('golden_tuna_action'),
+                             DEFAULTS['fishing']['golden_tuna_action'])
+        fishing['golden_tuna_action'] = (
+            action if action in GOLDEN_TUNA_ACTIONS
+            else DEFAULTS['fishing']['golden_tuna_action'])
 
         puzzle = merged['puzzle']
         puzzle['detection_mode'] = _enum(
@@ -287,4 +297,5 @@ def to_values(cfg):
         '-BAITTIME-': float(fishing['bait_time']),
         '-THROWTIME-': float(fishing['throw_time']),
         '-STARTGAME-': float(fishing['start_game_time']),
+        '-GOLDENTUNA-': int(fishing['golden_tuna_action']),
     }

@@ -15,7 +15,12 @@
 ; ===================================================================
 
 #define AppName "Metin2 Fishing Bot"
-#define AppVersion "1.0.2"
+; WICHTIG: Diese Versionsnummer ist die EINZIGE Stelle, die von Hand mit
+; version.py (__version__) synchron gehalten werden muss. Inno-Setup (ISCC)
+; kann kein Python importieren, daher kann sie - anders als die beiden
+; PyInstaller-Specs - __version__ nicht automatisch uebernehmen. Bei jedem
+; Release: version.py bumpen UND diese Zeile auf denselben Wert setzen.
+#define AppVersion "1.0.3"
 #define AppPublisher "Musketier Software"
 #define AppExeName "Metin2FishBot.exe"
 ; Quelle: der gesamte onedir-Ordner aus dem PyInstaller-Build.

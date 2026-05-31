@@ -79,6 +79,16 @@ class FishingBot:
 
     FISH_WINDOW_CLOSE = (430, 115)
 
+    # Golden-Tuna-Dialog: 3 senkrecht gestapelte Knoepfe (Spielkoordinaten,
+    # relativ zum Fenster-Offset). Feld 2 (y=280) ist der urspruengliche Klick
+    # auf den mittleren Knopf. 1 = Freilassen, 2 = Aufschneiden,
+    # 3 = Als Koeder benutzen. Knoepfe sind gleichmaessig (DY) gestapelt.
+    GOLDEN_TUNA_X = 350
+    GOLDEN_TUNA_DY = 38
+    GOLDEN_TUNA_Y = {1: 280 - GOLDEN_TUNA_DY,   # 242 (Feld 1, oben)
+                     2: 280,                    # 280 (Feld 2, urspruengl. Klick)
+                     3: 280 + GOLDEN_TUNA_DY}   # 318 (Feld 3, unten)
+
     # set position of the fish windows
     # this value can be diferent by the sizes of the game window
 
@@ -126,6 +136,9 @@ class FishingBot:
     bait_time = 2
     throw_time = 2
     game_time = 2
+
+    # Golden-Tuna: welches der 3 Dialogfelder geklickt wird (Default 3 = Koeder).
+    golden_tuna_action = 3
 
     # This is the filter parameters, this help to find the right image
     hsv_filter = HsvFilter(*FILTER_CONFIG)
@@ -256,11 +269,20 @@ class FishingBot:
         self.throw_time = values['-THROWTIME-']
         self.game_time = values['-STARTGAME-']
 
+        # Golden-Tuna-Feld defensiv lesen -- ein kaputter/fehlender Wert darf das
+        # Angeln NIE brechen (-> Default 3 = Koeder benutzen).
+        try:
+            action = int(values.get('-GOLDENTUNA-', 3))
+        except (TypeError, ValueError):
+            action = 3
+        self.golden_tuna_action = action if action in (1, 2, 3) else 3
+
         # FRUEH loggen -- noch VOR dem Fenster-Capture, damit der Start auch dann
         # in der Console steht, wenn das Spielfenster (noch) nicht gefunden wird
         # (sonst wuerde diese Zeile bei einem Capture-Fehler nie erreicht).
         _flog(0, t('fishing.started'), bait=self.bait_time,
               throw=self.throw_time, game=self.game_time,
+              golden_action=self.golden_tuna_action,
               stop_after_min=(self.end_time // 60 if self.end_time_enable else 0))
 
         # Defensiv: konnten die Vorlagenbilder geladen werden? In der EXE waren sie
@@ -308,12 +330,18 @@ class FishingBot:
         daily = self.detect_daily_reward(screenshot)
 
         if daily:
-            mouse_x = int(self.wincap.offset_x + 350)
-            mouse_y = int(self.wincap.offset_y + 280)
+            # Konfigurierbares Feld klicken (1/2/3, Default 3 = Koeder). Das
+            # gewaehlte Feld + die Koordinaten werden geloggt, damit der Nutzer
+            # im Spiel pruefen/feinjustieren kann. (Ersetzt das alte feste
+            # y=280-Verhalten und den 'fishing.daily_reward_confirmed'-Log.)
+            field = self.golden_tuna_action
+            mouse_x = int(self.wincap.offset_x + self.GOLDEN_TUNA_X)
+            mouse_y = int(self.wincap.offset_y + self.GOLDEN_TUNA_Y[field])
             pydirectinput.click(x=mouse_x, y=mouse_y)
             if time() - getattr(self, '_last_daily_log', 0) > 3:
                 self._last_daily_log = time()
-                _flog(self.state, t('fishing.daily_reward_confirmed'))
+                _flog(self.state, t('fishing.golden_tuna_clicked'),
+                      field=field, x=mouse_x, y=mouse_y)
 
         # Verify total time
 

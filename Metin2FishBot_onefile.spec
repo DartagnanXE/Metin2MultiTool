@@ -10,6 +10,7 @@
 # Build:  pyinstaller --clean --noconfirm --distpath dist_onefile Metin2FishBot_onefile.spec
 
 import os
+import sys
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 from PyInstaller.utils.win32.versioninfo import (
     VSVersionInfo, FixedFileInfo, StringFileInfo, StringTable,
@@ -18,11 +19,20 @@ from PyInstaller.utils.win32.versioninfo import (
 
 block_cipher = None
 
+# Versions-Konstanten: EINE Quelle der Wahrheit ist version.py (Repo-Root).
+# SPEC ist der absolute Pfad dieser Spec (von PyInstaller injiziert) -> dessen
+# Verzeichnis ist das Repo-Root, wo version.py liegt; robust unabhaengig vom cwd.
+sys.path.insert(0, os.path.dirname(os.path.abspath(SPEC)))
+from version import __version__, version_tuple
+
 APP_NAME = 'Metin2FishBot'
-APP_VERSION = '1.0.2'
+APP_VERSION = __version__                     # aus version.py (__version__)
 APP_PUBLISHER = 'Musketier Software'
 APP_COPYRIGHT = ''   # bewusst ohne Copyright-Vermerk
-_VTUPLE = (1, 0, 2, 0)
+# PE-Ressource braucht ein 4-stelliges Int-Tupel -> aus __version__ ableiten,
+# rechts mit Nullen auf 4 Felder auffuellen.
+_vt = version_tuple(__version__)
+_VTUPLE = tuple((list(_vt) + [0, 0, 0, 0])[:4])
 APP_ICON = 'musketier.ico' if os.path.exists('musketier.ico') else None
 
 ctk_datas = collect_data_files('customtkinter')
@@ -66,6 +76,7 @@ a = Analysis(
         'win32gui', 'win32ui', 'win32con',
         'pydirectinput',
         'pytesseract',
+        'version', 'updater',   # lazy importiert zur Laufzeit (app.py)
     ] + ctk_hidden,
     hookspath=[],
     hooksconfig={},

@@ -248,6 +248,14 @@ class App(ctk.CTk):
         # Lauf-Indikator pulsieren lassen (klares "es laeuft"-Zeichen).
         self._pulse_on = False
         self.after(600, self._pulse)
+        # Auto-Update: dezentes Banner, falls eine neuere Version vorliegt.
+        # Zustand HIER initialisieren, das Banner lebt auf einer eigenen
+        # Grid-Zeile (row 2) und ueberlebt so den Sprachwechsel-Neuaufbau.
+        self._update_info = None
+        self._update_banner = None
+        # Einmalige, nicht-blockierende Versionspruefung ~1.2s nach Start
+        # (gibt dem Fenster Zeit, sauber zu rendern, bevor irgendetwas passiert).
+        self.after(1200, self._kick_off_update_check)
         # Scrollbalken nur zeigen, wenn der Inhalt wirklich nicht passt.
         self.bind('<Configure>', self._autohide_scrollbar, add='+')
         self.after(150, self._autohide_scrollbar)
@@ -400,6 +408,15 @@ class App(ctk.CTk):
         self.sync_controls()
         if self._cfg['log']['show_in_ui']:
             self.log_panel.attach()
+        # Update-Banner liegt auf einer eigenen Grid-Zeile (nicht in topbar/
+        # content) -> es wird NICHT zerstoert; nur seine Texte neu setzen.
+        if (getattr(self, '_update_info', None) is not None
+                and getattr(self, '_update_banner', None) is not None):
+            try:
+                self._refresh_update_banner_text()
+                self._update_btn.configure(text=t('ui.update_now'))
+            except Exception:
+                pass
         try:
             self.update_idletasks()
         except Exception:
@@ -514,6 +531,17 @@ class App(ctk.CTk):
             0, str(self._cfg['fishing']['stop_after_minutes']))
         self.stop_after_entry.bind('<KeyRelease>', self._on_stop_minutes)
 
+        # Golden-Tuna-Aktion (Fishing): welches der 3 Dialogfelder geklickt wird.
+        # Segmented speichert Strings -> Labels '1'/'2'/'3' bilden 1:1 auf die
+        # int-Werte ab. Logisch bei den Fishing-Einstellungen platziert.
+        self.golden_tuna_seg = SegmentedRow(
+            body, label=t('ui.golden_tuna_action'),
+            values=['1', '2', '3'],
+            default=str(self._cfg['fishing']['golden_tuna_action']),
+            command=self._on_golden_tuna_change,
+            info=t('ui.golden_tuna_help'))
+        self.golden_tuna_seg.grid(row=5, column=0, sticky='ew', pady=(8, 4))
+
         # Board Detection + ``?``-Hilfe (mit Referenzbild) + Mark-Button.
         self.detection_seg = SegmentedRow(
             body, label=t('ui.board_detection'),
@@ -521,26 +549,26 @@ class App(ctk.CTk):
             default=self._cfg['puzzle']['detection_mode'].capitalize(),
             command=self._on_detection_change,
             info=t('ui.detection_help'), info_image=REFERENCE_IMAGE)
-        self.detection_seg.grid(row=5, column=0, sticky='ew', pady=(8, 2))
+        self.detection_seg.grid(row=6, column=0, sticky='ew', pady=(8, 2))
 
         self.mark_btn = ctk.CTkButton(
             body, text=t('ui.mark_board_region'), height=34,
             fg_color=PANEL_LIGHT, hover_color=PANEL_HOVER, text_color=TEAL,
             border_width=1, border_color=TEAL_DARK, corner_radius=8,
             command=self._on_mark)
-        self.mark_btn.grid(row=6, column=0, sticky='ew', pady=(2, 4))
+        self.mark_btn.grid(row=7, column=0, sticky='ew', pady=(2, 4))
 
         self.mark_status = ctk.CTkLabel(
             body, text=self._mark_status_text(), anchor='w',
             text_color=TEXT_MUTED, font=ctk.CTkFont(size=11))
-        self.mark_status.grid(row=7, column=0, sticky='w', pady=(0, 4))
+        self.mark_status.grid(row=8, column=0, sticky='w', pady=(0, 4))
 
         self.color_seg = SegmentedRow(
             body, label=t('ui.color_sampling'), values=['Single', 'Multi'],
             default=self._cfg['puzzle']['color_mode'].capitalize(),
             command=self._on_color_change,
             info=t('ui.color_sampling_help'))
-        self.color_seg.grid(row=8, column=0, sticky='ew', pady=(8, 4))
+        self.color_seg.grid(row=9, column=0, sticky='ew', pady=(8, 4))
 
         # Puzzle-Methode: Labels live uebersetzen + Label<->Wert-Maps frisch bauen.
         solver_pairs = _solver_pairs()
@@ -552,12 +580,12 @@ class App(ctk.CTk):
             default=self._solver_label_for(self._cfg['puzzle']['solver_mode']),
             command=self._on_solver_change,
             info=t('ui.puzzle_method_help'))
-        self.solver_seg.grid(row=9, column=0, sticky='ew', pady=(8, 4))
+        self.solver_seg.grid(row=10, column=0, sticky='ew', pady=(8, 4))
 
         hint = ctk.CTkLabel(
             body, text=t('ui.resolution_hint'), anchor='w', text_color=TEXT_MUTED,
             font=ctk.CTkFont(size=11))
-        hint.grid(row=10, column=0, sticky='w', pady=(8, 0))
+        hint.grid(row=11, column=0, sticky='w', pady=(8, 0))
 
     def _build_console_view(self, parent):
         self.log_panel = LogPanel(parent)
@@ -586,6 +614,14 @@ class App(ctk.CTk):
             minutes = 0
         self._cfg = self.controller.update_config(
             'fishing', 'stop_after_minutes', minutes)
+
+    def _on_golden_tuna_change(self, label):
+        try:
+            action = int(label)
+        except (TypeError, ValueError):
+            action = 3
+        self._cfg = self.controller.update_config(
+            'fishing', 'golden_tuna_action', action)
 
     def _on_detection_change(self, label):
         self._cfg = self.controller.update_config(
@@ -684,7 +720,8 @@ class App(ctk.CTk):
         self.mode_seg.set_enabled(not running)
         for slider in (self.bait_slider, self.throw_slider, self.start_slider):
             slider.set_enabled(not running)
-        for seg in (self.detection_seg, self.color_seg, self.solver_seg):
+        for seg in (self.golden_tuna_seg, self.detection_seg,
+                    self.color_seg, self.solver_seg):
             seg.set_enabled(not running)
         state = 'normal' if not running else 'disabled'
         self.stop_after_chk.configure(state=state)
@@ -785,6 +822,188 @@ class App(ctk.CTk):
         except Exception:
             pass
 
+    # -- Auto-Update (dezentes, schliessbares Banner) --------------------
+
+    def _kick_off_update_check(self):
+        """Startet die Hintergrund-Versionspruefung. Wirft NIE; ohne Netz oder
+        bei Fehlern passiert einfach nichts (kein Banner). ``updater`` wird hier
+        LAZY importiert, damit headless-Tests von :mod:`interface.app` nie das
+        Netz-/Updater-Modul benoetigen."""
+        try:
+            import updater
+            from version import __version__
+            updater.start_background_check(self._on_update_available,
+                                           __version__)
+        except Exception:
+            pass
+
+    def _on_update_available(self, info):
+        """Callback aus dem WORKER-Thread -> SOFORT auf den GUI-Thread bouncen
+        (Tk ist nicht thread-sicher; Widget-Aufbau muss im GUI-Thread laufen)."""
+        try:
+            self.after(0, lambda: self._show_update_banner(info))
+        except Exception:
+            pass
+
+    def _show_update_banner(self, info):
+        """Zeigt das dezente, schliessbare Update-Banner (GUI-Thread). Idempotent:
+        mehrfaches Aufrufen ersetzt nur den Text und macht es wieder sichtbar."""
+        try:
+            self._update_info = info
+            if self._update_banner is None:
+                self._build_update_banner()
+            self._refresh_update_banner_text()
+            self._update_btn.configure(state='normal', text=t('ui.update_now'))
+            self._update_banner.grid()           # sichtbar machen
+            try:
+                log.event('-', t('ui.update_found_log',
+                                 version=getattr(info, 'tag', '')))
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+    def _build_update_banner(self):
+        """Baut das Banner als EIGENE Grid-Zeile (row 2) -- nicht in topbar/
+        content, damit ein Sprachwechsel-Neuaufbau es nicht zerstoert."""
+        bar = ctk.CTkFrame(self, fg_color=PANEL, corner_radius=0)
+        bar.grid(row=2, column=0, sticky='ew')
+        bar.grid_columnconfigure(0, weight=1)
+        self._update_label = ctk.CTkLabel(
+            bar, text='', anchor='w', text_color=TEXT,
+            font=ctk.CTkFont(size=12, weight='bold'))
+        self._update_label.grid(row=0, column=0, sticky='w', padx=(14, 8),
+                                pady=8)
+        self._update_btn = ctk.CTkButton(
+            bar, text=t('ui.update_now'), height=28, width=150,
+            fg_color=TEAL, hover_color=TEAL_HOVER, text_color=INK,
+            corner_radius=8, command=self._on_update_click)
+        self._update_btn.grid(row=0, column=1, sticky='e', padx=4, pady=8)
+        self._update_dismiss = ctk.CTkButton(
+            bar, text='✕', width=28, height=28, fg_color='transparent',
+            hover_color=PANEL_HOVER, text_color=TEXT_MUTED,
+            command=self._on_update_dismiss)
+        self._update_dismiss.grid(row=0, column=2, sticky='e', padx=(0, 10),
+                                  pady=8)
+        self._update_banner = bar
+
+    def _refresh_update_banner_text(self):
+        info = getattr(self, '_update_info', None)
+        version = getattr(info, 'tag', '') if info else ''
+        try:
+            self._update_label.configure(
+                text=t('ui.update_available', version=version))
+        except Exception:
+            pass
+
+    def _on_update_dismiss(self):
+        """Blendet das Banner aus (nur ausblenden, Info bleibt) -- die
+        Abweisung haelt die Sitzung."""
+        try:
+            if self._update_banner is not None:
+                self._update_banner.grid_remove()
+        except Exception:
+            pass
+
+    def _on_update_click(self):
+        """Verzweigt: onefile -> Download + Selbstersetzung; sonst (onedir/
+        Quellcode) -> Releases-Seite oeffnen (onedir-Stub NICHT ueberschreiben)."""
+        import updater
+        info = getattr(self, '_update_info', None)
+        if info is None:
+            return
+        if not updater.can_self_replace():
+            updater.open_releases_page(
+                getattr(info, 'page_url', updater.RELEASES_PAGE))
+            self._set_update_banner_msg(t('ui.update_open_page'))
+            log.event('-', t('ui.update_manual_required'))
+            return
+        if getattr(info, 'download_url', None) is None:
+            # Onefile, aber kein Portable-Asset im Release -> nur Seite oeffnen.
+            updater.open_releases_page(
+                getattr(info, 'page_url', updater.RELEASES_PAGE))
+            self._set_update_banner_msg(t('ui.update_no_asset'))
+            return
+        self._start_update_download(info)
+
+    def _start_update_download(self, info):
+        """Laedt das Portable-Asset in einem EIGENEN Daemon-Thread (die GUI darf
+        waehrend des MB-Downloads nie einfrieren); Fortschritt/Ende werden via
+        ``after`` zurueck auf den GUI-Thread gespiegelt."""
+        import threading
+
+        import updater
+        try:
+            self._update_btn.configure(state='disabled')
+        except Exception:
+            pass
+        self._set_update_banner_msg(t('ui.update_downloading', pct=0))
+
+        def _progress(done, total):
+            if total:
+                text = t('ui.update_downloading',
+                         pct=int(done * 100 / total))
+            else:
+                text = t('ui.update_downloading_unknown')
+            try:
+                self.after(0, lambda: self._set_update_banner_msg(text))
+            except Exception:
+                pass
+
+        def _worker():
+            try:
+                path = updater.download_asset(info, progress=_progress)
+                self.after(0, lambda: self._finish_update(path))
+            except Exception as exc:
+                self.after(0, lambda: self._update_failed(exc))
+
+        threading.Thread(target=_worker, name='update-download',
+                         daemon=True).start()
+
+    def _finish_update(self, downloaded_path):
+        """Schreibt+startet den Selbstersetzungs-.bat und beendet die App hart,
+        damit die .exe entsperrt ist und ueberschrieben + neu gestartet werden
+        kann."""
+        import updater
+        try:
+            self._set_update_banner_msg(t('ui.update_installing'))
+            updater.apply_update_onefile(downloaded_path)
+            log.section(t('ui.update_restarting'))
+            try:
+                cfgmod.save(self.controller.current_config())
+            except Exception:
+                pass
+            try:
+                self.log_panel.detach()
+            except Exception:
+                pass
+            self.after(200, self._hard_exit_for_update)
+        except Exception as exc:
+            self._update_failed(exc)
+
+    def _hard_exit_for_update(self):
+        """Garantiert raus: ``os._exit`` haelt keine Tk-/Thread-/after-Reste,
+        sodass die .exe-Sperre faellt und der .bat sie kopieren kann."""
+        try:
+            self.destroy()
+        except Exception:
+            pass
+        os._exit(0)
+
+    def _update_failed(self, exc):
+        log.error(t('ui.update_failed_log'), exc=exc)
+        self._set_update_banner_msg(t('ui.update_failed'))
+        try:
+            self._update_btn.configure(state='normal')
+        except Exception:
+            pass
+
+    def _set_update_banner_msg(self, text):
+        try:
+            self._update_label.configure(text=text)
+        except Exception:
+            pass
+
     def _apply_config_to_widgets(self):
         fishing = self._cfg['fishing']
         self.bait_slider.set(fishing['bait_time'])
@@ -793,6 +1012,7 @@ class App(ctk.CTk):
         self.stop_after_var.set(fishing['stop_after_enabled'])
         self.stop_after_entry.delete(0, 'end')
         self.stop_after_entry.insert(0, str(fishing['stop_after_minutes']))
+        self.golden_tuna_seg.set(str(fishing['golden_tuna_action']))
 
         puzzle = self._cfg['puzzle']
         self.detection_seg.set(puzzle['detection_mode'].capitalize())

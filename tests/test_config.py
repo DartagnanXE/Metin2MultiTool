@@ -80,6 +80,32 @@ class TestEnumCoercion(unittest.TestCase):
         self.assertEqual(cfg['puzzle']['color_patch'], 5)
 
 
+class TestGoldenTunaAction(unittest.TestCase):
+    def _action(self, value):
+        cfg = config.validate({'fishing': {'golden_tuna_action': value}})
+        return cfg['fishing']['golden_tuna_action']
+
+    def test_default_is_three(self):
+        cfg = config.validate(config.DEFAULTS)
+        self.assertEqual(cfg['fishing']['golden_tuna_action'], 3)
+
+    def test_valid_values_kept(self):
+        self.assertEqual(self._action(1), 1)
+        self.assertEqual(self._action(2), 2)
+        self.assertEqual(self._action(3), 3)
+
+    def test_invalid_enum_falls_back_to_default(self):
+        for bad in (0, 4, 5, -1):
+            self.assertEqual(self._action(bad), 3)
+
+    def test_non_int_falls_back_to_default(self):
+        for bad in ('x', None, [], {}):
+            self.assertEqual(self._action(bad), 3)
+
+    def test_numeric_string_coerced(self):
+        self.assertEqual(self._action('1'), 1)
+
+
 class TestMergePartial(unittest.TestCase):
     def test_partial_keeps_other_defaults(self):
         cfg = config.merge_defaults({'puzzle': {'color_mode': 'multi'}})
@@ -174,12 +200,19 @@ class TestToValues(unittest.TestCase):
     def test_keys_and_types(self):
         v = config.to_values(config.DEFAULTS)
         self.assertEqual(set(v), {'-ENDTIMEP-', '-ENDTIME-',
-                                  '-BAITTIME-', '-THROWTIME-', '-STARTGAME-'})
+                                  '-BAITTIME-', '-THROWTIME-', '-STARTGAME-',
+                                  '-GOLDENTUNA-'})
         self.assertIsInstance(v['-ENDTIMEP-'], bool)
         self.assertIsInstance(v['-ENDTIME-'], str)
         self.assertIsInstance(v['-BAITTIME-'], float)
         self.assertIsInstance(v['-THROWTIME-'], float)
         self.assertIsInstance(v['-STARTGAME-'], float)
+        self.assertIsInstance(v['-GOLDENTUNA-'], int)
+
+    def test_golden_tuna_carried_as_int(self):
+        v = config.to_values({'fishing': {'golden_tuna_action': 1}})
+        self.assertEqual(v['-GOLDENTUNA-'], 1)
+        self.assertIsInstance(v['-GOLDENTUNA-'], int)
 
 
 class TestPersistence(unittest.TestCase):

@@ -22,6 +22,7 @@
 # (oder einfach build.bat doppelklicken; baut zusaetzlich den Installer)
 
 import os
+import sys
 from PyInstaller.utils.hooks import collect_data_files, collect_submodules
 from PyInstaller.utils.win32.versioninfo import (
     VSVersionInfo, FixedFileInfo, StringFileInfo, StringTable,
@@ -30,12 +31,22 @@ from PyInstaller.utils.win32.versioninfo import (
 
 block_cipher = None
 
-# --- Versions-Konstanten (eine Quelle der Wahrheit, auch fuer den Installer) ---
+# --- Versions-Konstanten: EINE Quelle der Wahrheit ist version.py (Repo-Root).
+# SPEC ist der absolute Pfad dieser Spec (von PyInstaller injiziert) -> dessen
+# Verzeichnis ist das Repo-Root, wo version.py liegt; robust unabhaengig vom cwd.
+# (Inno/installer.iss kann kein Python importieren -> dort bleibt die Version
+# eine manuelle Aenderung beim Release.)
+sys.path.insert(0, os.path.dirname(os.path.abspath(SPEC)))
+from version import __version__, version_tuple
+
 APP_NAME = 'Metin2FishBot'
-APP_VERSION = '1.0.2'
+APP_VERSION = __version__                     # aus version.py (__version__)
 APP_PUBLISHER = 'Musketier Software'
 APP_COPYRIGHT = ''   # bewusst ohne Copyright-Vermerk
-_VTUPLE = (1, 0, 2, 0)  # muss 4-stellig sein fuer die PE-Ressource
+# PE-Ressource braucht ein 4-stelliges Int-Tupel -> aus __version__ ableiten,
+# rechts mit Nullen auf 4 Felder auffuellen.
+_vt = version_tuple(__version__)
+_VTUPLE = tuple((list(_vt) + [0, 0, 0, 0])[:4])  # 4-stellig fuer die PE-Ressource
 
 # Optionales App-Icon: liegt 'musketier.ico' neben dieser Spec, wird es ins EXE
 # eingebettet (erscheint dann ueberall als Programm-Icon -- Taskleiste,
@@ -93,6 +104,7 @@ a = Analysis(
         'win32gui', 'win32ui', 'win32con',  # pywin32 (windowcapture)
         'pydirectinput',
         'pytesseract',
+        'version', 'updater',   # lazy importiert zur Laufzeit (app.py)
     ] + ctk_hidden,
     hookspath=[],
     hooksconfig={},
