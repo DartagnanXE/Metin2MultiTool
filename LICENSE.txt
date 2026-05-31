@@ -1,0 +1,33 @@
+Metin2 Fishing Bot — Nutzungshinweis & Haftungsausschluss
+=========================================================
+
+Diese Software automatisiert das Angel-Minispiel (und optional das
+Fisch-Puzzle) in Metin2 zu privaten, nicht-kommerziellen Zwecken.
+
+Bitte vor der Nutzung lesen:
+
+  * Nutzung auf EIGENES RISIKO. Die Software wird ohne jede Gewaehr
+    bereitgestellt ("as is") — keine Garantie fuer Funktion, Eignung oder
+    Schadensfreiheit.
+
+  * Die Automatisierung von Spielen verstoesst in der Regel gegen die
+    Nutzungsbedingungen (ToS/EULA) des Spiels und kann zu einer Sperrung
+    des Spielkontos fuehren. Dieses Risiko traegst du allein.
+
+  * Keine Verbindung zu, Zugehoerigkeit zu oder Unterstuetzung durch den
+    Spielehersteller oder Markeninhaber.
+
+  * Es werden keine Daten an Dritte gesendet; alle Berechnungen laufen lokal.
+
+Herkunft & Rechte:
+
+  * Diese Software ist eine abgeleitete, ueberarbeitete Version des
+    Open-Source-Projekts vncsms/Metin2FishBot (das seinerseits auf
+    learncodebygaming/opencv_tutorials aufbaut). Uebernommene Teile (u. a.
+    Angel-Mechanik und Puzzle-Erkennungs-Basis) verbleiben im Eigentum ihrer
+    urspruenglichen Autoren; das Original enthaelt keine Lizenzdatei. Neue und
+    ueberarbeitete Teile stammen von Musketier Software. Eine dateigenaue
+    Aufstellung steht in der Datei NOTICE.
+
+Mit der Installation bestaetigst du, diesen Hinweis gelesen und verstanden
+zu haben und die Software auf eigene Verantwortung einzusetzen.

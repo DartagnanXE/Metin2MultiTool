@@ -1,0 +1,745 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Fischpuzzlespiel – Simulator</title>
+    <style>
+      :root {
+        --bg: #0c1118;
+        --panel: #131a22;
+        --line: #222c39;
+        --txt: #e6edf3;
+        --muted: #8a98a8;
+        --accent: #2dd4bf;
+        --accent-d: #04211d;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--txt);
+        font-family:
+          system-ui,
+          Segoe UI,
+          sans-serif;
+      }
+      header {
+        padding: 14px 20px;
+        border-bottom: 1px solid var(--line);
+        display: flex;
+        align-items: baseline;
+        gap: 12px;
+      }
+      header h1 {
+        font-size: 17px;
+        margin: 0;
+      }
+      header .sub {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      main {
+        display: flex;
+        gap: 22px;
+        padding: 22px;
+        align-items: flex-start;
+        flex-wrap: wrap;
+      }
+
+      /* Board */
+      .board-wrap {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        padding: 16px;
+      }
+      #board {
+        display: grid;
+        gap: 5px;
+        background: #0a0f15;
+        padding: 8px;
+        border-radius: 8px;
+      }
+      .cell {
+        width: 46px;
+        height: 46px;
+        border-radius: 5px;
+        background: #1b2430;
+        box-shadow:
+          inset 0 0 0 1px #2b3340,
+          inset 2px 2px 5px rgba(0, 0, 0, 0.45);
+        cursor: pointer;
+        transition: background 0.05s;
+      }
+      .cell.fill {
+        box-shadow:
+          inset 0 0 0 2px rgba(255, 255, 255, 0.1),
+          inset 3px 3px 5px rgba(255, 255, 255, 0.3),
+          inset -3px -3px 6px rgba(0, 0, 0, 0.4);
+      }
+      .cell.pv-ok {
+        outline: 2px solid #ffffff;
+        outline-offset: -2px;
+        opacity: 0.85;
+      }
+      .cell.pv-bad {
+        outline: 2px solid #ef4444;
+        outline-offset: -2px;
+        background: #3a1d22;
+      }
+
+      /* Panel */
+      .panel {
+        width: 300px;
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+      }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 12px;
+        padding: 14px;
+      }
+      .label {
+        font-size: 10px;
+        letter-spacing: 1.5px;
+        color: var(--muted);
+        font-weight: 700;
+        text-transform: uppercase;
+      }
+      #current {
+        display: grid;
+        gap: 3px;
+        justify-content: center;
+        margin: 10px auto;
+        min-height: 50px;
+        align-content: center;
+      }
+      #current .pc {
+        width: 24px;
+        height: 24px;
+        border-radius: 4px;
+        box-shadow:
+          inset 0 0 0 1px rgba(255, 255, 255, 0.12),
+          inset 2px 2px 3px rgba(255, 255, 255, 0.3),
+          inset -2px -2px 4px rgba(0, 0, 0, 0.4);
+      }
+      .cur-empty {
+        color: var(--muted);
+        font-size: 12px;
+        text-align: center;
+        padding: 14px 0;
+      }
+
+      button {
+        font: inherit;
+        border: 0;
+        border-radius: 8px;
+        padding: 10px 12px;
+        cursor: pointer;
+        font-weight: 600;
+        font-size: 13px;
+      }
+      .btn-row {
+        display: flex;
+        gap: 8px;
+      }
+      .btn-main {
+        flex: 1;
+        background: var(--accent);
+        color: var(--accent-d);
+      }
+      .btn-deluxe {
+        flex: 1;
+        background: linear-gradient(90deg, #b14cff, #5cc8ff);
+        color: #10031f;
+      }
+      .btn-ghost {
+        background: #1d2733;
+        color: var(--txt);
+        border: 1px solid var(--line);
+      }
+      .btn-burn {
+        background: #3a1d22;
+        color: #ff8f8f;
+        border: 1px solid #5a2730;
+      }
+      button:disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+      }
+
+      #picker {
+        display: none;
+        gap: 6px;
+        flex-wrap: wrap;
+        margin-top: 10px;
+        justify-content: center;
+      }
+      #picker .pick {
+        width: 54px;
+        height: 54px;
+        border-radius: 8px;
+        background: #0a0f15;
+        border: 1px solid var(--line);
+        display: grid;
+        place-items: center;
+        cursor: pointer;
+        padding: 5px;
+      }
+      #picker .pick:hover {
+        border-color: var(--accent);
+      }
+      #picker .pick .mini {
+        display: grid;
+        gap: 2px;
+      }
+      #picker .pick .mini i {
+        width: 11px;
+        height: 11px;
+        border-radius: 2px;
+        display: block;
+      }
+
+      .stat {
+        display: flex;
+        justify-content: space-between;
+        font-size: 13px;
+        padding: 3px 0;
+      }
+      .stat b {
+        font-variant-numeric: tabular-nums;
+      }
+      .big {
+        font-size: 15px;
+      }
+      .toggle {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 13px;
+        color: var(--muted);
+        margin-top: 4px;
+      }
+
+      .legend {
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--muted);
+      }
+      .legend .row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+      .legend i {
+        width: 14px;
+        height: 14px;
+        border-radius: 3px;
+        display: inline-block;
+      }
+
+      #done {
+        position: fixed;
+        inset: 0;
+        background: rgba(6, 10, 16, 0.82);
+        display: none;
+        place-items: center;
+        z-index: 9;
+      }
+      #done .box {
+        background: var(--panel);
+        border: 1px solid var(--accent);
+        border-radius: 16px;
+        padding: 28px 34px;
+        text-align: center;
+        max-width: 380px;
+      }
+      #done h2 {
+        margin: 0 0 8px;
+        color: var(--accent);
+      }
+      #done p {
+        color: var(--txt);
+        font-size: 14px;
+        line-height: 1.6;
+      }
+      kbd {
+        background: #0a0f15;
+        border: 1px solid var(--line);
+        border-radius: 4px;
+        padding: 1px 6px;
+        font-size: 11px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>🎣 Fischpuzzlespiel — Simulator</h1>
+      <span class="sub"
+        >Box-Ökonomie-Sandbox · Ziel: Board mit
+        <b>möglichst wenig Boxen</b> füllen</span
+      >
+    </header>
+
+    <main>
+      <div class="board-wrap">
+        <div id="board"></div>
+        <p style="color: var(--muted); font-size: 11px; margin: 10px 2px 0">
+          Teil schwebt am Cursor — <b>Klick</b> setzt es, <kbd>R</kbd> rotiert,
+          <kbd>B</kbd> burnt, <kbd>N</kbd> neue Box.
+        </p>
+      </div>
+
+      <div class="panel">
+        <div class="card">
+          <div class="label">Aktuelles Teil</div>
+          <div id="current"></div>
+          <div class="btn-row" style="margin-bottom: 8px">
+            <button class="btn-main" id="bNormal" onclick="openNormal()">
+              🎁 Normal-Box
+            </button>
+            <button class="btn-deluxe" id="bDeluxe" onclick="openDeluxe()">
+              💎 Deluxe
+            </button>
+          </div>
+          <div class="btn-row">
+            <button class="btn-ghost" id="bRotate" onclick="rotate()">
+              ↻ Rotieren
+            </button>
+            <button class="btn-burn" id="bBurn" onclick="burn()">
+              🔥 Burn
+            </button>
+          </div>
+          <div id="picker"></div>
+          <label class="toggle"
+            ><input type="checkbox" id="allowRot" /> Rotation erlauben
+            (Test)</label
+          >
+        </div>
+
+        <div class="card">
+          <div class="label">Auto-Play (trainierte Strategie)</div>
+          <button
+            class="btn-main"
+            id="bAuto"
+            style="width: 100%; margin-top: 8px"
+            onclick="toggleAuto()"
+          >
+            ▶ Auto-Play starten
+          </button>
+          <label class="toggle" style="margin-top: 8px"
+            ><input type="checkbox" id="autoDeluxe" checked /> Deluxe verfügbar
+            (Finisher)</label
+          >
+          <div style="font-size: 11px; color: var(--muted); margin-top: 6px">
+            Near-optimal-Heuristik · P(≤10) ~20% mit Deluxe, ~11,5% ohne — schau
+            zu, wie sie spielt.
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="label">Bilanz</div>
+          <div class="stat big">
+            <span>Boxen gesamt</span><b id="sTotal">0</b>
+          </div>
+          <div class="stat">
+            <span>· Normal-Boxen</span><b id="sNormal">0</b>
+          </div>
+          <div class="stat">
+            <span>· Deluxe-Boxen</span><b id="sDeluxe">0</b>
+          </div>
+          <div class="stat">
+            <span>Teile verbaut</span><b id="sPlaced">0</b>
+          </div>
+          <div class="stat">
+            <span>Teile geburnt</span><b id="sBurned">0</b>
+          </div>
+          <div class="stat big">
+            <span>Gefüllt</span><b><span id="sFilled">0</span>/24</b>
+          </div>
+          <button
+            class="btn-ghost"
+            style="width: 100%; margin-top: 10px"
+            onclick="reset()"
+          >
+            ⟳ Neustart
+          </button>
+        </div>
+
+        <div class="card">
+          <div class="label" style="margin-bottom: 8px">Die 6 Teile</div>
+          <div class="legend" id="legend"></div>
+        </div>
+      </div>
+    </main>
+
+    <div id="done">
+      <div class="box">
+        <h2>🏆 Gelöst!</h2>
+        <p id="doneTxt"></p>
+        <button class="btn-main" style="margin-top: 14px" onclick="reset()">
+          Nochmal
+        </button>
+      </div>
+    </div>
+
+    <script src="strategy_chooseAction.js"></script>
+    <script>
+      const ROWS = 4,
+        COLS = 6; // Board-Maße (laut funktionierendem Bot)
+
+      // Teile in der Stück-Nummerierung des Nutzers (Farbe + Form aus den echten Bildern).
+      const PIECES = {
+        1: {
+          name: "L (grün)",
+          color: "#36C93C",
+          cells: [
+            [0, 0],
+            [1, 0],
+            [1, 1],
+          ],
+        }, // 3
+        2: {
+          name: "J (gelb)",
+          color: "#F2CE1B",
+          cells: [
+            [0, 0],
+            [0, 1],
+            [1, 1],
+          ],
+        }, // 3
+        3: {
+          name: "Block (cyan)",
+          color: "#2FC6CE",
+          cells: [
+            [0, 0],
+            [0, 1],
+            [1, 0],
+            [1, 1],
+          ],
+        }, // 4
+        4: {
+          name: "I (blau)",
+          color: "#2E7BEF",
+          cells: [
+            [0, 0],
+            [1, 0],
+            [2, 0],
+          ],
+        }, // 3
+        5: {
+          name: "S (rot)",
+          color: "#E5402F",
+          cells: [
+            [0, 0],
+            [0, 1],
+            [1, 1],
+            [1, 2],
+          ],
+        }, // 4
+        6: { name: "Single (orange)", color: "#F39A21", cells: [[0, 0]] }, // 1
+      };
+
+      // Deluxe = IMMER dasselbe feste 2x3-Teil (6 Zellen, lila). KEINE Auswahl. Knapp -> nur als Finisher.
+      const DELUXE = {
+        name: "Deluxe 2×3",
+        color: "#C24DE0",
+        cells: [
+          [0, 0],
+          [0, 1],
+          [0, 2],
+          [1, 0],
+          [1, 1],
+          [1, 2],
+        ],
+      };
+
+      let board, current, counts;
+
+      function reset() {
+        board = Array.from({ length: ROWS }, () => Array(COLS).fill(null));
+        current = null; // {stueck, cells, color}
+        counts = { normal: 0, deluxe: 0, placed: 0, burned: 0 };
+        document.getElementById("done").style.display = "none";
+        document.getElementById("picker").style.display = "none";
+        buildBoard();
+        renderCurrent();
+        updateStats();
+      }
+
+      function buildBoard() {
+        const b = document.getElementById("board");
+        b.style.gridTemplateColumns = `repeat(${COLS}, 46px)`;
+        b.innerHTML = "";
+        for (let r = 0; r < ROWS; r++)
+          for (let c = 0; c < COLS; c++) {
+            const d = document.createElement("div");
+            d.className = "cell";
+            d.dataset.r = r;
+            d.dataset.c = c;
+            d.onmouseenter = () => preview(r, c);
+            d.onclick = () => place(r, c);
+            b.appendChild(d);
+          }
+        b.onmouseleave = clearPreview;
+        paint();
+      }
+
+      function paint() {
+        document.querySelectorAll("#board .cell").forEach((d) => {
+          const v = board[d.dataset.r][d.dataset.c];
+          d.classList.remove("pv-ok", "pv-bad");
+          if (v) {
+            d.classList.add("fill");
+            d.style.background = v;
+          } else {
+            d.classList.remove("fill");
+            d.style.background = "";
+          }
+        });
+      }
+
+      function cellsAt(r, c) {
+        return current.cells.map(([dr, dc]) => [r + dr, c + dc]);
+      }
+      function fits(r, c) {
+        return (
+          current &&
+          cellsAt(r, c).every(
+            ([rr, cc]) =>
+              rr >= 0 && rr < ROWS && cc >= 0 && cc < COLS && !board[rr][cc],
+          )
+        );
+      }
+      function preview(r, c) {
+        paint();
+        if (!current) return;
+        const ok = fits(r, c);
+        cellsAt(r, c).forEach(([rr, cc]) => {
+          if (rr < 0 || rr >= ROWS || cc < 0 || cc >= COLS) return;
+          const d = document.querySelector(
+            `.cell[data-r="${rr}"][data-c="${cc}"]`,
+          );
+          if (!d) return;
+          if (ok) {
+            d.classList.add("pv-ok");
+            d.style.background = current.color;
+          } else {
+            d.classList.add("pv-bad");
+          }
+        });
+      }
+      function clearPreview() {
+        paint();
+      }
+
+      function place(r, c) {
+        if (!current || !fits(r, c)) return;
+        cellsAt(r, c).forEach(([rr, cc]) => (board[rr][cc] = current.color));
+        counts.placed++;
+        current = null;
+        renderCurrent();
+        paint();
+        updateStats();
+        checkDone();
+      }
+
+      function setCurrent(stueck) {
+        const p = PIECES[stueck];
+        current = {
+          stueck,
+          color: p.color,
+          cells: p.cells.map((x) => x.slice()),
+        };
+        renderCurrent();
+      }
+
+      function openNormal() {
+        if (current) return;
+        counts.normal++;
+        setCurrent(1 + Math.floor(Math.random() * 6));
+        updateStats();
+      }
+      function openDeluxe() {
+        if (current) return;
+        counts.deluxe++; // Deluxe = festes 2x3-Teil, keine Auswahl
+        current = {
+          stueck: "D",
+          color: DELUXE.color,
+          cells: DELUXE.cells.map((x) => x.slice()),
+        };
+        renderCurrent();
+        updateStats();
+      }
+      function burn() {
+        if (!current) return;
+        counts.burned++;
+        current = null;
+        renderCurrent();
+        updateStats();
+      }
+      function rotate() {
+        if (!current || !document.getElementById("allowRot").checked) return;
+        let rot = current.cells.map(([r, c]) => [c, -r]); // 90° CW
+        const mr = Math.min(...rot.map((p) => p[0])),
+          mc = Math.min(...rot.map((p) => p[1]));
+        current.cells = rot.map(([r, c]) => [r - mr, c - mc]);
+        renderCurrent();
+      }
+
+      function renderCurrent() {
+        const box = document.getElementById("current");
+        document.getElementById("bNormal").disabled = !!current;
+        document.getElementById("bDeluxe").disabled = !!current;
+        document.getElementById("bBurn").disabled = !current;
+        document.getElementById("bRotate").disabled = !current;
+        if (!current) {
+          box.innerHTML =
+            '<div class="cur-empty">— leer — &nbsp; öffne eine Box</div>';
+          return;
+        }
+        const maxR = Math.max(...current.cells.map((p) => p[0]));
+        const maxC = Math.max(...current.cells.map((p) => p[1]));
+        box.style.gridTemplateColumns = `repeat(${maxC + 1}, 24px)`;
+        box.innerHTML = "";
+        const set = new Set(current.cells.map(([r, c]) => r + "," + c));
+        for (let r = 0; r <= maxR; r++)
+          for (let c = 0; c <= maxC; c++) {
+            const cell = document.createElement("div");
+            if (set.has(r + "," + c)) {
+              cell.className = "pc";
+              cell.style.background = current.color;
+            } else {
+              cell.style.width = "24px";
+              cell.style.height = "24px";
+            }
+            box.appendChild(cell);
+          }
+      }
+
+      function updateStats() {
+        counts.total = counts.normal + counts.deluxe;
+        const filled = board.flat().filter(Boolean).length;
+        sTotal.textContent = counts.total;
+        sNormal.textContent = counts.normal;
+        sDeluxe.textContent = counts.deluxe;
+        sPlaced.textContent = counts.placed;
+        sBurned.textContent = counts.burned;
+        sFilled.textContent = filled;
+      }
+      function checkDone() {
+        if (board.flat().every(Boolean)) {
+          document.getElementById("doneTxt").innerHTML =
+            `Board komplett mit <b>${counts.normal + counts.deluxe} Boxen</b> ` +
+            `(${counts.normal} normal + ${counts.deluxe} deluxe).<br>` +
+            `Verbaut: ${counts.placed} · Geburnt: ${counts.burned}.`;
+          document.getElementById("done").style.display = "grid";
+        }
+      }
+
+      function buildLegend() {
+        const L = document.getElementById("legend");
+        L.innerHTML = "";
+        for (let s = 1; s <= 6; s++) {
+          const p = PIECES[s];
+          const row = document.createElement("div");
+          row.className = "row";
+          row.innerHTML = `<i style="background:${p.color}"></i> Stück ${s} — ${p.name} (${p.cells.length})`;
+          L.appendChild(row);
+        }
+        const d = document.createElement("div");
+        d.className = "row";
+        d.innerHTML = `<i style="background:${DELUXE.color}"></i> Deluxe — fester 2×3-Block (6) · nur als Finisher`;
+        L.appendChild(d);
+      }
+
+      document.addEventListener("keydown", (e) => {
+        const k = e.key.toLowerCase();
+        if (k === "r") rotate();
+        else if (k === "b") burn();
+        else if (k === "n") openNormal();
+      });
+
+      buildLegend();
+      reset();
+
+      // ===== Auto-Play: spielt die trainierte Strategie sichtbar ab =====
+      const AUTO_MS = 160;
+      let _autoTimer = null;
+      function emptyTopLeft() {
+        let mr = 99,
+          mc = 99;
+        for (let i = 0; i < ROWS; i++)
+          for (let j = 0; j < COLS; j++)
+            if (!board[i][j]) {
+              if (i < mr) mr = i;
+              if (j < mc) mc = j;
+            }
+        return [mr, mc];
+      }
+      function autoTick() {
+        if (_autoTimer === null) return;
+        if (board.flat().every(Boolean)) {
+          stopAuto();
+          return;
+        }
+        window.counts = counts;
+        counts.total = counts.normal + counts.deluxe;
+        const dlx = document.getElementById("autoDeluxe").checked;
+        if (dlx && window.chooseAction) {
+          const probe = window.chooseAction(
+            board,
+            { stueck: "D", cells: DELUXE.cells, color: DELUXE.color },
+            true,
+          );
+          if (probe && probe.type === "useDeluxe") {
+            const [r0, c0] = emptyTopLeft();
+            openDeluxe();
+            place(r0, c0);
+            _autoTimer = setTimeout(autoTick, AUTO_MS);
+            return;
+          }
+        }
+        openNormal();
+        if (!current) {
+          _autoTimer = setTimeout(autoTick, AUTO_MS);
+          return;
+        }
+        counts.total = counts.normal + counts.deluxe;
+        const act = window.chooseAction
+          ? window.chooseAction(board, current, dlx)
+          : { type: "burn" };
+        if (act && act.type === "place") place(act.r, act.c);
+        else burn();
+        _autoTimer = setTimeout(autoTick, AUTO_MS);
+      }
+      function toggleAuto() {
+        _autoTimer === null ? startAuto() : stopAuto();
+      }
+      function startAuto() {
+        if (!window.chooseAction) {
+          alert(
+            "strategy_chooseAction.js nicht geladen — muss neben der HTML liegen.",
+          );
+          return;
+        }
+        if (board.flat().every(Boolean)) reset();
+        _autoTimer = setTimeout(autoTick, AUTO_MS);
+        document.getElementById("bAuto").textContent = "⏸ Auto-Play stoppen";
+      }
+      function stopAuto() {
+        if (_autoTimer !== null) clearTimeout(_autoTimer);
+        _autoTimer = null;
+        const b = document.getElementById("bAuto");
+        if (b) b.textContent = "▶ Auto-Play starten";
+      }
+    </script>
+  </body>
+</html>

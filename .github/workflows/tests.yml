@@ -1,0 +1,27 @@
+name: tests
+
+# Laeuft die Headless-Testsuite (reine Logik, kein GUI/Spiel noetig) bei jedem
+# Push und Pull-Request. Windows-Runner, weil einige Module pywin32/CustomTkinter
+# importieren.
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python 3.13 einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Abhaengigkeiten installieren
+        run: pip install --prefer-binary -r requirements.txt
+
+      - name: Tests
+        run: python -m unittest discover -s tests -v

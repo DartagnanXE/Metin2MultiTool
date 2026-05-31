@@ -1,0 +1,64 @@
+# NOTICE — Herkunft & Danksagung / Attribution & Credits
+
+Der **Metin2 Fishing Bot** in diesem Repository ist eine überarbeitete und
+erweiterte Version eines bestehenden Open-Source-Projekts. Diese Datei hält
+ehrlich und **dateigenau nachvollziehbar** fest, was übernommen wurde und was
+in dieser Version neu bzw. überarbeitet ist.
+
+Leitprinzip dieser Version: **strikt additiv.** Es wurde **nichts** aus dem
+Original entfernt — alle ursprünglichen Fähigkeiten sind weiterhin vorhanden und
+bleiben das **Standard-Verhalten (Default, byte-stabil)**. Sämtliche Neuerungen
+sind im neuen UI **optional zuschaltbar**.
+
+## Herkunft (Upstream)
+
+- **Original-Bot:** https://github.com/vncsms/Metin2FishBot
+  von **vncsms** und Mitwirkenden (u. a. **OmerFI**).
+- **Vision-/Fenster-Capture-Wurzel:** das Original baut seinerseits auf
+  **learncodebygaming / opencv_tutorials**
+  (https://github.com/learncodebygaming/opencv_tutorials) auf — insbesondere die
+  `WindowCapture`-Klasse und die OpenCV-Vorlagensuche.
+
+> **Hinweis zur Lizenz:** Das Upstream-Projekt enthält **keine** Lizenzdatei.
+> Damit verbleiben die Rechte an den übernommenen Teilen bei den ursprünglichen
+> Autoren. Dieses Repository versteht sich als **abgeleitete Arbeit mit klarer
+> Quellenangabe** und maßt sich **kein** Urheberrecht an den Original-Teilen an.
+
+## Vom Original übernommen (vollständig erhalten, weiterhin Default)
+
+| Bereich | Dateien | Status |
+|--------|---------|--------|
+| **Angel-Mechanik** | `fishingbot.py`, `fishfilter.py`, `hsvfilter.py`, `constants.py`, `fishs.txt`, Original-`images/` | **unverändert** übernommen |
+| **Fenster-Capture / Bildvergleich** | `windowcapture.py` | Original-Basis, für variable Fenstergrößen überarbeitet |
+| **Puzzle-Erkennung + Standard-Löser** | `puzzle.py`, `tetris.py`, `piece.py`, `pieces_second.json` | Original-Logik als **Default** erhalten (Greedy + Eröffnungsbuch), behutsam refaktoriert und um optionale Modi ergänzt |
+
+## Neu / überarbeitet in dieser Version (Musketier Software)
+
+Alle folgenden Dateien existierten im Original **nicht** — sie sind Ergänzungen.
+Jede Neuerung ist **optional** und lässt Default unangetastet:
+
+- **Neues Single-Window-UI** — `interface/app.py`, `interface/config.py`,
+  `interface/log_panel.py`, `interface/widgets.py` (CustomTkinter). Ersetzt das
+  alte FreeSimpleGUI-Fenster: ein START/STOP-Knopf, Fishing|Puzzle-Umschalter,
+  integriertes Live-Log, Einstellungen.
+- **Puzzle „KI optimiert" (optional)** — `trained_solver.py`: mathematisch
+  optimale Platzierungs-Strategie (exakte MDP-Wertiteration). Default bleibt der
+  Original-Greedy.
+- **3 Board-Erkennungsmodi + Kalibrierung (optional)** — `detection.py`,
+  `overlay_mark.py`, `geometry.py`, `make_reference.py`, `calibration.py`:
+  Default / Auto / Mark, auflösungsunabhängig. Default = feste Original-Position.
+- **Multi-Pixel-Farberkennung (optional)** — Single (Original) bleibt Default.
+- **Build & Packaging** — `Metin2FishBot.spec` (onedir) + `Metin2FishBot_onefile.spec`
+  (Portable), `installer.iss` (Inno-Setup-Installer + Deinstaller), `build.bat`,
+  `respath.py`, `debuglog.py`, echte PE-Metadaten, App-Icon, flexible `requirements.txt`.
+- **Tests** — `tests/` (Headless-Suite).
+- **Companion-Tools** — `tools/` (HTML-Puzzle-Simulator, Kalibrier-Tool,
+  Strategie-Referenz inkl. Monte-Carlo-Verifikation).
+- **Doku & Assets** — `README.md`, `README_BENUTZUNG.md`, `CHANGELOG.md`,
+  `REDESIGN_SPEC.md`, `assets/icon/` (Icon-Quellen).
+
+---
+
+Kurz: **Fishing-Mechanik und die Grund-Idee der Puzzle-Erkennung stammen vom
+Original** und laufen unverändert als Default. **Der Rest — neues UI und alle
+optionalen Verbesserungen — ist in dieser Version dazugekommen.**

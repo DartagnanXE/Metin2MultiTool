@@ -1,0 +1,28 @@
+# Metin2 Fishing Bot — Build-/Laufzeit-Abhaengigkeiten.
+#
+# FLEXIBLE Mindest-Versionen (>=) statt exakter Pins: laeuft robust auf
+# Python 3.11, 3.12 UND 3.13. pip waehlt automatisch das passende Wheel je
+# Interpreter. (Exakte Pins wie numpy==1.26.4 / pywin32==306 brachen auf
+# Python 3.13: kein 3.13-Wheel -> Source-Build, bzw. Version existiert nicht
+# mehr. Genau das war der rote Fehler im CMD-Fenster.)
+#
+# Fuer einen voll REPRODUZIERBAREN Release nach erfolgreichem Build einmal
+#     py -m pip freeze > installed.txt
+# laufen lassen und daraus exakte Pins uebernehmen.
+
+# --- GUI-Toolkit (ersetzt FreeSimpleGUI) ---
+customtkinter>=5.2.2
+
+# --- Bildverarbeitung / Vision ---
+numpy>=1.26.0           # auf Py3.13 -> numpy 2.x (mit Wheel). opencv>=4.10 ist numpy-2-kompatibel.
+opencv-python>=4.10.0   # cv2: Template-Matching, Screenshots
+
+# --- Eingabe / Fenster (Windows) ---
+PyDirectInput>=1.0.4
+pywin32>=307            # 306 existiert nicht mehr; 307+ deckt Python 3.11-3.13 ab.
+
+# --- OCR (optional, Angeln: Fischnamen) ---
+pytesseract>=0.3.13     # braucht zusaetzlich die Tesseract-Binary (separat installieren)
+
+# --- Build ---
+pyinstaller>=6.11.0     # erzeugt die onedir-EXE (siehe Metin2FishBot.spec)
