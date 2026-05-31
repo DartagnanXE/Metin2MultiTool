@@ -19,10 +19,10 @@ from PyInstaller.utils.win32.versioninfo import (
 block_cipher = None
 
 APP_NAME = 'Metin2FishBot'
-APP_VERSION = '1.0.1'
+APP_VERSION = '1.0.2'
 APP_PUBLISHER = 'Musketier Software'
 APP_COPYRIGHT = ''   # bewusst ohne Copyright-Vermerk
-_VTUPLE = (1, 0, 1, 0)
+_VTUPLE = (1, 0, 2, 0)
 APP_ICON = 'musketier.ico' if os.path.exists('musketier.ico') else None
 
 ctk_datas = collect_data_files('customtkinter')
@@ -102,4 +102,9 @@ exe = EXE(
     entitlements_file=None,
     version=version_info,
     icon=APP_ICON,            # Musketier-Icon
+    uac_admin=True,           # EXE fordert beim Start automatisch Admin an (UAC).
+                              # Noetig, damit Tastatur/Maus das (meist als Admin
+                              # laufende) Spiel erreichen -- sonst blockt Windows
+                              # UIPI die Eingaben (Maus bewegt sich, Klicks/Tasten
+                              # kommen nicht an). Kein "als Admin starten" mehr noetig.
 )

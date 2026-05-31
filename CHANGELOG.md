@@ -3,6 +3,32 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.0.2] — 2026-05-31
+
+**Wichtiges Fix-Update — behebt, dass das Angeln in der EXE nicht funktionierte.**
+
+### Behoben (kritisch)
+
+- **Angeln erkannte das Minispiel nie / spielte es nicht** (in der gepackten
+  EXE): Die Angel-Vorlagenbilder (`fiss.jpg`, `clock.jpg`) wurden mit einem
+  nackten Pfad geladen, der nur im Quellcode-Start (Arbeitsverzeichnis = Projekt)
+  funktioniert — **in der EXE lagen sie im PyInstaller-Bundle und wurden zu
+  `None`**, sodass die Bilderkennung nie etwas fand. Jetzt ueber `resource_path()`
+  geladen (wie das Puzzle es bereits tat). Der Bot warf zuvor brav Koeder/Angel
+  aus, „sah" das Spiel aber nicht.
+- **Eingaben erreichten das Spiel nicht** (Maus bewegte sich, Klicks/Tasten kamen
+  nicht an): Das Spiel laeuft meist als Administrator, die EXE nicht — Windows
+  **UIPI** blockt dann die Eingaben. Die EXE **fordert jetzt automatisch Admin an**
+  (UAC-Manifest, `uac_admin`); kein „Als Administrator ausfuehren" mehr noetig.
+
+### Verbessert (Selbstdiagnose)
+
+- Beim Start wird klar geloggt, falls Vorlagenbilder **nicht geladen** werden
+  konnten (statt stiller Fehlerkennung).
+- Pro Angel-Runde wird die **Minispiel-Trefferguete** geloggt (`>0,90 = erkannt`)
+  — so ist sofort sichtbar, ob die Uhr erkannt wird oder die Schwelle/Position
+  nachjustiert werden muss.
+
 ## [1.0.1] — 2026-05-31
 
 Stabilitaets- und Diagnose-Update ueber 1.0.0 (gleiche Funktionen, nur robuster

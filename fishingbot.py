@@ -7,6 +7,7 @@ from windowcapture import WindowCapture
 from hsvfilter import HsvFilter
 from fishfilter import Filter
 from i18n import t
+from respath import resource_path
 import constants
 
 # Diagnose-Logging (stdlib-only, defensiv) -- macht das Angeln in der Live-
@@ -90,8 +91,13 @@ class FishingBot:
 
     # Load the needle image
 
-    needle_img = cv.imread('images/fiss.jpg', cv.IMREAD_UNCHANGED)
-    needle_img_clock = cv.imread('images/clock.jpg', cv.IMREAD_UNCHANGED)
+    # WICHTIG: resource_path() -- in der gepackten EXE liegen die Bilder im
+    # PyInstaller-Bundle (sys._MEIPASS), NICHT im Arbeitsverzeichnis. Ein nackter
+    # Pfad 'images/..' laedt dort None -> matchTemplate erkennt NIE etwas (das
+    # Minispiel wird nie gespielt). Mit resource_path laden die Vorlagen auch aus
+    # der EXE -- wie es das Puzzle (fish_jigsaw_chest) schon richtig macht.
+    needle_img = cv.imread(resource_path('images/fiss.jpg'), cv.IMREAD_UNCHANGED)
+    needle_img_clock = cv.imread(resource_path('images/clock.jpg'), cv.IMREAD_UNCHANGED)
 
     # Some time cooldowns
 
@@ -131,6 +137,7 @@ class FishingBot:
     # statt stummem Endlos-Loop, wenn nichts Echtes erkannt wird.
     _bite_seen_this_cycle = False
     _casts_without_bite = 0
+    _best_minigame_conf = 0.0   # beste Uhr-Trefferguete dieser Runde (Diagnose)
 
     def detect(self, haystack_img):
 
@@ -194,6 +201,8 @@ class FishingBot:
     def detect_minigame(self, haystack_img):
         # Robust gegen Form-/Typ-Abweichungen des Captures (kein Crash mehr).
         ok, max_val, _ = _match_template_max(haystack_img, self.needle_img_clock)
+        if ok and max_val > self._best_minigame_conf:
+            self._best_minigame_conf = max_val
         return ok and max_val > 0.9
 
     def _on_cycle_end(self):
@@ -204,6 +213,10 @@ class FishingBot:
         Auswuerfe normal -- meldet aber unmissverstaendlich, dass nichts
         Echtes erkannt wird, statt stumm weiterzuloopen.
         """
+        # Beste Uhr-Trefferguete der Runde melden (Diagnose: >0.90 = erkannt;
+        # 0.5-0.9 = Uhr da, aber Schwelle zu hoch; ~0 = Capture/Position falsch).
+        _flog(3, t('fishing.minigame_confidence',
+                   conf='{:.2f}'.format(self._best_minigame_conf)))
         if self._bite_seen_this_cycle:
             self._casts_without_bite = 0
         else:
@@ -213,6 +226,7 @@ class FishingBot:
                 _flog('-', t('fishing.no_bite_streak',
                              n=self._casts_without_bite))
         self._bite_seen_this_cycle = False
+        self._best_minigame_conf = 0.0
 
     def detect_daily_reward(self, image):
 
@@ -248,6 +262,13 @@ class FishingBot:
         _flog(0, t('fishing.started'), bait=self.bait_time,
               throw=self.throw_time, game=self.game_time,
               stop_after_min=(self.end_time // 60 if self.end_time_enable else 0))
+
+        # Defensiv: konnten die Vorlagenbilder geladen werden? In der EXE waren sie
+        # frueher None (nackter Pfad) -> Minispiel nie erkannt. Jetzt klar melden.
+        if self.needle_img is None or self.needle_img_clock is None:
+            _flog(0, t('fishing.needles_missing'),
+                  fiss=(self.needle_img is None),
+                  clock=(self.needle_img_clock is None))
 
         try:
             self.wincap = WindowCapture(constants.GAME_NAME)
