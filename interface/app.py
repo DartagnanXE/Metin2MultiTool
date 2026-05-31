@@ -165,8 +165,17 @@ class BotController:
                     self._fallback_start()
                 self.set_running(True)
         except Exception as exc:
-            log.error(t('ui.start_stop_toggle_failed'), exc=exc)
             self.set_running(False)
+            # Spielfenster-nicht-gefunden ist ein NORMALER Fall (Spiel nicht offen)
+            # -> klar im UI melden, KEIN alarmierender Traceback (windowcapture +
+            # fishingbot haben den Grund schon geloggt). Andere Fehler: voll loggen.
+            msg = str(exc)
+            no_window = ('nicht gefunden' in msg or 'not found' in msg.lower())
+            if no_window:
+                log.event('-', t('ui.start_aborted_no_window'))
+            else:
+                log.error(t('ui.start_stop_toggle_failed'), exc=exc)
+            self.app.notify_start_failed(no_window)
 
     def _fallback_start(self):
         values = self.collect_values()
@@ -239,6 +248,9 @@ class App(ctk.CTk):
         # Lauf-Indikator pulsieren lassen (klares "es laeuft"-Zeichen).
         self._pulse_on = False
         self.after(600, self._pulse)
+        # Scrollbalken nur zeigen, wenn der Inhalt wirklich nicht passt.
+        self.bind('<Configure>', self._autohide_scrollbar, add='+')
+        self.after(150, self._autohide_scrollbar)
 
     # -- Fenster-Icon / Render -------------------------------------------
 
@@ -271,12 +283,38 @@ class App(ctk.CTk):
         except Exception:
             pass
 
+    def _autohide_scrollbar(self, _event=None):
+        """Blendet den Scrollbalken der Bot-Ansicht aus, solange der Inhalt PASST,
+        und nur dann ein, wenn man das Fenster so klein zieht, dass gescrollt
+        werden muss. Greift defensiv auf CTkScrollableFrame-Interna zu -- faellt
+        das aus, bleibt der Balken sichtbar (altes Verhalten, kein Crash)."""
+        try:
+            sf = getattr(self, 'bot_view', None)
+            scrollbar = getattr(sf, '_scrollbar', None)
+            canvas = getattr(sf, '_parent_canvas', None)
+            if scrollbar is None or canvas is None:
+                return
+            bbox = canvas.bbox('all')
+            if not bbox:
+                return
+            content_h = bbox[3] - bbox[1]
+            view_h = canvas.winfo_height()
+            if content_h <= view_h + 2:
+                scrollbar.grid_remove()
+            else:
+                scrollbar.grid()
+        except Exception:
+            pass
+
     # -- Topbar (Titel + Status + Ansicht-Umschalter) --------------------
 
     def _build_topbar(self):
         bar = ctk.CTkFrame(self, fg_color=PANEL, corner_radius=0)
         bar.grid(row=0, column=0, sticky='ew')
-        bar.grid_columnconfigure(1, weight=1)
+        # Inhalt (col 0) bekommt das Gewicht -> die Topbar fuellt die Fensterbreite
+        # und die rechten Buttons (Bot|Console, EN|DE) sind FEST am rechten Rand
+        # gepinnt. Sonst schiebt ein laengerer Status-Text die Buttons hin und her.
+        bar.grid_columnconfigure(0, weight=1)
         self.topbar = bar
 
         inner = ctk.CTkFrame(bar, fg_color='transparent')
@@ -716,6 +754,19 @@ class App(ctk.CTk):
         except Exception:
             pass
 
+    def notify_start_failed(self, no_window):
+        """Meldet prominent (amber, ~5 s), dass der START nicht klappte -- meist
+        weil das Metin2-Fenster nicht gefunden wurde (Spiel zuerst starten)."""
+        try:
+            reason = (t('ui.status_start_no_window') if no_window
+                      else t('ui.status_start_failed'))
+            self.status_label.configure(text='■ ' + reason, text_color='#f59e0b')
+            if self._saved_job is not None:
+                self.after_cancel(self._saved_job)
+            self._saved_job = self.after(5000, self._restore_status)
+        except Exception:
+            pass
+
     def _pulse(self):
         """Blinkt den Status-Punkt, solange der Bot laeuft -- klares Lauf-Zeichen."""
         try:
@@ -725,7 +776,7 @@ class App(ctk.CTk):
                 mode = (t('ui.mode_fishing') if self.controller.mode == 'fishing'
                         else t('ui.mode_puzzle'))
                 self.status_label.configure(
-                    text=t('ui.status_running_pulse', dot=dot, mode=mode),
+                    text=t('ui.status_running', mode=mode).replace('●', dot, 1),
                     text_color=LIVE_GREEN)
         except Exception:
             pass

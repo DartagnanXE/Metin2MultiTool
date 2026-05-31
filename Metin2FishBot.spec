@@ -32,10 +32,10 @@ block_cipher = None
 
 # --- Versions-Konstanten (eine Quelle der Wahrheit, auch fuer den Installer) ---
 APP_NAME = 'Metin2FishBot'
-APP_VERSION = '1.0.0'
+APP_VERSION = '1.0.1'
 APP_PUBLISHER = 'Musketier Software'
 APP_COPYRIGHT = ''   # bewusst ohne Copyright-Vermerk
-_VTUPLE = (1, 0, 0, 0)  # muss 4-stellig sein fuer die PE-Ressource
+_VTUPLE = (1, 0, 1, 0)  # muss 4-stellig sein fuer die PE-Ressource
 
 # Optionales App-Icon: liegt 'musketier.ico' neben dieser Spec, wird es ins EXE
 # eingebettet (erscheint dann ueberall als Programm-Icon -- Taskleiste,

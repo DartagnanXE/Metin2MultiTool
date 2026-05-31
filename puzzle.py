@@ -190,6 +190,44 @@ class PuzzleBot:
                 best_type = piece_type
         return best_type
 
+    def _is_valid_piece_color(self, b, g, r, tol=45):
+        """True, wenn (b,g,r) nahe einer der 6 ECHTEN Steinfarben liegt.
+
+        Mode-unabhaengig (PIECE_REF_BGR + Toleranz) -- fuer die Board-Diagnose:
+        belegte Zelle MIT gueltiger Steinfarbe vs. Garbage (belegt, aber keine
+        echte Steinfarbe = kein echtes Puzzle)."""
+        for ref in self.PIECE_REF_BGR.values():
+            if (abs(b - ref[0]) <= tol and abs(g - ref[1]) <= tol
+                    and abs(r - ref[2]) <= tol):
+                return True
+        return False
+
+    def _diagnose_board(self, crop_image):
+        """Klassifiziert die 24 Zellen fuer eine KLARE Stop-Diagnose.
+
+        Liefert ``{'valid', 'empty', 'garbage'}``:
+          * empty   -- dunkel (alle Kanaele < 50)    -> leere Zelle
+          * valid   -- belegt UND echte Steinfarbe    -> echtes Puzzlestueck
+          * garbage -- belegt ABER keine Steinfarbe   -> kein echtes Board
+        So lassen sich 'leeres Brett' / 'volles Brett' / 'gar kein echtes Puzzle
+        (Garbage, z.B. Fake-Fenster/falsche Position)' sauber trennen. Wirft nie.
+        """
+        valid = empty = garbage = 0
+        try:
+            for i in range(4):
+                for j in range(6):
+                    cx, cy = geometry.cell_point(i, j, self.board_size)
+                    b, g, r = self._sample_cell_bgr(crop_image, cx, cy)
+                    if b < 50 and g < 50 and r < 50:
+                        empty += 1
+                    elif self._is_valid_piece_color(b, g, r):
+                        valid += 1
+                    else:
+                        garbage += 1
+        except Exception:
+            pass
+        return {'valid': valid, 'empty': empty, 'garbage': garbage}
+
     def set_puzzle_state(self, crop_img):
 
         board = [[0,0,0,0,0,0],
@@ -479,8 +517,22 @@ class PuzzleBot:
 
                 if self.detect_end_game(crop_image):
                     if not self.try_to_put_chest():
-                        log.error(t('puzzle.board_full_no_chest'))
-                        log.event(self.state, t('puzzle.stop_board_full_no_chest'))
+                        # SUPER-SMARTE Diagnose ueber die 24 Zell-Reads:
+                        #   alles leer        -> kein aktives Puzzle / leeres Brett
+                        #   ueberwiegend Steine-> echtes volles Brett ohne Truhe
+                        #   Mischung/Garbage  -> gar kein gueltiges Board erkannt
+                        d = self._diagnose_board(crop_image)
+                        v, e, g = d['valid'], d['empty'], d['garbage']
+                        if v == 0 and g == 0:
+                            log.error(t('puzzle.no_active_puzzle',
+                                        filled=v + g, empty=e))
+                        elif v >= 18:
+                            log.error(t('puzzle.board_full_no_chest'))
+                        else:
+                            log.error(t('puzzle.board_not_recognized',
+                                        valid=v, garbage=g, empty=e))
+                        log.event(self.state, t('puzzle.stop_no_progress',
+                                  valid=v, garbage=g, empty=e))
                         self.botting = False
                         return None
 

@@ -3,6 +3,33 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.0.1] — 2026-05-31
+
+Stabilitaets- und Diagnose-Update ueber 1.0.0 (gleiche Funktionen, nur robuster
+und mit klareren Logs). Empfohlenes Update fuer alle.
+
+### Behoben
+
+- **Angeln stuerzte auf manchen Systemen sofort ab** (`cv2.matchTemplate`-
+  Assertion bei abweichender Capture-Form/DPI-Skalierung). Die Vorlagensuche ist
+  jetzt robust (kontiguierlich, Kanal-/Groessen-Abgleich, jeder cv2-Fehler
+  abgefangen) -> **kein Absturz mehr**; im Zweifel „nicht erkannt" statt Crash.
+- **UI verschob die `Bot | Console`- und `EN | DE`-Schalter**, wenn der Status-
+  Text laenger wurde -> die Buttons sind jetzt fest am rechten Rand verankert.
+- Puzzle-Stopmeldung zeigte unausgefuellte Platzhalter (`{valid}` …) -> echte
+  Zahlen.
+
+### Verbessert (Selbstdiagnose)
+
+- **Angeln meldet sich selbst:** unterscheidet „echte Runde beendet" von
+  **„kein Biss — kein Minispiel erschienen"** und warnt nach mehreren Leer-
+  Auswuerfen klar mit Checkliste (Angel ausgeworfen? Koeder auf Taste 2? Spiel
+  in 800x600?). Stoppt nicht — meldet aber, statt stumm weiterzuloopen.
+- **Puzzle-Erkennung praeziser:** klassifiziert die 24 Zellen in _echte
+  Steinfarbe / leer / Garbage_ und unterscheidet sauber **leeres Brett /
+  volles Brett / „Board nicht erkannt"** (z.B. falsche Fensterposition / kein
+  echtes Puzzle) — jeder Stopp mit glasklarer Begruendung.
+
 ## [1.0.0] — 2026-05-31
 
 Erste oeffentliche Version dieser ueberarbeiteten Fassung. Sie basiert als Fork

@@ -27,6 +27,38 @@ def _flog(state, message, **fields):
         pass
 
 
+def _match_template_max(haystack, needle):
+    """Robustes matchTemplate -> (ok, max_val, max_loc).
+
+    Bringt das Suchbild defensiv auf den Vorlagen-Typ (kontiguierlich, gleiche
+    Kanalzahl, Vorlage <= Bild) und faengt JEDEN cv2-Fehler ab -> ok=False statt
+    Absturz. So kann ein abweichendes Capture (Form/Typ/DPI-Skalierung) Fishing
+    nicht mehr crashen; es wird sauber als 'nicht erkannt' behandelt + geloggt.
+    """
+    try:
+        if haystack is None or needle is None:
+            return (False, 0.0, (0, 0))
+        img = np.ascontiguousarray(haystack)
+        if img.ndim == 2:
+            img = cv.cvtColor(img, cv.COLOR_GRAY2BGR)
+        elif img.ndim == 3 and img.shape[2] == 4:
+            img = cv.cvtColor(img, cv.COLOR_BGRA2BGR)
+        if (img.ndim != 3 or needle.ndim != 3
+                or img.shape[2] != needle.shape[2]
+                or needle.shape[0] > img.shape[0]
+                or needle.shape[1] > img.shape[1]):
+            _flog('-', t('fishing.match_skipped'),
+                  img=str(getattr(img, 'shape', None)),
+                  tmpl=str(getattr(needle, 'shape', None)))
+            return (False, 0.0, (0, 0))
+        result = cv.matchTemplate(img, needle, cv.TM_CCOEFF_NORMED)
+        _minv, maxv, _minl, maxl = cv.minMaxLoc(result)
+        return (True, float(maxv), maxl)
+    except Exception as exc:
+        _flog('-', t('fishing.match_error'), detail=str(exc)[:90])
+        return (False, 0.0, (0, 0))
+
+
 class FishingBot:
 
     #properties
@@ -94,12 +126,19 @@ class FishingBot:
 
     state = 0
 
+    # Selbstdiagnose: erschien in der aktuellen Angel-Runde ein echtes Minispiel
+    # (Uhr)? + Zaehler aufeinanderfolgender Runden OHNE Biss -> klare Warnung
+    # statt stummem Endlos-Loop, wenn nichts Echtes erkannt wird.
+    _bite_seen_this_cycle = False
+    _casts_without_bite = 0
+
     def detect(self, haystack_img):
 
-        # match the needle_image with the hasytack image
-        result = cv.matchTemplate(haystack_img, self.needle_img, cv.TM_CCOEFF_NORMED)
-
-        min_val, max_val, min_loc, max_loc = cv.minMaxLoc(result)
+        # match the needle_image with the hasytack image (robust: ein abweichendes
+        # Capture darf KEINEN cv2-Crash ausloesen -> dann "kein Fisch" (None)).
+        ok, max_val, max_loc = _match_template_max(haystack_img, self.needle_img)
+        if not ok:
+            return None
 
         # needle_image's dimensions
         needle_w = self.needle_img.shape[1]
@@ -153,13 +192,27 @@ class FishingBot:
         return None
 
     def detect_minigame(self, haystack_img):
-        result = cv.matchTemplate(haystack_img, self.needle_img_clock, cv.TM_CCOEFF_NORMED)
+        # Robust gegen Form-/Typ-Abweichungen des Captures (kein Crash mehr).
+        ok, max_val, _ = _match_template_max(haystack_img, self.needle_img_clock)
+        return ok and max_val > 0.9
 
-        min_val, max_val, min_loc, max_loc = cv.minMaxLoc(result)
-        if max_val > 0.9:
-            return True
-
-        return False
+    def _on_cycle_end(self):
+        """Nach JEDER Angel-Runde aufrufen: zaehlt aufeinanderfolgende Runden
+        OHNE erkanntes Minispiel/Biss und WARNT klar, sobald der Bot nur noch
+        ins Leere wirft (kein echtes Spiel / falsche Position / Angel nicht
+        ausgeworfen). Stoppt NICHT -- auf echtem Spiel sind einzelne Leer-
+        Auswuerfe normal -- meldet aber unmissverstaendlich, dass nichts
+        Echtes erkannt wird, statt stumm weiterzuloopen.
+        """
+        if self._bite_seen_this_cycle:
+            self._casts_without_bite = 0
+        else:
+            self._casts_without_bite += 1
+            if (self._casts_without_bite == 3
+                    or self._casts_without_bite % 10 == 0):
+                _flog('-', t('fishing.no_bite_streak',
+                             n=self._casts_without_bite))
+        self._bite_seen_this_cycle = False
 
     def detect_daily_reward(self, image):
 
@@ -205,6 +258,9 @@ class FishingBot:
         self.state = 0
         self.initial_time = time()
         self.timer_action = time()
+        # Selbstdiagnose pro Lauf zuruecksetzen.
+        self._bite_seen_this_cycle = False
+        self._casts_without_bite = 0
 
         mouse_x = int(self.FISH_WINDOW_POSITION[0] + self.wincap.offset_x + 200)
         mouse_y = int(self.FISH_WINDOW_POSITION[1] + self.wincap.offset_y + 200)
@@ -281,14 +337,25 @@ class FishingBot:
 
         if self.state == 3:
 
+            # Merken, ob in DIESER Angel-Runde ueberhaupt ein echtes Minispiel
+            # (Uhr) erschien -- trennt "echte Runde beendet" von "kein Biss".
+            if detected_end:
+                self._bite_seen_this_cycle = True
+
             if time() - self.timer_action > 15:
                 self.timer_action = time()
                 self.state = 0
                 _flog(0, t('fishing.minigame_timeout'))
+                self._on_cycle_end()
             if time() - self.timer_action > 5 and detected_end is False:
                 self.timer_action = time()
                 self.state = 0
-                _flog(0, t('fishing.minigame_finished'))
+                # SMART: echtes Rundenende vs. "nie ein Minispiel gesehen".
+                if self._bite_seen_this_cycle:
+                    _flog(0, t('fishing.minigame_finished'))
+                else:
+                    _flog(0, t('fishing.no_bite'))
+                self._on_cycle_end()
 
             if self.detect_text_enable and time() - self.timer_action > 1.5:
                 if self.detect_text:

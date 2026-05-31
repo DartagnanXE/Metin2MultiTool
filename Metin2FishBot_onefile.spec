@@ -19,10 +19,10 @@ from PyInstaller.utils.win32.versioninfo import (
 block_cipher = None
 
 APP_NAME = 'Metin2FishBot'
-APP_VERSION = '1.0.0'
+APP_VERSION = '1.0.1'
 APP_PUBLISHER = 'Musketier Software'
 APP_COPYRIGHT = ''   # bewusst ohne Copyright-Vermerk
-_VTUPLE = (1, 0, 0, 0)
+_VTUPLE = (1, 0, 1, 0)
 APP_ICON = 'musketier.ico' if os.path.exists('musketier.ico') else None
 
 ctk_datas = collect_data_files('customtkinter')

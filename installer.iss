@@ -15,7 +15,7 @@
 ; ===================================================================
 
 #define AppName "Metin2 Fishing Bot"
-#define AppVersion "1.0.0"
+#define AppVersion "1.0.1"
 #define AppPublisher "Musketier Software"
 #define AppExeName "Metin2FishBot.exe"
 ; Quelle: der gesamte onedir-Ordner aus dem PyInstaller-Build.
