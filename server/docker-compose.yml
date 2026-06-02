@@ -31,13 +31,20 @@ services:
     user: "app"
     read_only: true
     tmpfs:
-      - /tmp
+      - /tmp:rw,noexec,nosuid,size=32m
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges:true
     pids_limit: 256
     mem_limit: 256m
+    cpus: 0.5
+    # Cap container log disk usage (json-file rotation).
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
     networks:
       - telemetry_net
 

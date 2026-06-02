@@ -67,10 +67,11 @@ INSTALL_ID_MAXLEN = 64
 STATS_MAX_COUNT = 100_000_000        # 100 Mio Faenge/Puzzles
 STATS_MAX_RUNTIME_S = 100_000_000.0  # ~3 Jahre Laufzeit in Sekunden
 
-# Platzhalter-URLs (KEIN Live-Server in Run 1). Der Nutzer/Build traegt die echte
-# Subdomain ein; der anonyme Zaehler sendet erst, wenn eine echte URL gesetzt ist.
-DEFAULT_SUBMIT_URL = 'https://ranking.example.tld/submit'
-DEFAULT_LEADERBOARD_URL = 'https://ranking.example.tld/leaderboard'
+# Live-Telemetrie-Endpoint (eigene Subdomain auf dem netcup-Server, isolierter
+# Container hinter kilab-nginx + Let's-Encrypt). Der anonyme Zaehler sendet erst,
+# wenn eine echte URL gesetzt ist (hier immer der Fall).
+DEFAULT_SUBMIT_URL = 'https://telemetry.musketier.net/submit'
+DEFAULT_LEADERBOARD_URL = 'https://telemetry.musketier.net/leaderboard'
 
 DEFAULT_CONFIG_PATH = 'config.json'
 
