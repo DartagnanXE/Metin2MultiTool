@@ -19,16 +19,21 @@ selects the slot to drag INTO and is the key fishing presses to bait the rod.
 from inventory.constants import DEFAULT_CALIBRATION
 from inventory.grid import lattice_from_calibration
 
+try:  # pragma: no cover - numpy present in production
+    import numpy as _np
+except Exception:  # pragma: no cover
+    _np = None
+
 # The only 8 valid quick-slot keys (index 0 -> slot 1, ... index 7 -> slot 8).
 QUICKSLOT_KEYS = ('1', '2', '3', '4', 'f1', 'f2', 'f3', 'f4')
 
 # Drop-pixel CENTRE of each quick-slot in the 800x600 client (before the window
-# offset). ESTIMATED from the bottom action bar; the ONE value we fine-tune on
-# the live window (you click a slot, I read the pixel). Slots step ~40px; the
-# 5-8 group sits right of the divider at x~445.
+# offset). MEASURED from a real bottom action bar (slot 1 = the red potion "194"
+# anchors the grid): slots 1-4 left of the divider (~x448), then a short gap,
+# then 5-8. Pitch ~38px, row centre y~580.
 QUICKSLOT_XY = {
-    1: (370, 582), 2: (410, 582), 3: (450, 582), 4: (490, 582),
-    5: (530, 582), 6: (570, 582), 7: (610, 582), 8: (650, 582),
+    1: (324, 580), 2: (362, 580), 3: (400, 580), 4: (438, 580),
+    5: (476, 580), 6: (514, 580), 7: (552, 580), 8: (590, 580),
 }
 
 # Item names eligible for each refill (recognised by the inventory engine).
@@ -136,3 +141,71 @@ def drag(api, x1, y1, x2, y2, steps=DRAG_STEPS, settle=DRAG_SETTLE,
             api.mouseUp()
         except Exception:
             pass
+
+
+def quickslot_is_empty(screenshot_bgr, slot_1to8, radius=8, thr=42):
+    """True iff quick-slot ``slot_1to8`` looks EMPTY (no bait icon).
+
+    Samples a small patch at the slot's client pixel on the captured window
+    (the screenshot IS the 800x600 window, so client == screenshot coords) and
+    calls it empty when that patch is dark -- an occupied slot shows a bright
+    item icon. Returns ``False`` (assume occupied -> do nothing) when numpy/the
+    image is unavailable, so a vision hiccup never triggers a needless refill.
+    """
+    if _np is None or screenshot_bgr is None:
+        return False
+    try:
+        cx, cy = QUICKSLOT_XY[int(slot_1to8)]
+        arr = _np.asarray(screenshot_bgr)
+        h, w = arr.shape[0], arr.shape[1]
+        y0, y1 = max(0, cy - radius), min(h, cy + radius)
+        x0, x1 = max(0, cx - radius), min(w, cx + radius)
+        if y1 <= y0 or x1 <= x0:
+            return False
+        return float(arr[y0:y1, x0:x1, :3].mean()) < thr
+    except Exception:
+        return False
+
+
+def tab_click(inp, calib, offset_x, offset_y, page):
+    """Click an inventory page tab (I..IV) via the injected input api."""
+    pt = ((calib or {}).get('tabs', {}) or {}).get(page)
+    if pt:
+        inp.click(x=int(offset_x + pt[0]), y=int(offset_y + pt[1]),
+                  button='left')
+
+
+def refill_from_inventory(item_names, target_xy, *, inp, wincap, db,
+                          calib=DEFAULT_CALIBRATION, sleep=None):
+    """Scan the (already open) inventory + drag the first matching item to
+    ``target_xy``. Returns ``'dragged'`` / ``'empty'`` / ``'error'``.
+
+    Reuses the headless scanner (tab-click page switch built from the
+    calibration + window offset) + the tested find/coordinate/drag helpers.
+    Strictly defensive -- a vision/input failure returns ``'error'`` and never
+    raises into the bot loop.
+    """
+    if sleep is None:
+        import time
+        sleep = time.sleep
+    try:
+        from inventory.scanner import scan_inventory
+        ox = int(getattr(wincap, 'offset_x', 0) or 0)
+        oy = int(getattr(wincap, 'offset_y', 0) or 0)
+        inv = scan_inventory(
+            capture_fn=wincap.get_screenshot,
+            switch_page_fn=lambda p: (tab_click(inp, calib, ox, oy, p),
+                                      sleep(0.2)),
+            db=db, calib=calib)
+        loc = find_first(inv, item_names)
+        if loc is None:
+            return 'empty'
+        page, row, col = loc
+        tab_click(inp, calib, ox, oy, page)
+        sleep(0.25)
+        fx, fy = inventory_slot_screen(row, col, ox, oy, calib)
+        drag(inp, fx, fy, int(target_xy[0]), int(target_xy[1]), sleep=sleep)
+        sleep(0.15)
+        return 'dragged'
+    except Exception:
+        return 'error'
