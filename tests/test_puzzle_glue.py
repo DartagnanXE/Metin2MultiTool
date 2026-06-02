@@ -168,6 +168,34 @@ class TestDiagnoseBoard(unittest.TestCase):
         self.assertEqual(set(d), {'valid', 'empty', 'garbage'})
 
 
+class TestDetectEndGame(unittest.TestCase):
+    """End game must mean the board is FULL (no empty cells) -- only then does
+    the reward chest appear. Regression guard for the "stops after every piece"
+    bug: the old single-pixel get-piece check read dark right after a placement
+    and falsely reported 'end game', running the chest/stop path on a partial
+    board.
+    """
+
+    def test_empty_board_is_not_end_game(self):
+        bot = _bare_bot('single')
+        black = np.zeros((170, 260, 3), dtype=np.uint8)      # 24 empty cells
+        self.assertFalse(bot.detect_end_game(black))
+
+    def test_partial_board_is_not_end_game(self):
+        bot = _bare_bot('single')
+        img = np.zeros((170, 260, 3), dtype=np.uint8)
+        img[:, :130] = (37, 65, 250)        # left cells a piece colour, right empty
+        self.assertGreater(bot._diagnose_board(img)['empty'], 0)
+        self.assertFalse(bot.detect_end_game(img))
+
+    def test_full_board_is_end_game(self):
+        bot = _bare_bot('single')
+        full = np.zeros((170, 260, 3), dtype=np.uint8)
+        full[:] = (37, 65, 250)             # every cell a valid piece colour
+        self.assertEqual(bot._diagnose_board(full)['empty'], 0)
+        self.assertTrue(bot.detect_end_game(full))
+
+
 class TestSetToBeginReset(unittest.TestCase):
     """Per-run reset of offset / key_points / state (IO + capture patched out)."""
 

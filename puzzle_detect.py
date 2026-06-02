@@ -140,11 +140,18 @@ class PuzzleDetectMixin:
         return {'valid': valid, 'empty': empty, 'garbage': garbage}
 
     def detect_end_game(self, crop_img):
+        """End game = the board is FULL (no empty cells). Only when the board
+        fills up does the reward chest appear, so only then should the
+        chest-collect / stop path run; a partially filled board is normal
+        mid-game and must keep playing.
 
-        x, y = geometry.get_piece_point(self.board_size, self.key_points.get('getpiece'))
-
-
-        if crop_img[y, x, 0] > 100 and crop_img[y, x, 1] > 150 and crop_img[y, x, 2] > 150:
-            return False
-        else:
-            return True
+        The previous version sampled a SINGLE pixel at the get-piece preview
+        spot and treated a dark pixel as 'end game'. Right after a piece is
+        placed that spot reads dark (the next preview has not rendered yet), so
+        it falsely reported end game and ran the chest/stop path on a partial
+        board -- stopping the bot after every placed piece (timing-dependent,
+        hence 'sometimes after two'). Counting the board's empty cells is robust
+        to that timing AND independent of the detection mode (it never touches
+        the preview pixel).
+        """
+        return self._diagnose_board(crop_img)['empty'] == 0
