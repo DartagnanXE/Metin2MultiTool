@@ -221,6 +221,13 @@ def validate(cfg):
             else DEFAULTS['fishing']['golden_tuna_action'])
         fishing['bait_key'] = _validate_key(
             fishing.get('bait_key'), DEFAULTS['fishing']['bait_key'])
+        # Bait lives in a QUICK-SLOT, so its key is FIXED to one of the only 8
+        # quick-slot keys -- 1-4 (slots 1-4) / F1-F4 (slots 5-8); anything else
+        # falls back to the default. This is what the settings dropdown offers
+        # and the slot auto-refill drags the bait into. (cast/mount stay free.)
+        if str(fishing['bait_key']).strip().lower() not in (
+                '1', '2', '3', '4', 'f1', 'f2', 'f3', 'f4'):
+            fishing['bait_key'] = DEFAULTS['fishing']['bait_key']
         fishing['cast_key'] = _validate_key(
             fishing.get('cast_key'), DEFAULTS['fishing']['cast_key'])
         # Mount: bool + Hotkey ueber denselben Validator wie Bait/Cast

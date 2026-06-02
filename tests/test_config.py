@@ -80,6 +80,26 @@ class TestEnumCoercion(unittest.TestCase):
         self.assertEqual(cfg['puzzle']['color_patch'], 5)
 
 
+class TestBaitKeyQuickslotConstraint(unittest.TestCase):
+    """bait_key is FIXED to the 8 quick-slot keys (1-4 / F1-F4); the bait lives
+    in a quick-slot, so anything else falls back to the default."""
+
+    def test_valid_quickslot_keys_kept(self):
+        for k in ('1', '2', '3', '4', 'f1', 'f2', 'f3', 'f4'):
+            cfg = config.validate({'fishing': {'bait_key': k}})
+            self.assertEqual(cfg['fishing']['bait_key'].lower(), k)
+
+    def test_non_quickslot_keys_reset_to_default(self):
+        default = config.DEFAULTS['fishing']['bait_key']
+        for bad in ('5', '9', 'q', 'f5', 'space'):
+            cfg = config.validate({'fishing': {'bait_key': bad}})
+            self.assertEqual(cfg['fishing']['bait_key'], default)
+
+    def test_default_is_itself_a_quickslot_key(self):
+        self.assertIn(config.DEFAULTS['fishing']['bait_key'].lower(),
+                      ('1', '2', '3', '4', 'f1', 'f2', 'f3', 'f4'))
+
+
 class TestGoldenTunaAction(unittest.TestCase):
     def _action(self, value):
         cfg = config.validate({'fishing': {'golden_tuna_action': value}})
@@ -208,9 +228,14 @@ class TestNewSettings(unittest.TestCase):
         self.assertEqual(cfg['fishing']['cast_key'], '1')
 
     def test_hotkey_token_and_char_kept_lowercased(self):
-        cfg = config.validate({'fishing': {'bait_key': 'F5', 'cast_key': 'Q'}})
-        self.assertEqual(cfg['fishing']['bait_key'], 'f5')
+        # A token f-key and a char are kept, lowercased. bait_key 'F3' is a valid
+        # quick-slot key (constrained); cast_key (a char) and mount_key (a free
+        # token) cover the char + free-token lowercasing paths.
+        cfg = config.validate({'fishing': {'bait_key': 'F3', 'cast_key': 'Q',
+                                           'mount_key': 'F6'}})
+        self.assertEqual(cfg['fishing']['bait_key'], 'f3')
         self.assertEqual(cfg['fishing']['cast_key'], 'q')
+        self.assertEqual(cfg['fishing']['mount_key'], 'f6')
 
     def test_window_defaults_present_and_false(self):
         w = config.validate(config.DEFAULTS)['window']
