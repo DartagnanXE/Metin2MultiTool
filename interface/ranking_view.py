@@ -126,7 +126,14 @@ def _submit_current_stats(app):
     (install_id + submit_url present, not blocked) -- a chosen name is NOT
     required (the counter is anonymous). Swallows every error -- the subsequent
     fetch must proceed regardless. Returns nothing.
+
+    Tests / dev tooling must NEVER submit to the live server: the
+    ``M2FB_NO_TELEMETRY`` env var (set by tests/conftest.py + the GUI-smoke
+    harness) short-circuits this. Production never sets it.
     """
+    import os
+    if os.environ.get('M2FB_NO_TELEMETRY'):
+        return
     try:
         state_fn = getattr(app, '_telemetry_state', None)
         if not callable(state_fn):

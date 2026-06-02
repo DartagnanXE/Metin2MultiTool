@@ -116,7 +116,16 @@ class LifecycleMixin:
     def _start_telemetry(self):
         """Startet (oder ersetzt) den Telemetrie-Daemon-Sender. Gated durch den
         Snapshot -- laeuft leer, solange keine install_id/URL existiert oder die
-        Installation blockiert ist. Streng defensiv; wirft nie."""
+        Installation blockiert ist. Streng defensiv; wirft nie.
+
+        Tests / Dev-Tools duerfen NIE an den Live-Server senden: die Opt-out-Env
+        ``M2FB_NO_TELEMETRY`` (gesetzt von tests/conftest.py + dem GUI-Smoke-
+        Harness) verhindert, dass der Sender ueberhaupt startet. Produktion setzt
+        sie nie."""
+        import os
+        if os.environ.get('M2FB_NO_TELEMETRY'):
+            self._telemetry_thread = None
+            return
         try:
             interval = int(self._cfg.get('telemetry', {}).get('interval_s', 120))
         except Exception:

@@ -176,6 +176,9 @@ class SettingsViewMixin:
         self._event_warn_entry.insert(
             0, str(self._cfg['events']['warn_minutes']))
         self._event_warn_entry.bind('<KeyRelease>', self._on_event_warn_change)
+        self._event_warn_entry.bind('<FocusOut>', self._on_event_warn_change,
+                                    add='+')
+        self._event_warn_entry.bind('<Return>', self._blur_on_return, add='+')
 
     def _weekday_pairs(self):
         """(value 0..6, localized label) for the weekday dropdowns (live)."""
@@ -211,6 +214,10 @@ class SettingsViewMixin:
         start_entry.insert(0, window['start'])
         start_entry.bind('<KeyRelease>',
                          lambda e, idx=index: self._on_event_time_change(idx))
+        start_entry.bind('<FocusOut>',
+                         lambda e, idx=index: self._on_event_time_change(idx),
+                         add='+')
+        start_entry.bind('<Return>', self._blur_on_return, add='+')
 
         ctk.CTkLabel(frame, text='-', text_color=TEXT_FAINT,
                      font=ctk.CTkFont(size=12)).grid(
@@ -221,6 +228,10 @@ class SettingsViewMixin:
         end_entry.insert(0, window['end'])
         end_entry.bind('<KeyRelease>',
                        lambda e, idx=index: self._on_event_time_change(idx))
+        end_entry.bind('<FocusOut>',
+                       lambda e, idx=index: self._on_event_time_change(idx),
+                       add='+')
+        end_entry.bind('<Return>', self._blur_on_return, add='+')
 
         self._event_window_widgets.append(
             {'day': day_menu, 'l2v': l2v, 'v2l': v2l,
@@ -259,3 +270,12 @@ class SettingsViewMixin:
         self._username_entry.grid(row=0, column=1, sticky='e')
         self._username_entry.insert(0, self._cfg.get('username', ''))
         self._username_entry.bind('<KeyRelease>', self._on_username_change)
+        # Commit on leaving the field / pressing Enter: save -> push to the server
+        # -> reload the ranking (Enter also drops focus). KeyRelease above keeps
+        # the config live while typing; the network side fires once here, and only
+        # when the name actually changed (see _on_username_commit).
+        self._last_pushed_username = self._cfg.get('username', '')
+        self._username_entry.bind('<FocusOut>', self._on_username_commit, add='+')
+        self._username_entry.bind(
+            '<Return>',
+            lambda e: self._on_username_commit(e, release_focus=True), add='+')

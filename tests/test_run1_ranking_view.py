@@ -189,6 +189,12 @@ class TestOutOfBandSubmit(unittest.TestCase):
     of the patched ``post_submit`` + ``fetch_leaderboard``."""
 
     def setUp(self):
+        # This class MOCKS the network (post_submit/fetch), so it must exercise
+        # the REAL out-of-band submit path -> drop the conftest M2FB_NO_TELEMETRY
+        # guard for the duration of these tests (restored in tearDown so other
+        # App-building tests stay protected from hitting the live server).
+        import os
+        self._saved_no_tel = os.environ.pop('M2FB_NO_TELEMETRY', None)
         self.calls = []
         self._p = [
             mock.patch.object(rv, '_set_notice', lambda app, text: None),
@@ -202,6 +208,9 @@ class TestOutOfBandSubmit(unittest.TestCase):
     def tearDown(self):
         for p in self._p:
             p.stop()
+        import os
+        if self._saved_no_tel is not None:
+            os.environ['M2FB_NO_TELEMETRY'] = self._saved_no_tel
 
     def test_submit_runs_before_fetch_on_worker(self):
         from telemetry import client as tclient

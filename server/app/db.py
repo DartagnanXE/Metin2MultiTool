@@ -27,7 +27,7 @@ import sqlite3
 import time
 import threading
 
-from .anon_name import anon_name
+from .anon_name import anon_name, disambiguate
 
 DEFAULT_DB_PATH = os.environ.get('DB_PATH', '/data/telemetry.db')
 
@@ -166,6 +166,7 @@ def _aggregate(period='all'):
                    MAX(puzzles_solved)   AS puzzles_solved,
                    MAX(fishing_runtime_s) AS fishing_runtime_s,
                    MAX(puzzler_runtime_s) AS puzzler_runtime_s,
+                   MIN(ts)                AS first_ts,
                    (SELECT s2.username FROM submissions s2
                      WHERE s2.hwid = submissions.hwid AND s2.ts >= ?
                      ORDER BY s2.ts DESC, s2.id DESC LIMIT 1) AS username
@@ -182,6 +183,22 @@ def _aggregate(period='all'):
             name = ''                       # hidden -> blank -> anon fallback
         r['username'] = name
         r['display_name'] = name if name else anon_name(r['hwid'], 'en')
+    # Collision disambiguation: with a 100-name anon pool (and possibly repeated
+    # chosen names) two rows can share a display name. The EARLIEST install (by
+    # first-seen ts) keeps the bare name; later ones get '2', '3', ... so the
+    # public board never shows two identical labels. Ordered by (first_ts, hwid)
+    # for a stable, deterministic result. `username` (the raw chosen name) is
+    # left intact, so self-lookup by name still matches.
+    _by_name = {}
+    for r in rows:
+        _by_name.setdefault(r['display_name'], []).append(r)
+    for _base, _group in _by_name.items():
+        if len(_group) < 2:
+            continue
+        _group.sort(key=lambda r: (int(r.get('first_ts') or 0), str(r['hwid'])))
+        for _pos, r in enumerate(_group):
+            if _pos:
+                r['display_name'] = disambiguate(_base, _pos)
     # Deterministic order by catches desc, puzzles desc, then DISPLAY name asc.
     rows.sort(key=lambda r: (-int(r['fishing_catches']),
                              -int(r['puzzles_solved']), r['display_name']))

@@ -95,6 +95,42 @@ class SettingsEffectsMixin:
         except Exception:
             pass
 
+    def _on_username_commit(self, _event=None, release_focus=False):
+        """Ranglisten-Name committed (FocusOut/Enter): speichern -> SOFORT an den
+        Server pushen + Ranking neu laden -> bei Enter den Fokus vom Feld nehmen.
+
+        Der Netzwerk-Teil (submit-then-fetch via ``ranking_view``, Worker-Thread,
+        blockiert Tk nie + zeigt sofort die frischen Daten) feuert NUR, wenn sich
+        der Name wirklich GEAENDERT hat -- so loest ein Blur ohne Aenderung (oder
+        das FocusOut, das Enter selbst ausloest) keinen erneuten Submit aus.
+        Strikt defensiv; jeder Schritt unabhaengig gekapselt."""
+        try:
+            name = self._username_entry.get().strip()
+        except Exception:
+            name = None
+        if name is not None:
+            self._set_username(name)
+            if name != getattr(self, '_last_pushed_username', None):
+                self._last_pushed_username = name
+                try:
+                    from interface import ranking_view
+                    ranking_view.refresh_leaderboard(self, force=True)
+                except Exception:
+                    pass
+        if release_focus:
+            self._blur_on_return()
+        return 'break'
+
+    def _blur_on_return(self, _event=None):
+        """Enter in einem Settings-Feld -> Fokus aufs Hauptfenster, damit man das
+        Feld sichtbar 'verlaesst'. Der Wert ist da bereits gespeichert (die Felder
+        speichern live via ``<KeyRelease>``). Nie kritisch."""
+        try:
+            self.focus_set()
+        except Exception:
+            pass
+        return 'break'
+
     def _apply_always_on_top(self, on):
         try:
             self.attributes('-topmost', bool(on))

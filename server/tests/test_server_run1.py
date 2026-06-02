@@ -394,13 +394,46 @@ class TestSelfRankAndTop20(unittest.TestCase):
         # pairs are asserted by the client test (tests/test_anon_name.py).
         from server.app.anon_name import anon_name
         vector = {
-            'install-aaaa': 'MightyBass#1350',
-            'install-bbbb': 'LuckyCrab#0300',
-            '0123456789abcdef0123456789abcdef': 'NimbleTrout#9239',
-            'zzz': 'NimblePerch#2426',
+            'install-aaaa': 'CritKitten',
+            'install-bbbb': 'JinnoJester',
+            '0123456789abcdef0123456789abcdef': 'SlipperyEel',
+            'zzz': 'ChunjoChamp',
         }
         for install_id, expected in vector.items():
             self.assertEqual(anon_name(install_id, 'en'), expected)
+
+    def test_disambiguate_tiers(self):
+        # Tier 1 bare -> Tier 2 adjective prefix (digit-free up to len(ADJ)
+        # collisions per base = ~10k names) -> Tier 3 cycle number past that.
+        from server.app.anon_name import disambiguate, ADJECTIVES
+        base = 'GoldenTuna'
+        self.assertEqual(disambiguate(base, 0), base)                     # first
+        self.assertEqual(disambiguate(base, 1), ADJECTIVES[0] + base)     # 2nd
+        self.assertEqual(disambiguate(base, 2), ADJECTIVES[1] + base)
+        # No digit anywhere within the first len(ADJ) collisions.
+        self.assertFalse(any(c.isdigit()
+                             for c in disambiguate(base, len(ADJECTIVES))))
+        # Overflow past the adjective pool -> a cycle number is appended.
+        self.assertTrue(disambiguate(base, len(ADJECTIVES) + 1).endswith('2'))
+        self.assertEqual(len(ADJECTIVES), 100)
+
+    def test_board_disambiguates_colliding_anon_names(self):
+        # Two installs whose BASE anon name collides must NOT show two identical
+        # labels: one keeps the bare base, the other gets an adjective prefix.
+        from server.app.anon_name import anon_name, ADJECTIVES
+        base = anon_name('heve', 'en')
+        self.assertEqual(anon_name('same-id', 'en'), base)   # they collide
+        db.insert_submission(self._sub(username='', hwid='heve',
+                                       fishing_catches=5, puzzles_solved=0))
+        db.insert_submission(self._sub(username='', hwid='same-id',
+                                       fishing_catches=3, puzzles_solved=0))
+        names = {r['hwid']: r['display_name'] for r in db.leaderboard('all')}
+        self.assertNotEqual(names['heve'], names['same-id'])  # never identical
+        bare = [h for h, n in names.items() if n == base]
+        prefixed = [n for n in names.values() if n != base]
+        self.assertEqual(len(bare), 1)                        # exactly one bare
+        self.assertTrue(prefixed[0].endswith(base))           # other = adj + base
+        self.assertTrue(prefixed[0].startswith(tuple(ADJECTIVES)))
 
 
 # ---------------------------------------------------------------------------
