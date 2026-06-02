@@ -9,6 +9,32 @@ behaviour is fully preserved as the default.
 > violates the game's Terms of Service and may get your account banned. Use at
 > your own risk. See [`LICENSE.txt`](LICENSE.txt).
 
+## 🆕 What's new in 1.0.6
+
+- **Puzzle fix (important):** the solver no longer **stops after every placed
+  piece**. "Game over" is now decided by the board being **full** (the reward
+  chest only appears then) instead of a single flickery preview pixel that read
+  dark right after each placement.
+- **Inventory stack reading:** the scan now reads the printed **stack numbers**
+  (font-independent — both in-game number fonts) and **sums quantities per
+  item**, so baits, boxes, dyes, bleach and keys count by amount, not by slot.
+- **Scan-confidence warning:** an unreliable scan (nothing recognised / a number
+  unreadable / far more unknown than known slots) is now flagged in the debug
+  console instead of being silently trusted.
+- **Update check every 30 minutes** (not only at startup).
+- Inventory section moved **directly under Puzzle**; a one-time rating prompt
+  after the 10th solved puzzle.
+- **Experimental: auto-refill** — drag a bait into the quick-slot / a puzzle box
+  onto the board straight from the inventory. **Off by default.**
+
+> 🚨 **Danger — read this before enabling auto-refill.** Auto-refill performs
+> **automated mouse drags inside your inventory**, moving **real items**. If the
+> window position, resolution or calibration is even slightly off, it can drag
+> the **wrong item** somewhere you did not intend. Only enable it on a
+> calibrated **800×600** window, **watch the first few drags**, and use it
+> entirely at your own risk. The bait quick-slot is fixed to keys **1–4 / F1–F4**
+> (the only 8 quick-slots).
+
 ## ✨ Features
 
 **Fishing** — the original core, unchanged:
