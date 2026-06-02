@@ -42,6 +42,13 @@ class SlotResult:
     page: Optional[str]
     row: int
     col: int
+    #: stack count printed on the slot (read by ``inventory.digits.read_count``);
+    #: ``None`` when not read (non-item, or reader unavailable). ``1`` = a
+    #: single, unstacked item.
+    count: Optional[int] = None
+    #: ``True`` when the number read was confident (or there was no number);
+    #: ``False`` flags an uncertain count for the scan-confidence warning.
+    count_confident: bool = True
 
 
 @dataclass(frozen=True)
@@ -66,6 +73,29 @@ class InventoryMap:
     def count(self, name):
         """Number of slots holding the item ``name``."""
         return len(self.find(name))
+
+    def stack_total(self, name):
+        """Summed STACK count of ``name`` across pages (read stack numbers).
+
+        Each matching slot contributes its read ``count`` (the printed stack
+        number); a slot whose number could not be read counts as 1 (the item is
+        present). This is the real total the user cares about for stackables
+        (baits, boxes, dyes, bleach, keys), not the slot tally.
+        """
+        return sum((r.count if r.count is not None else 1)
+                   for r in self.find(name))
+
+    def stack_totals(self):
+        """``{name: summed stack count}`` for every recognised item name."""
+        out = {}
+        for r in self.items():
+            out[r.name] = out.get(r.name, 0) + (
+                r.count if r.count is not None else 1)
+        return out
+
+    def uncertain_counts(self):
+        """Item slots whose stack number was read but NOT confidently."""
+        return [r for r in self.items() if not r.count_confident]
 
     def unknowns(self):
         """All occupied-but-unrecognised slots."""

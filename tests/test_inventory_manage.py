@@ -24,13 +24,37 @@ class TestCycleState(unittest.TestCase):
         self.assertEqual(im.cycle_state('x'), im.KEEP)
 
 
+class TestAllowedStatesAndNextState(unittest.TestCase):
+    def test_fish_full_cycle(self):
+        self.assertEqual(im.allowed_states('Carp'),
+                         (im.KEEP, im.REMOVE, im.CAMPFIRE))
+        self.assertEqual(im.next_state('Carp', im.KEEP), im.REMOVE)
+        self.assertEqual(im.next_state('Carp', im.REMOVE), im.CAMPFIRE)
+        self.assertEqual(im.next_state('Carp', im.CAMPFIRE), im.KEEP)
+
+    def test_non_fish_has_no_campfire(self):
+        self.assertEqual(im.allowed_states('Red_Hair_Dye'),
+                         (im.KEEP, im.REMOVE))
+        self.assertEqual(im.next_state('Red_Hair_Dye', im.KEEP), im.REMOVE)
+        self.assertEqual(im.next_state('Red_Hair_Dye', im.REMOVE), im.KEEP)
+
+    def test_fixed_items_stay_keep(self):
+        for name in ('Lagerfeuer', 'Worm', 'Fischpuzzlebox',
+                     'Fischpuzzlebox_Deluxe'):
+            self.assertEqual(im.allowed_states(name), (im.KEEP,))
+            self.assertEqual(im.next_state(name, im.KEEP), im.KEEP)
+            self.assertEqual(im.next_state(name, im.CAMPFIRE), im.KEEP)
+
+
 class TestItemOrder(unittest.TestCase):
-    def test_fish_first_then_rest_tools_excluded(self):
+    def test_fish_first_then_rest_grouped(self):
         names = ['Worm', 'Zander', 'Carp', 'Gold_Key', 'Eel', 'Bleach',
                  'Lagerfeuer']
-        # Worm + Lagerfeuer (tools) are dropped; fish A->Z, then rest by kind.
-        self.assertEqual(im.item_order(names),
-                         ['Carp', 'Eel', 'Zander', 'Bleach', 'Gold_Key'])
+        # Nothing is dropped (all shown; click-ability is gated per item). Fish
+        # A->Z, then the rest grouped by kind (Lagerfeuer, Worm = misc).
+        self.assertEqual(
+            im.item_order(names),
+            ['Carp', 'Eel', 'Zander', 'Bleach', 'Gold_Key', 'Lagerfeuer', 'Worm'])
 
     def test_rest_grouped_by_kind(self):
         # dyes (Bleach/Hair_Dye) -> keys -> rings, alphabetical within a group.
@@ -38,17 +62,19 @@ class TestItemOrder(unittest.TestCase):
         self.assertEqual(im.item_order(names),
                          ['Red_Hair_Dye', 'Gold_Key', 'Silver_Key', 'Gold_Ring'])
 
-    def test_tools_never_returned(self):
-        self.assertNotIn('Worm', im.item_order(['Worm', 'Carp']))
-        self.assertNotIn('Lagerfeuer', im.item_order(['Lagerfeuer', 'Carp']))
+    def test_nothing_excluded(self):
+        order = im.item_order(['Worm', 'Carp', 'Lagerfeuer'])
+        self.assertIn('Worm', order)
+        self.assertIn('Lagerfeuer', order)
+        self.assertEqual(im.EXCLUDE, frozenset())
 
 
 class TestAvailableItems(unittest.TestCase):
-    def test_excludes_tools_fish_first(self):
+    def test_all_items_shown_fish_first(self):
         items = im.available_items()
-        self.assertEqual(len(items), 41)             # 43 icons - Worm - Lagerfeuer
-        self.assertNotIn('Worm', items)
-        self.assertNotIn('Lagerfeuer', items)
+        self.assertEqual(len(items), 43)             # every bundled item shows
+        self.assertIn('Worm', items)
+        self.assertIn('Lagerfeuer', items)
         last_fish = max(i for i, n in enumerate(items) if n in im.FISH)
         first_rest = min(i for i, n in enumerate(items) if n not in im.FISH)
         self.assertLess(last_fish, first_rest)

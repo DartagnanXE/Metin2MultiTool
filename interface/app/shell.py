@@ -86,29 +86,22 @@ class ShellMixin:
         rail.grid(row=0, column=0, sticky='ns')
         rail.grid_propagate(False)
         rail.grid_columnconfigure(0, weight=1)
-        # Top-Gruppe Fishing/Puzzle/Ranking/Roadmap/Console (rows 0-4); ein
-        # sichtbarer Trenner (row 5) markiert den "Inventory ist temporaer"-Bruch;
-        # Inventory (row 6); die Spacer-Zeile (row 7) waechst und drueckt Settings
-        # (row 8) nach unten.
+        # Top-Gruppe Fishing/Puzzle/Inventory/Ranking/Roadmap/Console (rows 0-5);
+        # Inventory sitzt direkt unter Puzzle (regulaere Sektion). Die Spacer-Zeile
+        # (row 7) waechst und drueckt das unten angepinnte Settings (row 8) nach
+        # unten.
         rail.grid_rowconfigure(7, weight=1)
 
         self._rail_items = {}
         self._rail_dots = {}
-        rows = {'fishing': 0, 'puzzle': 1, 'ranking': 2, 'roadmap': 3,
-                'console': 4, 'inventory': 6, 'settings': 8}
+        rows = {'fishing': 0, 'puzzle': 1, 'inventory': 2, 'ranking': 3,
+                'roadmap': 4, 'console': 5, 'settings': 8}
         tip_keys = {'fishing': 'ui.view_fishing', 'puzzle': 'ui.view_puzzle',
                     'console': 'ui.view_console',
                     'inventory': 'ui.view_inventory',
                     'ranking': 'ui.view_ranking',
                     'roadmap': 'ui.view_roadmap',
                     'settings': 'ui.view_settings'}
-
-        # Sichtbarer, duenner Trenner (row 5) VOR dem Inventory-Item: macht die
-        # "Inventory ist (noch) separat/temporaer"-Trennung optisch klar.
-        self._rail_separator = ctk.CTkFrame(rail, height=2, width=34,
-                                            corner_radius=1,
-                                            fg_color=RAIL_HOVER)
-        self._rail_separator.grid(row=5, column=0, pady=(8, 8), padx=13)
 
         for view in RAIL_ORDER:
             btn = ctk.CTkButton(

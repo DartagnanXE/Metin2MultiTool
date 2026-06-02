@@ -109,7 +109,8 @@ class InventoryViewMixin:
             btn = ctk.CTkButton(
                 grid, text='', image=imgs[0], width=PX + 8, height=PX + 8,
                 corner_radius=6, fg_color=PANEL_DARK, hover_color=PANEL_HOVER,
-                border_width=2, border_color=TEAL,
+                border_width=2,
+                border_color=self._inv_manage_border(name, im.KEEP),
                 command=lambda n=name: self._on_inv_manage_click(n))
             btn.grid(row=i // COLS, column=i % COLS, padx=2, pady=2)
             self._inv_manage_btns[name] = btn
@@ -136,11 +137,20 @@ class InventoryViewMixin:
             return
         counts = {}
         try:
-            pages = getattr(inv, 'pages', {}) or {}
-            for page in pages:
-                for s in pages.get(page, ()):
-                    if getattr(s, 'state', None) == STATE_ITEM and s.name:
-                        counts[s.name] = counts.get(s.name, 0) + 1
+            # SUMMED stack quantity per item (read stack numbers), not slot tally:
+            # all catchable stackables (baits, boxes, dyes, bleach, keys) add up
+            # by their printed number. A slot whose number could not be read
+            # still counts as >=1 (its item is there).
+            if hasattr(inv, 'stack_totals'):
+                counts = dict(inv.stack_totals())
+            else:
+                pages = getattr(inv, 'pages', {}) or {}
+                for page in pages:
+                    for s in pages.get(page, ()):
+                        if getattr(s, 'state', None) == STATE_ITEM and s.name:
+                            n = getattr(s, 'count', None)
+                            counts[s.name] = counts.get(s.name, 0) + (
+                                n if n is not None else 1)
         except Exception:
             return
         px = getattr(self, '_inv_manage_px', 34)
@@ -158,17 +168,28 @@ class InventoryViewMixin:
                 pass
 
     def _on_inv_manage_click(self, name):
-        """Item angeklickt: Status weiterschalten + Bild/Rahmen aktualisieren
-        (behalten=teal / entfernen=grau / Lagerfeuer=amber). Wirft nie."""
+        """Item angeklickt: in die NAECHSTE ERLAUBTE Stufe schalten (Fisch: voll
+        keep->remove->campfire; andere Non-Fish: nur keep<->remove; FIXED-Items
+        wie Lagerfeuer/Baits/Boxen bleiben keep) + Bild/Rahmen aktualisieren.
+        Wirft nie."""
         from interface import inventory_manage as im
-        state = im.cycle_state(self._inv_manage_states.get(name, im.KEEP))
+        state = im.next_state(name, self._inv_manage_states.get(name, im.KEEP))
         self._inv_manage_states[name] = state
         try:
-            border = (TEAL, '#6b7280', AMBER)[state]
             self._inv_manage_btns[name].configure(
-                image=self._inv_manage_imgs[name][state], border_color=border)
+                image=self._inv_manage_imgs[name][state],
+                border_color=self._inv_manage_border(name, state))
         except Exception:
             pass
+
+    def _inv_manage_border(self, name, state):
+        """Rahmenfarbe je Item+Status: FIXED-Items (Lagerfeuer/Baits/Boxen) einen
+        gedaempften neutralen Rahmen (signalisiert 'nicht aenderbar'); sonst die
+        State-Farbe (behalten=teal / entfernen=grau / Lagerfeuer=amber)."""
+        from interface import inventory_manage as im
+        if name in im.FIXED_KEEP:
+            return '#3f4753'
+        return (TEAL, '#6b7280', AMBER)[state]
 
     def _on_inv_manage_apply(self):
         """'Inventar managen': wendet die per-Item-Entscheidungen an. PLATZHALTER
@@ -305,6 +326,21 @@ class InventoryViewMixin:
             self._set_inv_status(
                 t('ui.inventory_scan_done', items=items, unknown=unknown,
                   tracked=tracked), TEAL)
+        except Exception:
+            pass
+        # Scan-Konfidenz: warne in der Debug-Console, wenn das Ergebnis unsicher
+        # aussieht -- nichts erkannt (Fenster/Ausrichtung falsch), eine Stack-Zahl
+        # nicht sicher gelesen, ODER deutlich mehr unerkannte als erkannte Slots.
+        # Lieber 'nicht sicher ob der Scan geklappt hat' als still vertrauen.
+        try:
+            uncertain = len(inv.uncertain_counts()) if inv is not None else 0
+            if inv is not None and (items == 0 or uncertain
+                                    or (unknown > 4 and unknown > 2 * items)):
+                self._set_inv_status(t('ui.inventory_scan_uncertain',
+                                       unknown=unknown, uncertain=uncertain),
+                                     AMBER)
+                log.warning(t('ui.inventory_scan_uncertain',
+                              unknown=unknown, uncertain=uncertain))
         except Exception:
             pass
         # Stack-Mengen auf die Management-Bilder schreiben (falls Grid existiert).

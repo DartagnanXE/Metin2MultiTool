@@ -241,6 +241,11 @@ def _draw_inventory(canvas, photo_cache):
         preferred = list(KEY_ITEMS) + sorted(
             n for n in name_to_path if n not in KEY_ITEMS)
         placed = [n for n in preferred if n in name_to_path]
+        # TEST-Hilfe: ein gut erkennbares Item BEWUSST DOPPELT ablegen, damit man
+        # die Mengen-Zaehlung im Management-Grid pruefen kann -- "Wels" (Catfish)
+        # erscheint so ZWEIMAL und das Grid zeigt darauf nach dem Scan eine "2".
+        if 'Catfish' in name_to_path:
+            placed.insert(0, 'Catfish')
 
         idx = 0
         for r in range(rows):

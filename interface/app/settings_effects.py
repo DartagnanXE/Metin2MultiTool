@@ -234,6 +234,36 @@ class SettingsEffectsMixin:
         except Exception:
             pass
 
+    def _maybe_show_rating_prompt(self):
+        """ONCE, after the 10th solved puzzle, offer to rate the project on
+        GitHub. 'Rate' opens the repo + closes the popup; 'Later' just closes.
+        Persisted via ``telemetry.rating_prompted`` so it never re-appears.
+        Runs on the GUI thread (scheduled via ``after``). Never raises."""
+        try:
+            cfg = self.controller.current_config()
+            if cfg.get('telemetry', {}).get('rating_prompted', False):
+                return
+            solved = int((getattr(self, '_stats', {}) or {}).get(
+                'puzzles_solved', 0))
+            if solved < 10:
+                return
+            self.controller.update_config('telemetry', 'rating_prompted', True)
+        except Exception:
+            return
+
+        def _open():
+            try:
+                import webbrowser
+                webbrowser.open('https://github.com/DartagnanXE/Metin2FishBot')
+            except Exception:
+                pass
+        try:
+            self._confirm_dialog(
+                t('ui.rating_title'), t('ui.rating_body'),
+                t('ui.rating_ok'), t('ui.rating_later'), _open)
+        except Exception:
+            pass
+
     def _confirm_dialog(self, title, body, ok_text, cancel_text, on_ok,
                         danger=False):
         """Kleiner, dunkler Ja/Nein-Bestaetigungsdialog (eigenes CTkToplevel).

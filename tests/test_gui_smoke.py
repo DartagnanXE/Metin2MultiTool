@@ -114,36 +114,24 @@ class TestGuiLaunchSmoke(unittest.TestCase):
         self.assertEqual(order[:5],
                          ('fishing', 'puzzle', 'ranking', 'roadmap', 'console'))
 
-    def test_rail_has_visible_separator_before_inventory(self):
-        # CHANGE-SET 2: a VISIBLE gap/separator marks the Inventory break.
-        sep = getattr(self.app, '_rail_separator', None)
-        self.assertIsNotNone(sep, 'rail separator widget is missing')
-        self.assertTrue(sep.winfo_exists())
+    def test_inventory_sits_directly_under_puzzle(self):
+        # Inventory is now a REGULAR section placed directly under Puzzle (the
+        # old "temporary" separator was removed). By grid row: it is exactly one
+        # row below Puzzle, above Ranking, and above the pinned Settings.
+        rows = {v: int(self.app._rail_items[v].grid_info()['row'])
+                for v in ('puzzle', 'inventory', 'ranking', 'settings')}
+        self.assertEqual(rows['inventory'], rows['puzzle'] + 1,
+                         'Inventory must sit directly under Puzzle')
+        self.assertLess(rows['inventory'], rows['ranking'])
+        self.assertLess(rows['inventory'], rows['settings'])
+        # Inventory + Puzzle share the one rail container.
+        self.assertIs(self.app._rail_items['inventory'].master,
+                      self.app._rail_items['puzzle'].master)
 
-    def test_separator_sits_between_cluster_and_inventory(self):
-        # CHANGE-SET 2 (geometry): the visible separator must physically sit
-        # BELOW the leading cluster (console) and ABOVE the Inventory button in
-        # the rail's grid -- this is what makes the "Inventory is separate /
-        # temporary" break real, not just a widget that happens to exist.
-        sep = self.app._rail_separator
-        console_btn = self.app._rail_items['console']
-        inv_btn = self.app._rail_items['inventory']
-        settings_btn = self.app._rail_items['settings']
-        sep_row = sep.grid_info()['row']
-        console_row = console_btn.grid_info()['row']
-        inv_row = inv_btn.grid_info()['row']
-        settings_row = settings_btn.grid_info()['row']
-        # Leading cluster (console) is ABOVE the separator; Inventory + Settings
-        # are BELOW it. Rows are ints in the same rail grid.
-        self.assertLess(int(console_row), int(sep_row),
-                        'separator must be below the leading cluster')
-        self.assertLess(int(sep_row), int(inv_row),
-                        'separator must be above the Inventory button')
-        self.assertLess(int(inv_row), int(settings_row),
-                        'Inventory must sit above the pinned Settings button')
-        # Separator + both buttons share the rail (same master).
-        self.assertIs(sep.master, inv_btn.master)
-        self.assertIs(console_btn.master, inv_btn.master)
+    def test_no_temporary_inventory_separator(self):
+        # When Inventory became a normal section the "temporary" rail separator
+        # was removed -> the attribute stays None.
+        self.assertIsNone(getattr(self.app, '_rail_separator', None))
 
     def test_every_rail_button_parented_in_one_rail(self):
         # CHANGE-SET 2: all seven rail buttons live in the SAME rail container,

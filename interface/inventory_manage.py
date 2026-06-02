@@ -9,8 +9,8 @@ through THREE states on click:
     CAMPFIRE (2): icon with a flame drawn over it  -> into the campfire
 
 After a scan, the recognised STACK COUNT is drawn over each icon (bottom-right,
-game style) in every state; 0 shows nothing. Worm (bait) and Lagerfeuer
-(campfire) are TOOLS, not managed items -> excluded. Fish are listed first, then
+game style) in every state; 0 shows nothing. Lagerfeuer (the campfire you
+process WITH) is excluded as a tool; baits (Worm) STACK so they stay. Fish first,
 the rest grouped by kind (dyes, keys, rings, boxes, ...). Item names localise to
 the official German Metin2 names on hover.
 
@@ -39,8 +39,21 @@ FISH = frozenset({
     'Skygazer', 'Smelt', 'Snakehead', 'Sweetfish', 'Tenchi', 'Yabby', 'Zander',
 })
 
-# TOOLS used FOR managing -- never appear in the managed grid.
-EXCLUDE = frozenset({'Worm', 'Lagerfeuer'})
+# Nothing is hard-excluded any more -- EVERY item shows in the grid. What a click
+# can DO is gated per item instead (see :func:`allowed_states`).
+EXCLUDE = frozenset()
+
+# Tools/specials shown but NOT changeable (always 'keep' -- you only SEE + count
+# them): the campfire itself, the baits you fish with, the puzzle boxes.
+FIXED_KEEP = frozenset({
+    'Lagerfeuer', 'Worm', 'Fischpuzzlebox', 'Fischpuzzlebox_Deluxe',
+})
+
+# Items that may be sent to the CAMPFIRE (grillable at the Lagerfeuer). The German
+# Metin2 wiki confirms EVERY one of the 24 fish grills (alive/dead/grilled state,
+# incl. the crustaceans + the rare fish) and NO special drop / tool does -- so
+# this is exactly the fish set.
+BURNABLE = frozenset(FISH)
 
 # Localised display names (EN, DE) -- the German column is the official Metin2
 # name (verified via the DE Metin2 wiki). Unlisted items fall back to a
@@ -97,11 +110,39 @@ LEGEND_LABELS = {
 
 
 def cycle_state(state):
-    """Next state in the keep -> remove -> campfire -> keep cycle. Never raises."""
+    """Raw next state in the keep -> remove -> campfire -> keep cycle (ignores
+    per-item rules). Never raises."""
     try:
         return (int(state) + 1) % _NUM_STATES
     except Exception:
         return KEEP
+
+
+def allowed_states(name):
+    """The states ``name`` may take, in click-cycle order:
+
+      * ``FIXED_KEEP`` (campfire / baits / puzzle boxes -- tools & specials you
+        only SEE + count): ``(KEEP,)`` -- a click changes nothing.
+      * ``BURNABLE`` (grillable at the campfire -- the fish):
+        ``(KEEP, REMOVE, CAMPFIRE)``.
+      * everything else (dyes, keys, rings, ...): ``(KEEP, REMOVE)`` -- may be
+        removed but NOT burned.
+    """
+    if name in FIXED_KEEP:
+        return (KEEP,)
+    if name in BURNABLE:
+        return (KEEP, REMOVE, CAMPFIRE)
+    return (KEEP, REMOVE)
+
+
+def next_state(name, current):
+    """Next state for ``name`` cycling WITHIN its allowed states (wraps). A fixed
+    item always stays on ``KEEP``. Never raises."""
+    states = allowed_states(name)
+    try:
+        return states[(states.index(int(current)) + 1) % len(states)]
+    except Exception:
+        return states[0]
 
 
 def pretty_name(name):
@@ -323,8 +364,9 @@ def legend_image(px=40, lang='en', sample='Carp', borders=None):
 
 
 __all__ = [
-    'KEEP', 'REMOVE', 'CAMPFIRE', 'FISH', 'EXCLUDE', 'ITEM_NAMES',
-    'LEGEND_LABELS', 'cycle_state', 'pretty_name', 'localized_name',
-    'item_order', 'available_items', 'load_icon', 'make_flame', 'variants',
-    'count_overlay', 'apply_count', 'legend_image',
+    'KEEP', 'REMOVE', 'CAMPFIRE', 'FISH', 'EXCLUDE', 'FIXED_KEEP', 'BURNABLE',
+    'ITEM_NAMES', 'LEGEND_LABELS', 'cycle_state', 'allowed_states', 'next_state',
+    'pretty_name', 'localized_name', 'item_order', 'available_items',
+    'load_icon', 'make_flame', 'variants', 'count_overlay', 'apply_count',
+    'legend_image',
 ]

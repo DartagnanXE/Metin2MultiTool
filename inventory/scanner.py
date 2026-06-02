@@ -19,8 +19,11 @@ from .constants import (
     PAGES,
     slot_indices,
 )
+from dataclasses import replace
+
 from .grid import extract_slot, auto_align, upper_region_is_empty
-from .types import SlotResult, InventoryMap, STATE_UNKNOWN
+from .types import SlotResult, InventoryMap, STATE_UNKNOWN, STATE_ITEM
+from .digits import read_count
 from i18n import t
 
 try:  # pragma: no cover - reiner Fallback
@@ -73,8 +76,18 @@ def recognize_page(image_bgr, db, calib=DEFAULT_CALIBRATION, lattice=None,
                                       signature=None, page=page,
                                       row=row, col=col))
             continue
-        results.append(classify_slot(slot, db, row=row, col=col, page=page,
-                                      tol=tol))
+        res = classify_slot(slot, db, row=row, col=col, page=page, tol=tol)
+        # Read the printed STACK NUMBER on every recognised item (font-
+        # independent OCR) so stackables (baits, boxes, dyes, bleach, keys) sum
+        # by quantity, not by slot. Never raises -> degrades to count=None.
+        if res.state == STATE_ITEM:
+            try:
+                cr = read_count(slot)
+                res = replace(res, count=cr.value,
+                              count_confident=cr.confident)
+            except Exception:
+                pass
+        results.append(res)
     return results
 
 

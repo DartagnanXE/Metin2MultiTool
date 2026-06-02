@@ -193,6 +193,13 @@ class RunLoop:
             if solving and not self._puzzle_was_solving:
                 self.app._stats = statsmod.increment_puzzle(self.app._stats)
                 self.schedule_stats_save()
+                # One-shot "rate on GitHub" prompt after the 10th solved puzzle
+                # (the method gates on count + the persisted flag). Tk must be
+                # touched on the GUI thread -> schedule via after.
+                try:
+                    self.app.after(0, self.app._maybe_show_rating_prompt)
+                except Exception:
+                    pass
             self._puzzle_was_solving = solving
         except Exception:
             pass

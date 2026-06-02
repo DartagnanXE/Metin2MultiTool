@@ -142,6 +142,9 @@ DEFAULTS = {
         'submit_url': DEFAULT_SUBMIT_URL,
         'leaderboard_url': DEFAULT_LEADERBOARD_URL,
         'interval_s': TELEMETRY_INTERVAL_DEFAULT,
+        # One-shot: the "rate this on GitHub" prompt is shown ONCE after the
+        # 10th solved puzzle; this flag (set then) keeps it from re-appearing.
+        'rating_prompted': False,
     },
     # Fish-Event-Fenster (zwei). Defaults laut Spec: Sonntag(6) 12:00-16:00 und
     # Mittwoch(2) 00:00-12:00, Zeitzone Europe/Berlin (DST-korrekt). warn_minutes
