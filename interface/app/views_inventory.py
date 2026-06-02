@@ -74,7 +74,8 @@ class InventoryViewMixin:
         # ?-Legende statt Textzeile: EIN Fisch in allen 3 Formen + Beschriftung,
         # versteckt hinter einem ?-Badge (oben rechts, wie die anderen Hilfen).
         try:
-            legend = im.legend_image(px=40, lang=get_lang())
+            legend = im.legend_image(px=40, lang=get_lang(),
+                                     borders=(TEAL, '#6b7280', AMBER))
         except Exception:
             legend = None
         InfoBadge(body, text=t('ui.inv_manage_help'), image=legend).grid(

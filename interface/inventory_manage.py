@@ -279,28 +279,43 @@ def apply_count(variant, count, px):
         return variant
 
 
-def legend_image(px=40, lang='en', sample='Carp'):
+def legend_image(px=40, lang='en', sample='Carp', borders=None):
     """A self-contained legend: the ``sample`` fish in all 3 states side by side,
-    each labelled underneath (localised). RGBA Pillow image, or ``None``."""
+    EACH in its state-coloured rounded frame (matching the grid borders: keep /
+    remove / campfire) + labelled underneath (localised). Cells are sized to the
+    widest label so German words never overlap. ``borders`` = (keep, remove,
+    campfire) colours, defaulting to teal/grey/amber. RGBA Pillow image or
+    ``None``."""
     keep, remove, fire = variants(sample, px)
     if keep is None:
         return None
     try:
         labels = LEGEND_LABELS.get(lang, LEGEND_LABELS['en'])
+        cols = borders or ('#2dd4bf', '#6b7280', '#f59e0b')
         font = _font(13)
         probe = ImageDraw.Draw(Image.new('RGBA', (1, 1)))
         lab_w = [probe.textbbox((0, 0), s, font=font)[2] for s in labels]
-        cell = max(px, max(lab_w)) + 16            # fit the WIDEST label + pad
+        bd = 4
+        tile = px + 2 * bd                          # icon + state-colour frame
+        cell = max(tile, max(lab_w)) + 16
         lab_h, pad = 18, 8
-        w, h = cell * 3, px + lab_h + pad
+        w, h = cell * 3, tile + lab_h + pad
         img = Image.new('RGBA', (w, h), (24, 28, 36, 255))
         d = ImageDraw.Draw(img)
-        for i, (variant, label) in enumerate(zip((keep, remove, fire), labels)):
+        for i, (variant, label, color) in enumerate(
+                zip((keep, remove, fire), labels, cols)):
             cx = i * cell + cell // 2
-            img.alpha_composite(variant, (cx - px // 2, pad // 2))
+            fx, fy = cx - tile // 2, pad // 2
+            box = [fx, fy, fx + tile - 1, fy + tile - 1]
+            try:
+                d.rounded_rectangle(box, radius=6, outline=color, width=2,
+                                    fill=(40, 46, 58, 255))
+            except Exception:
+                d.rectangle(box, outline=color, width=2, fill=(40, 46, 58, 255))
+            img.alpha_composite(variant, (cx - px // 2, fy + bd))
             bbox = d.textbbox((0, 0), label, font=font)
             lw = bbox[2] - bbox[0]
-            d.text((cx - lw // 2 - bbox[0], px + pad // 2 + 2),
+            d.text((cx - lw // 2 - bbox[0], tile + pad // 2 + 2),
                    label, font=font, fill=(225, 225, 225, 255))
         return img
     except Exception:
