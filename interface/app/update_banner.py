@@ -51,10 +51,10 @@ class UpdateBannerMixin:
             pass
 
     def _build_update_banner(self):
-        """Baut das Banner als EIGENE Grid-Zeile (row 2) -- nicht in topbar/
-        content, damit ein Sprachwechsel-Neuaufbau es nicht zerstoert."""
+        """Baut das Banner als EIGENE Grid-Zeile (row 1) -- nicht in der Shell
+        (``content``), damit ein Sprachwechsel-Neuaufbau es nicht zerstoert."""
         bar = ctk.CTkFrame(self, fg_color=PANEL, corner_radius=0)
-        bar.grid(row=2, column=0, sticky='ew')
+        bar.grid(row=1, column=0, sticky='ew')
         bar.grid_columnconfigure(0, weight=1)
         self._update_label = ctk.CTkLabel(
             bar, text='', anchor='w', text_color=TEXT,
@@ -140,7 +140,11 @@ class UpdateBannerMixin:
                 path = updater.download_asset(info, progress=_progress)
                 self.after(0, lambda: self._finish_update(path))
             except Exception as exc:
-                self.after(0, lambda: self._update_failed(exc))
+                # exc am Lambda-Erzeugungszeitpunkt binden (e=exc): Python 3 loescht
+                # ``exc`` am Ende des except-Blocks; das via after(0,...) verzoegerte
+                # Lambda liefe sonst erst im naechsten Tick und wuerfe NameError ->
+                # _update_failed liefe nie, der Update-Knopf bliebe deaktiviert.
+                self.after(0, lambda e=exc: self._update_failed(e))
 
         threading.Thread(target=_worker, name='update-download',
                          daemon=True).start()

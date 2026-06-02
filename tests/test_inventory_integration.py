@@ -632,6 +632,10 @@ class TestDifferentialThroughRunner(unittest.TestCase):
         wincap = self._FakeWinCap(pages_by_tab, tab_state)
         self._patch('pydirectinput', pdi)
         self._patch('WindowCapture', lambda name: wincap)
+        # CS3 guard: the runner now aborts before the live loop if no window is
+        # present. This wiring simulates a present window via the fake
+        # WindowCapture, so force the presence probe True (headless win32 absent).
+        self._patch('_window_present', lambda: True)
 
         tabs = DEFAULT_CALIBRATION['tabs']
 

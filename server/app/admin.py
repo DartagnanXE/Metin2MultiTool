@@ -1,5 +1,13 @@
 # -*- coding: utf-8 -*-
-"""Admin surface: ban/unban by HWID or username + delete entries (GDPR erasure).
+"""Admin surface: block/hide + delete entries (GDPR erasure). Two axes only.
+
+Anti-cheat is block-by-id + hide-name ONLY (no general person-ban):
+  * ``install`` -- block/unblock ONE installation from the board by its random
+    install id (a detected manipulator). Honest limit: a source editor can mint
+    a new install id, so this is mass-protection only, NOT a durable person-ban.
+  * ``name`` -- hide/unhide a chosen NAME (moderation): that row then shows the
+    anonymous name instead. The install keeps contributing counters.
+``delete`` performs GDPR erasure (by install id or by name).
 
 Auth is a STRONG env-var token (ADMIN_TOKEN) compared with
 ``hmac.compare_digest`` (constant-time) -- the token is NEVER embedded in the
@@ -33,29 +41,34 @@ def require_admin(token):
 
 
 def ban(kind, value, reason=None):
-    """Ban an HWID or username (pure DB op; used by route + CLI)."""
+    """Block an install id (kind='install') or hide a chosen name (kind='name').
+
+    Pure DB op; used by the route + CLI. Neither is a durable person-ban -- the
+    install id is rotatable by editing the open-source client.
+    """
     _check_kind(kind)
     db.add_ban(kind, value, reason)
     return {'status': 'ok', 'banned': {'kind': kind, 'value': value}}
 
 
 def unban(kind, value):
-    """Remove a ban (pure DB op)."""
+    """Unblock an install id / unhide a chosen name (pure DB op)."""
     _check_kind(kind)
     removed = db.remove_ban(kind, value)
     return {'status': 'ok', 'removed': removed}
 
 
 def delete(kind, value):
-    """Delete all submissions for an HWID or username (GDPR erasure)."""
+    """Delete all submissions for an install id or a chosen name (GDPR erasure)."""
     _check_kind(kind)
     removed = db.delete_entries(kind, value)
     return {'status': 'ok', 'deleted_rows': removed}
 
 
 def _check_kind(kind):
-    if kind not in ('hwid', 'username'):
-        raise HTTPException(status_code=400, detail="kind must be hwid|username")
+    if kind not in ('install', 'name'):
+        raise HTTPException(status_code=400,
+                            detail="kind must be install|name")
 
 
 class _AdminAction(BaseModel):

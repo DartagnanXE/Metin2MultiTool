@@ -140,11 +140,22 @@ class FishingPuzzleConsoleViewsMixin:
         # spawnt das Fake-"METIN2"-Fenster, damit START auch ohne echtes Spiel
         # laeuft. Deutlich kleiner/schlichter als die echten Knoepfe (kein
         # Fill, kleine Schrift, gedaempfte Farben) -- reines Test-Hilfsmittel.
+        # Zwei winzige Test-Knoepfe unten rechts nebeneinander: das Board-Fenster
+        # (START-Trockenlauf) und -- CS5 -- das Inventar-Fenster (Scanner- +
+        # Mehrfenster-Picker-Trockenlauf). Beide bewusst unscheinbar.
+        test_row = ctk.CTkFrame(view, fg_color='transparent')
+        test_row.grid(row=2, column=0, sticky='e', pady=(6, 0))
+        self.inv_test_window_btn = ctk.CTkButton(
+            test_row, text=t('ui.test_window_inventory'), height=22, width=108,
+            corner_radius=6, fg_color='transparent', hover_color=PANEL_HOVER,
+            text_color=TEXT_FAINT, border_width=1, border_color=PANEL_LIGHT,
+            font=ctk.CTkFont(size=10), command=self._on_inventory_test_window)
+        self.inv_test_window_btn.grid(row=0, column=0, sticky='e', padx=(0, 6))
         self.test_window_btn = ctk.CTkButton(
-            view, text=t('ui.test_window'), height=22, width=92,
+            test_row, text=t('ui.test_window'), height=22, width=92,
             corner_radius=6, fg_color='transparent', hover_color=PANEL_HOVER,
             text_color=TEXT_FAINT, border_width=1, border_color=PANEL_LIGHT,
             font=ctk.CTkFont(size=10), command=self._on_test_window)
-        self.test_window_btn.grid(row=2, column=0, sticky='e', pady=(6, 0))
+        self.test_window_btn.grid(row=0, column=1, sticky='e')
 
     # -- Inventory (manueller Scan; Ausgabe geht in die Console) ----------

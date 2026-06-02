@@ -5,15 +5,16 @@ Layout (Blueprint variant3_final.html, in CTk uebersetzt):
   * Schmale LINKE Icon-Rail (Fishing / Puzzle / Console / Settings) als einzige
     Navigation; sie tauscht den Hauptbereich. Fishing XOR Puzzle ist der aktive
     Lauf-Modus (aktives Item hervorgehoben + kleiner Lauf-Punkt beim Botten).
-  * TOP-LEFT: App-Logo (musketier.ico), minimaler Fenster-Schliessen-Button
-    rechts, dezenter EN|DE-Umschalter oben rechts.
+  * KEINE In-Window-Titelleiste mehr -- die OS-Titelleiste zeigt Titel +
+    Min/Max/Schliessen; der dezente EN|DE-Umschalter sitzt nun im Footer.
   * TOP-STRIP = Kommandozentrale: grosser START/STOP-Hero (teal "Start", rot
     "Stop - Fishing"/"Stop - Puzzle" mit aktivem Modus) mit dem LIVE-Lauf-Timer
     direkt LINKS davon (zaehlt herunter bei Zeitlimit, sonst hoch).
   * Metin2-Erkennung: klein UNTEN-RECHTS; blendet sich aus, sobald das Spiel bei
     800x600 gefunden ist -- zeigt sonst "Suche Metin2 (800x600)...".
-  * FOOTER UNTEN-LINKS: dezente Versionsanzeige "v1.0.x" (faint, kein Kasten),
-    wird bei Update zur teal "Update"-Pille; Klick oeffnet das Repo/Update.
+  * FOOTER UNTEN: dezente Versionsanzeige "v1.0.x" (faint, kein Kasten), wird
+    bei Update zur teal "Update"-Pille; Klick oeffnet das Repo/Update. Rechts
+    daneben der dezente EN|DE-Umschalter.
   * "?"-Hilfe-Tooltips neben nicht-offensichtlichen Steuerungen.
 
 Die Bot-Steuerung haengt in :class:`BotController`; das Modul kennt die Bots nur
@@ -81,10 +82,10 @@ class App(
 ):
     """Das Single-Window in der "Cockpit Sidebar"-Anordnung.
 
-    Aufbau: Titelleiste (Logo + EN|DE + Schliessen) ueber einer Shell aus
-    Icon-Rail (links) und Body (Command-Strip + getauschte Ansicht). Footer +
-    optionales Update-Banner liegen auf eigenen Grid-Zeilen (ueberleben den
-    Sprachwechsel-Neuaufbau).
+    Aufbau: Shell aus Icon-Rail (links) und Body (Command-Strip + getauschte
+    Ansicht) ganz oben (die OS-Titelleiste ersetzt die fruehere In-Window-
+    Titelleiste). Footer (Version + EN|DE-Umschalter) + optionales Update-Banner
+    liegen auf eigenen Grid-Zeilen (ueberleben den Sprachwechsel-Neuaufbau).
     """
 
     def __init__(self, cfg=None, fishbot=None, puzzlebot=None):
@@ -131,6 +132,12 @@ class App(
         self._game_windows = []
         self._chosen_hwnd = None
         self._window_sig = None
+        # Item N -- Fenster-MODUS (CS4). RUNTIME-ONLY (nicht persistiert, wie
+        # ``_chosen_hwnd``). 'last_focused' = altes Verhalten (FindWindow / das
+        # zuletzt fokussierte METIN2-Fenster); 'specific' = das im Picker gewaehlte
+        # ``_chosen_hwnd``. Das Auswaehlen eines Fensters setzt den Modus auf
+        # 'specific'; der Footer-Umschalter erlaubt den Wechsel zurueck.
+        self._window_mode = 'last_focused'
         self._run_started_at = 0.0
         self._was_running = False
         self._capturing = None             # (which, button) waehrend Key-Capture
@@ -141,9 +148,11 @@ class App(
         self._views = {}                   # view-name -> frame
         self._rail_items = {}              # view-name -> CTkButton
         self._rail_dots = {}               # view-name -> Lauf-Punkt-Label
+        self._rail_separator = None        # sichtbarer Trenner vor Inventory
         self._timer_tooltip = None
         self._tray_icon = None
         self._test_window = None           # Fake-"METIN2"-Testfenster (Console)
+        self._test_windows = []            # Fake-Inventar-Testfenster (CS5, max 2)
         self._tray_enabled = (self._cfg['window']['minimize_to_tray']
                               and tray.available())
         # Update-Zustand HIER initialisieren; Banner lebt auf eigener Grid-Zeile
@@ -153,9 +162,10 @@ class App(
         # Statistik-Default: hack.py ersetzt das durch die geladene stats.json
         # (app._stats). Hier ein sicherer Default, damit der Ranking-Tab auch
         # ausserhalb von hack.py (z.B. Tests, Standalone) nie auf ein fehlendes
-        # Attribut laeuft. Caches fuer HWID/Bann-Status ebenfalls vorinitialisiert.
+        # Attribut laeuft. Cache fuer die zufaellige install_id + Block-Status
+        # ebenfalls vorinitialisiert.
         self._stats = None
-        self._hwid_cache = None
+        self._install_id = None
         self._ranking_banned = False
         # Optional final-flush hook for persistent stats. hack.py owns stats.json
         # and registers a callable here so EVERY exit path (window close, tray
@@ -167,14 +177,15 @@ class App(
 
         self._set_window_icon()
 
-        # -- Root-Grid: 0 Titelleiste, 1 Shell, 2 Update-Banner, 3 Footer
+        # -- Root-Grid: 0 Shell, 1 Update-Banner, 2 Footer. Die fruehere
+        # In-Window-Titelleiste (row 0) ist entfernt -- die OS-Titelleiste zeigt
+        # Titel + Min/Max/Schliessen; der EN|DE-Umschalter lebt nun im Footer.
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)   # Shell waechst
+        self.grid_rowconfigure(0, weight=1)   # Shell waechst
 
         self._active_view = self._cfg['mode']
-        self._build_titlebar()
         self._build_content()
-        self._build_footer()       # dezente Versionsanzeige unten links (row 3)
+        self._build_footer()       # Version + EN|DE-Umschalter unten (row 2)
         self._show_view(self._cfg['mode'])
 
         self._apply_config_to_widgets()
@@ -199,10 +210,10 @@ class App(
         # Ranking-Status (_ranking_banned) bereits oben vorinitialisiert.
         self._telemetry_thread = None
 
-        # Onboarding (erster Start: Name + GDPR-Opt-in) NACH dem Aufbau planen.
-        # Streng defensiv -- ein Fehler hier darf den Start nie kippen.
+        # Onboarding (erster Start: Name + Transparenz-Hinweis) NACH dem Aufbau
+        # planen. Streng defensiv -- ein Fehler hier darf den Start nie kippen.
         self.after(700, self._maybe_onboard)
-        # Telemetrie-Sender (opt-in, Daemon-Thread) ~1.5s nach Start anwerfen.
+        # Anonymer Telemetrie-Sender (Daemon-Thread) ~1.5s nach Start anwerfen.
         self.after(1500, self._start_telemetry)
 
     # -- Fenster-Icon / Render -------------------------------------------
@@ -236,7 +247,7 @@ class App(
         except Exception:
             pass
 
-    # -- Titelleiste (Logo + EN|DE + Schliessen) -------------------------
+    # -- Ansichts-Kopf + die getauschten Ansichten -----------------------
 
     def _view_header(self, parent, title, sub, badge=None):
         """Baut den 'view-head': Titel + dezenter Untertitel + optionale Pille."""
@@ -278,6 +289,15 @@ class App(
         if view in ('fishing', 'puzzle') and not self.controller.running:
             self.controller.set_mode(view)
             self._cfg = self.controller.current_config()
+        # Ranking-Tab: beim OEFFNEN die Rangliste laden (out-of-band Submit +
+        # Fetch laufen auf einem Worker; der 30s-Cache daempft Wiederholungen).
+        # Streng defensiv -- ein Fehler hier darf den Ansichtswechsel nie kippen.
+        if view == 'ranking':
+            try:
+                from interface import ranking_view
+                ranking_view.refresh_leaderboard(self)
+            except Exception:
+                pass
         self.sync_controls()   # Hero-Text + Lauf-Punkte fuer den neuen Modus
 
     # -- Event-Handler ----------------------------------------------------

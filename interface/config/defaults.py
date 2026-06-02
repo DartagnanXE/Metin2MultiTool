@@ -59,13 +59,16 @@ TELEMETRY_INTERVAL_DEFAULT = 120
 # Laengenkappen (defensiv -- ein kaputtes Feld darf nichts Riesiges erzeugen).
 USERNAME_MAXLEN = 32
 URL_MAXLEN = 300
+# Random install-id (uuid4 hex = 32 Zeichen; str-Form 36) -- defensiv gekappt.
+# Mirrort telemetry.hwid.INSTALL_ID_MAXLEN + server HWID_MAXLEN.
+INSTALL_ID_MAXLEN = 64
 # Plausibilitaets-Obergrenzen fuer die Statistik (nur zur Konsistenz; der Server
 # validiert hart -- hier nur, damit die UI/der Sender nichts Absurdes anzeigt).
 STATS_MAX_COUNT = 100_000_000        # 100 Mio Faenge/Puzzles
 STATS_MAX_RUNTIME_S = 100_000_000.0  # ~3 Jahre Laufzeit in Sekunden
 
 # Platzhalter-URLs (KEIN Live-Server in Run 1). Der Nutzer/Build traegt die echte
-# Subdomain ein; der Sender ist ohnehin opt-in + standardmaessig AUS.
+# Subdomain ein; der anonyme Zaehler sendet erst, wenn eine echte URL gesetzt ist.
 DEFAULT_SUBMIT_URL = 'https://ranking.example.tld/submit'
 DEFAULT_LEADERBOARD_URL = 'https://ranking.example.tld/leaderboard'
 
@@ -117,15 +120,23 @@ DEFAULTS = {
         'hotkey': 'i',            # In-Game-Taste, die das Inventar oeffnet
         'auto_scan_after_fishing': False,  # vorerst nur Setting + Roadmap
     },
-    # Selbstgewaehlter Ranking-Name (einzige "PII"). Leer = noch nicht gewaehlt
-    # (Onboarding-Dialog beim ersten Start). Wird NICHT in to_values gereicht --
-    # die Telemetrie liest ihn direkt aus der Config.
+    # Selbstgewaehlter Ranking-Name (einzige "PII"). Leer = anonym (man erscheint
+    # unter dem generierten Anon-Namen). Setzen = Opt-in, diesen Namen zu zeigen.
+    # Wird NICHT in to_values gereicht -- die Telemetrie liest ihn direkt aus der
+    # Config.
     'username': '',
-    # Ranking-Telemetrie: standardmaessig AUS (GDPR-Opt-in). consented merkt sich,
-    # dass der Nutzer im Onboarding entschieden hat (egal ob ja/nein) -> der
-    # Dialog erscheint nur EINMAL.
+    # Ranking-Telemetrie: ANONYMER, IMMER-AN Zaehler (keine Opt-out-Wahl mehr).
+    #   * install_id: zufaellige uuid4, EINMAL beim ersten Lauf erzeugt + hier
+    #     gespeichert (leer = noch nicht erzeugt; wird beim ersten Senden lazy
+    #     gefuellt). KEINE Hardware-/Geraete-Ableitung.
+    #   * enabled: VESTIGIAL (Rueckwaerts-Kompat alter config.json) -- default
+    #     True, wird NICHT mehr als Opt-out-Gate gelesen. Das echte "senden wir?"
+    #     ist: install_id + submit_url vorhanden UND nicht blockiert.
+    #   * consented: merkt, dass das Onboarding entschieden wurde -> Dialog nur
+    #     EINMAL.
     'telemetry': {
-        'enabled': False,
+        'install_id': '',
+        'enabled': True,
         'consented': False,
         'submit_url': DEFAULT_SUBMIT_URL,
         'leaderboard_url': DEFAULT_LEADERBOARD_URL,
@@ -153,6 +164,7 @@ __all__ = [
     'HOTKEY_TOKENS', 'WEEKDAYS', 'EVENT_WARN_MIN_MAX',
     'TELEMETRY_INTERVAL_MIN', 'TELEMETRY_INTERVAL_MAX',
     'TELEMETRY_INTERVAL_DEFAULT', 'USERNAME_MAXLEN', 'URL_MAXLEN',
+    'INSTALL_ID_MAXLEN',
     'STATS_MAX_COUNT', 'STATS_MAX_RUNTIME_S',
     'DEFAULT_SUBMIT_URL', 'DEFAULT_LEADERBOARD_URL', 'DEFAULT_CONFIG_PATH',
     'DEFAULTS',

@@ -42,10 +42,10 @@ class LifecycleMixin:
     # -- UI-Synchronisierung ---------------------------------------------
 
     def _maybe_onboard(self):
-        """Zeigt beim ersten Start den Onboarding-Dialog (Name + GDPR-Opt-in).
+        """Zeigt beim ersten Start den Onboarding-Dialog (Name + Transparenz-Hinweis).
 
-        Nur wenn noch kein Name gewaehlt UND noch nie zugestimmt/abgelehnt wurde.
-        Streng defensiv -- ein Fehler hier darf den Start nie kippen."""
+        Nur wenn noch kein Name gewaehlt UND das Onboarding noch nie entschieden
+        wurde. Streng defensiv -- ein Fehler hier darf den Start nie kippen."""
         try:
             from interface import onboarding
             if onboarding.needs_onboarding(self.controller.current_config()):
@@ -57,7 +57,8 @@ class LifecycleMixin:
         """Nach dem Onboarding: Widgets/Tab aktualisieren + ggf. Sender starten."""
         try:
             self._cfg = self.controller.current_config()
-            # Sender-Zustand neu bewerten (Opt-in koennte jetzt an sein).
+            # Sender-Zustand neu bewerten (Name koennte jetzt gesetzt sein) +
+            # Ranking-Tab aktualisieren.
             self._start_telemetry()
             from interface import ranking_view
             ranking_view.refresh_leaderboard(self)
@@ -70,7 +71,13 @@ class LifecycleMixin:
         Liefert genau die Felder, die telemetry.client.start_sender erwartet
         (enabled/username/submit_url/interval_s + fertiges payload). Liest NUR
         unveraenderliche Kopien (current_config + app._stats) -> sicher aus dem
-        Daemon-Thread aufrufbar. Wirft nie."""
+        Daemon-Thread aufrufbar.
+
+        Anonymes Modell: die Identitaet ist die ZUFAELLIGE install_id (einmalig
+        erzeugt + in der Config persistiert); sie wird als (Draht-)``hwid`` ins
+        Payload gereicht. ``enabled`` haengt NICHT mehr an einem Nutzer-Opt-out
+        -- nur daran, dass install_id + submit_url existieren UND nicht blockiert
+        wurde. Wirft nie."""
         try:
             cfg = self.controller.current_config()
             telemetry = cfg.get('telemetry', {})
@@ -79,18 +86,26 @@ class LifecycleMixin:
             from version import __version__
             import datetime as _dt
             stats = getattr(self, '_stats', None)
-            hwid_value = getattr(self, '_hwid_cache', None)
-            if hwid_value is None:
-                hwid_value = hwid.get_hwid()
-                self._hwid_cache = hwid_value
+            install_id = getattr(self, '_install_id', None)
+            if not install_id:
+                install_id = str(telemetry.get('install_id', '') or '')
+                if not install_id:
+                    # Einmalig erzeugen + persistieren (immutabel, auto-saved).
+                    install_id = hwid.ensure_install_id(
+                        lambda: self.controller.current_config().get(
+                            'telemetry', {}).get('install_id', ''),
+                        lambda v: self.controller.update_config(
+                            'telemetry', 'install_id', v))
+                self._install_id = install_id
             built = payload.build_submit(
-                username, hwid_value, stats, __version__, _dt.datetime.now())
+                username, install_id, stats, __version__, _dt.datetime.now())
+            submit_url = str(telemetry.get('submit_url', '') or '')
             return {
-                'enabled': bool(telemetry.get('enabled', False))
+                'enabled': bool(install_id) and bool(submit_url)
                            and not self._ranking_banned,
                 'username': username,
-                'hwid': hwid_value,
-                'submit_url': telemetry.get('submit_url', ''),
+                'hwid': install_id,
+                'submit_url': submit_url,
                 'interval_s': telemetry.get('interval_s', 120),
                 'payload': built,
             }
@@ -99,9 +114,9 @@ class LifecycleMixin:
                     'submit_url': '', 'interval_s': 120, 'payload': {}}
 
     def _start_telemetry(self):
-        """Startet (oder ersetzt) den Telemetrie-Daemon-Sender. Gated durch das
-        Opt-in im Snapshot -- laeuft also leer, solange Telemetrie aus ist.
-        Streng defensiv; wirft nie."""
+        """Startet (oder ersetzt) den Telemetrie-Daemon-Sender. Gated durch den
+        Snapshot -- laeuft leer, solange keine install_id/URL existiert oder die
+        Installation blockiert ist. Streng defensiv; wirft nie."""
         try:
             interval = int(self._cfg.get('telemetry', {}).get('interval_s', 120))
         except Exception:

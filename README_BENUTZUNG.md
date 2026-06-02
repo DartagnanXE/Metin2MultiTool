@@ -269,6 +269,28 @@ triggern als ein entpackter Ordner; die Gegenmaßnahmen unten gelten.
   **`puzzle_debug.log`** wird pro Start neu angelegt — zum Festhalten eines
   Fehlers vorher wegkopieren.
 
+## 9. Anonyme Nutzungs-Statistik & Rangliste
+
+Die App führt einen kleinen, **immer aktiven anonymen** Nutzungs-Zähler für eine
+Online-**Rangliste**. Das ist ein **Hinweis**, keine Zustimmungs-Abfrage.
+
+- **Was erfasst wird:** eine **zufällige Pro-Installation-ID** (einmalig erzeugte
+  `uuid4`, lokal in `config.json` gespeichert — _kein_ Geräte-Fingerabdruck) +
+  **Zähler** (Fänge, gelöste Puzzles, Angel- / Puzzle-Laufzeit) + **App-Version**.
+  **Keine personenbezogenen Daten.**
+- **Alle erscheinen anonym** unter einem generierten lustigen Namen aus der
+  zufälligen ID (gleiche ID → gleicher Name, z. B. `TapfererThunfisch#4711`).
+- **Mit Namen erscheinen (optional):** Trägst du im Willkommens-Dialog oder unter
+  _Einstellungen → Rangliste_ einen Namen ein, wird **nur dieser Name** auf der
+  Rangliste sichtbar. Feld leeren → zurück zum anonymen Namen. Der Name ist das
+  **einzige** potenziell identifizierende Datum und freiwillig.
+- **Anti-Cheat:** Eine Installations-ID kann von der Rangliste **gesperrt** und
+  ein Name **ausgeblendet** werden (zeigt dann den anonymen Namen). Keines ist
+  eine dauerhafte Personen-Sperre — die ID ist durch Editieren des Open-Source-
+  Clients austauschbar (nur Massenschutz).
+- **Keine rohe IP** wird gespeichert (nur ein gesalzener Hash, dann verworfen).
+- **Löschung:** über die Projektseite anfragen (nach Installations-ID oder Name).
+
 ---
 
 _Build-Härtung: upx=False, Portable (onefile), PE-Versions-Ressource, gepinnte

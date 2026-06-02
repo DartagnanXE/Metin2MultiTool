@@ -14,7 +14,9 @@ Stdlib only.
 SCHEMA_VERSION = 1
 
 # Client-side caps (the server re-validates -- never trust the client, even our
-# own). Kept in sync with interface.config.USERNAME_MAXLEN / hwid.HWID_HEX_LEN.
+# own). Kept in sync with interface.config.USERNAME_MAXLEN and the install-id cap
+# (hwid.INSTALL_ID_MAXLEN). The wire field is still named 'hwid' but now carries
+# the random install id (not a device hash).
 USERNAME_MAXLEN = 32
 HWID_MAXLEN = 64
 APP_VERSION_MAXLEN = 32

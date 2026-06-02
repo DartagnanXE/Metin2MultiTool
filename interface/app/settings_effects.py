@@ -79,21 +79,6 @@ class SettingsEffectsMixin:
         self._cfg = self.controller.update_config(
             'events', 'warn_minutes', minutes)
 
-    def _on_ranking_toggle(self):
-        """Telemetrie an/aus (Opt-in). Markiert consent + (de)aktiviert den
-        Sender ueber den Telemetrie-Snapshot (der Sender pollt den Zustand)."""
-        on = bool(self._ranking_var.get())
-        self._cfg = self.controller.update_config('telemetry', 'enabled', on)
-        # Einschalten = bewusste Entscheidung -> consent markieren.
-        self._cfg = self.controller.update_config(
-            'telemetry', 'consented', True)
-        # Ranking-Tab-Hinweis sofort aktualisieren (Off/Loading).
-        try:
-            from interface import ranking_view
-            ranking_view.refresh_leaderboard(self)
-        except Exception:
-            pass
-
     def _on_username_change(self, _event=None):
         """Ranglisten-Name geaendert -> top-level 'username' speichern."""
         try:

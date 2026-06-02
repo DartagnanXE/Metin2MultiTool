@@ -6,11 +6,12 @@ contract-level guarantees the spec calls out explicitly:
 
   * PAYLOAD SHAPE is byte-identical to the server's SubmitIn schema (same keys,
     same client/server caps) so a built payload always validates server-side.
-  * OPT-IN GATE is OFF BY DEFAULT at the *config* layer (telemetry.enabled =
-    False) AND at the sender layer (a disabled/empty-username/empty-url snapshot
-    sends nothing). Toggling enabled live flips sending on.
-  * HWID is STABLE (same machine inputs -> same id), ANONYMOUS (opaque hex, no
-    raw GUID/serial/hostname leaks into it), and bounded length.
+  * The anonymous always-on COUNTER is gated only by "id + url present, not
+    blocked": a snapshot with an install id (carried as ``hwid``) + url sends
+    WITHOUT a chosen username; an empty id/url or a blocked snapshot sends
+    nothing. There is no user opt-out.
+  * The install id is RANDOM (uuid4 hex), unique per generation, bounded length,
+    and carries NO device fingerprint.
   * The SENDER never throws on a network error -- it backs off and keeps the
     thread alive; a 'banned' reply stops it and emits 'banned' exactly once.
 
@@ -96,58 +97,56 @@ class TestPayloadShapeMatchesServer(unittest.TestCase):
         SubmitIn(**self._payload())
 
 
-class TestOptInGateOffByDefault(unittest.TestCase):
-    def test_config_default_telemetry_off(self):
+class TestAnonymousAlwaysOnGate(unittest.TestCase):
+    def test_config_default_install_id_empty_enabled_vestigial(self):
+        # install_id starts empty (filled lazily on first send); 'enabled' is a
+        # vestigial always-true flag (no opt-out); consent starts undecided.
         cfg = cfgmod.validate(cfgmod.DEFAULTS)
-        self.assertFalse(cfg['telemetry']['enabled'])
+        self.assertEqual(cfg['telemetry']['install_id'], '')
+        self.assertTrue(cfg['telemetry']['enabled'])
         self.assertFalse(cfg['telemetry']['consented'])
 
     def test_config_default_username_empty(self):
         self.assertEqual(cfgmod.validate(cfgmod.DEFAULTS)['username'], '')
 
-    def test_gated_helper_blocks_disabled(self):
-        self.assertFalse(client._gated(
-            {'enabled': False, 'username': 'bob', 'submit_url': 'https://x/s'}))
-
-    def test_gated_helper_blocks_empty_username(self):
-        self.assertFalse(client._gated(
-            {'enabled': True, 'username': '   ', 'submit_url': 'https://x/s'}))
-
-    def test_gated_helper_blocks_empty_url(self):
-        self.assertFalse(client._gated(
-            {'enabled': True, 'username': 'bob', 'submit_url': ''}))
-
-    def test_gated_helper_allows_full_opt_in(self):
+    def test_gated_allows_without_username(self):
+        # Anonymous counter: an install id (carried as 'hwid') + url is enough;
+        # NO chosen username required.
         self.assertTrue(client._gated(
-            {'enabled': True, 'username': 'bob', 'submit_url': 'https://x/s'}))
+            {'enabled': True, 'hwid': 'idabc', 'username': '',
+             'submit_url': 'https://x/s'}))
+
+    def test_gated_blocks_empty_install_id(self):
+        self.assertFalse(client._gated(
+            {'enabled': True, 'hwid': '', 'submit_url': 'https://x/s'}))
+
+    def test_gated_blocks_empty_url(self):
+        self.assertFalse(client._gated(
+            {'enabled': True, 'hwid': 'idabc', 'submit_url': ''}))
+
+    def test_gated_blocks_when_blocked(self):
+        # 'enabled' False is the BLOCKED stop-signal: halts sending.
+        self.assertFalse(client._gated(
+            {'enabled': False, 'hwid': 'idabc', 'submit_url': 'https://x/s'}))
 
 
-class TestHwidStableAnonymous(unittest.TestCase):
-    def test_stable_for_same_inputs(self):
-        a = hwid.compute_hwid(raw_guid='G', raw_serial='S', node='host')
-        b = hwid.compute_hwid(raw_guid='G', raw_serial='S', node='host')
-        self.assertEqual(a, b)
-
-    def test_anonymous_no_raw_value_leaks(self):
-        # The opaque hash must not contain the raw identifiers verbatim.
-        guid, serial, node = 'SECRET-GUID-123', 'VOL-SERIAL-999', 'MY-PC-NAME'
-        h = hwid.compute_hwid(raw_guid=guid, raw_serial=serial, node=node)
-        self.assertNotIn(guid, h)
-        self.assertNotIn(serial, h)
-        self.assertNotIn(node, h)
+class TestInstallIdRandomAnonymous(unittest.TestCase):
+    def test_random_unique_across_calls(self):
+        ids = {hwid.new_install_id() for _ in range(100)}
+        self.assertEqual(len(ids), 100)
 
     def test_hex_only_and_bounded(self):
-        h = hwid.compute_hwid(raw_guid='G', raw_serial='S', node='h')
-        self.assertEqual(len(h), hwid.HWID_HEX_LEN)
-        int(h, 16)   # opaque lowercase hex
-        self.assertTrue(all(c in '0123456789abcdef' for c in h))
+        i = hwid.new_install_id()
+        self.assertEqual(len(i), 32)
+        int(i, 16)   # opaque lowercase hex
+        self.assertTrue(all(c in '0123456789abcdef' for c in i))
 
-    def test_changes_when_machine_changes(self):
-        a = hwid.compute_hwid(raw_guid='G1', raw_serial='S', node='h')
-        b = hwid.compute_hwid(raw_guid='G2', raw_serial='S', node='h')
-        self.assertNotEqual(a, b)
+    def test_no_hardware_derivation_remains(self):
+        # No device fingerprint API survives the model change.
+        for gone in ('compute_hwid', '_read_machine_guid', '_read_volume_serial'):
+            self.assertFalse(hasattr(hwid, gone))
 
-    def test_get_hwid_is_stable_within_process(self):
+    def test_get_hwid_shim_is_stable_within_process(self):
         self.assertEqual(hwid.get_hwid(), hwid.get_hwid())
 
 
@@ -157,9 +156,11 @@ class TestSenderRobustness(unittest.TestCase):
         time.sleep(0.05)
 
     def _state(self, **over):
-        s = {'enabled': True, 'username': 'bob',
+        # Anonymous gate: top-level 'hwid' = the install id (required); a chosen
+        # username is optional. Mirrors the real _telemetry_state snapshot.
+        s = {'enabled': True, 'hwid': 'idabc', 'username': '',
              'submit_url': 'https://x/submit', 'interval_s': 1,
-             'payload': {'hwid': 'h'}}
+             'payload': {'hwid': 'idabc'}}
         s.update(over)
         return s
 

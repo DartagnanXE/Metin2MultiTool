@@ -2,8 +2,9 @@
 """Tests for the Run-1 config additions (interface/config.py).
 
 Covers: mount defaults + key validation; event-window defaults + HH:MM/weekday/
-warn validation with clamp/fallback on garbage; telemetry defaults (off, url
-placeholders, interval clamp, consented); username default + cap; to_values
+warn validation with clamp/fallback on garbage; telemetry defaults (anonymous
+always-on: install_id empty, enabled vestigial-True, url placeholders, interval
+clamp, consented); install_id validation/cap; username default + cap; to_values
 gains -MOUNT-/-MOUNTKEY- and golden-tuna stays untouched; immutability +
 never-raises preserved. Pure stdlib, headless (interface/__init__ is stdlib).
 """
@@ -111,14 +112,35 @@ class TestEvents(unittest.TestCase):
 
 
 class TestTelemetry(unittest.TestCase):
-    def test_telemetry_defaults_off(self):
+    def test_telemetry_defaults_anonymous_always_on(self):
+        # Anonymous always-on model: install_id starts empty (filled lazily on
+        # first send), 'enabled' is now a VESTIGIAL always-true flag (NOT an
+        # opt-out gate), consent (=decided) starts False so onboarding shows once.
         cfg = config.validate(config.DEFAULTS)
         tel = cfg['telemetry']
-        self.assertFalse(tel['enabled'])
+        self.assertEqual(tel['install_id'], '')
+        self.assertTrue(tel['enabled'])              # vestigial True (no opt-out)
         self.assertFalse(tel['consented'])
         self.assertEqual(tel['interval_s'], config.TELEMETRY_INTERVAL_DEFAULT)
         self.assertTrue(tel['submit_url'].startswith('https://'))
         self.assertTrue(tel['leaderboard_url'].startswith('https://'))
+
+    def test_install_id_validated_capped(self):
+        # _validate_install_id: strips, lowercases, caps; '' on None/junk; NEVER
+        # generates (generation is the app/thin-module's job).
+        self.assertEqual(config._validate_install_id(None), '')
+        self.assertEqual(config._validate_install_id('  ABC123  '), 'abc123')
+        self.assertEqual(len(config._validate_install_id('a' * 500)),
+                         config.INSTALL_ID_MAXLEN)
+        # A stored id round-trips through validate() unchanged (stripped/lower).
+        cfg = config.validate({'telemetry': {'install_id': '  DEADBEEF  '}})
+        self.assertEqual(cfg['telemetry']['install_id'], 'deadbeef')
+
+    def test_enabled_defaults_true_when_absent(self):
+        # An old config.json without 'enabled' -> defaults to the vestigial True.
+        cfg = config.validate({'telemetry': {'submit_url':
+                                             'https://my.host/submit'}})
+        self.assertTrue(cfg['telemetry']['enabled'])
 
     def test_interval_clamped(self):
         hi = config.validate({'telemetry': {'interval_s': 999999}})

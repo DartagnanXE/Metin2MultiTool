@@ -65,6 +65,48 @@ def clear_preferred_hwnd():
     _PREFERRED_HWND = None
 
 
+# Modus-Werte fuer die Fenster-Auswahl (Item N). Reine Strings, damit sie auch
+# headless (ohne win32/Tk) verfuegbar + testbar sind.
+MODE_LAST_FOCUSED = 'last_focused'
+MODE_SPECIFIC = 'specific'
+
+
+def select_target_hwnd(windows, mode, chosen_hwnd, find_fn=None):
+    """REINE, stdlib-only Auswahl-Logik fuer das Ziel-HWND (Item N -- testbar).
+
+    Entscheidet, WELCHES Fenster-Handle ``set_preferred_hwnd`` bekommen soll,
+    OHNE selbst win32 zu beruehren -- die Liste sichtbarer Fenster wird injiziert
+    (``windows`` aus :func:`enumerate_game_windows`), sodass diese Funktion in
+    reinen Unit-Tests vollstaendig abgedeckt werden kann.
+
+      * ``mode == 'last_focused'`` (Default): liefert ``None`` -- das signalisiert
+        dem Aufrufer den LEGACY-Pfad (``set_preferred_hwnd(None)`` ->
+        ``WindowCapture`` faellt auf ``FindWindow`` zurueck, byte-identisch zu
+        frueher / zum zuletzt fokussierten Fenster).
+      * ``mode == 'specific'``: liefert ``chosen_hwnd`` NUR, wenn es noch in
+        ``windows`` (sichtbar/gueltig) vorhanden ist; sonst ``None`` (sicherer
+        Rueckfall auf den Legacy-Pfad, statt ein totes Handle zu pushen).
+
+    :param windows: Liste der aktuell sichtbaren Spiel-Fenster (Dicts mit
+        ``'hwnd'``), z.B. aus :func:`enumerate_game_windows`. ``None`` -> ``[]``.
+    :param mode: ``'last_focused'`` oder ``'specific'`` (unbekannt -> wie Default).
+    :param chosen_hwnd: das vom Nutzer gewaehlte Handle (oder ``None``).
+    :param find_fn: optionaler Haken (derzeit ungenutzt; haelt die Signatur offen
+        fuer kuenftige FindWindow-Injektion in Tests). Wirft nie.
+    :return: das zu praeferierende HWND (int) oder ``None`` fuer den Legacy-Pfad.
+    """
+    if mode != MODE_SPECIFIC:
+        # 'last_focused' (oder unbekannt) -> Legacy-Pfad.
+        return None
+    if not chosen_hwnd:
+        return None
+    try:
+        valid = {w.get('hwnd') for w in (windows or [])}
+    except Exception:
+        valid = set()
+    return chosen_hwnd if chosen_hwnd in valid else None
+
+
 def client_size(hwnd):
     """Liefert die WAHRE Client-Groesse ``(w, h)`` des Fensters oder ``None``.
 

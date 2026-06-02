@@ -4,22 +4,33 @@ Concise and honest. The leaderboard is an **honor-system** feature for a hobby,
 open-source bot. The security goal is **mass-protection** of the board plus hard
 **isolation** of the co-hosted `kilab` stack — not making a spoof-proof score.
 
+> **Anonymous model.** The board is an always-on **anonymous** counter keyed by a
+> **random per-install id** (a `uuid4` generated once and stored client-side).
+> The wire/DB field is still named `hwid` for zero-churn compatibility, but it
+> **carries the random install id — it is NOT a device fingerprint.** The only
+> consent / personal datum is an **optional** self-chosen display name; without
+> one a row shows a deterministic anonymous name derived from the id.
+
 ## Assets
 
-1. The leaderboard DB (usernames + cumulative counters + hashed IPs).
-2. The `ADMIN_TOKEN` (ban/delete authority).
+1. The leaderboard DB (a random install id + cumulative counters + a salted IP
+   hash + an **optional** self-chosen name).
+2. The `ADMIN_TOKEN` (block-install / hide-name / delete authority).
 3. **The co-hosted `kilab` Docker stack** (the most valuable asset on the box).
 
 ## What an attacker CAN do (accepted / mitigated)
 
-- **Spoof HWID and username.** The client is open source, so there is no real
-  secret in it — a source editor can send any HWID/username. _Accepted._ The
-  HWID is only a stable handle for mass bans/erasure, not authentication. This
-  is stated plainly and not oversold.
+- **Rotate the install id (and pick any name).** The client is open source, so
+  there is no real secret in it — a source editor can mint a new random install
+  id and send any name. _Accepted._ The install id is only a stable handle for
+  **mass** protection (block one installation / erase by id), not authentication,
+  and is explicitly **not** a device fingerprint. Blocking an id is therefore
+  mass-protection only — a new id evades it. Stated plainly, not oversold.
 - **Submit junk values within the caps.** Mitigated by strict pydantic
-  validation (types, length caps, numeric maxima), per-IP **and** per-HWID rate
-  limits (nginx **and** app-level), and an **implausible-jump** check that
-  rejects a submit growing a counter far beyond the identity's last value.
+  validation (types, length caps, numeric maxima; the name is optional/blank-
+  allowed), per-IP **and** per-install rate limits (nginx **and** app-level), and
+  an **implausible-jump** check that rejects a submit growing a counter far
+  beyond the install's last value.
 - **Scrape the leaderboard.** Mitigated by a short in-process cache + per-IP
   rate limit; the board is public by design anyway.
 - **Flood the endpoint.** Mitigated by defense-in-depth limits (nginx
@@ -43,7 +54,9 @@ open-source bot. The security goal is **mass-protection** of the board plus hard
 
 - **Admin without the token.** `/admin/*` and the CLI require `ADMIN_TOKEN`,
   compared with `hmac.compare_digest` (constant-time). Unset token → admin is
-  disabled (fail closed). The token is never in the client.
+  disabled (fail closed). The token is never in the client. The admin axes are
+  `install` (block/unblock/erase an installation by id) and `name` (hide/unhide/
+  erase a chosen name); there is **no general person-ban**.
 - **Pivot from a popped telemetry container to kilab.** Even with full RCE in
   this container there is **no path** to kilab because:
   - it runs on its **own** docker network (`m2fb_telemetry_net`), not kilab's;
@@ -59,21 +72,28 @@ open-source bot. The security goal is **mass-protection** of the board plus hard
 - **Read raw client IPs.** Only a salted SHA-256 of the IP is stored
   (`IP_HASH_SALT`), so the DB holds no raw IP (GDPR).
 
-## GDPR
+## GDPR / transparency note
 
-- Telemetry is **OFF by default**; it sends only after the user explicitly opts
-  in (client onboarding checkbox defaults off).
-- The only personal datum is the self-chosen username; the HWID is a hash.
-- Erasure is supported by HWID or username (`admin.delete` / CLI `delete`).
-- Stored IPs are hashed, not raw.
+- **Collected:** a **random per-install UUID** + counters (catches,
+  puzzles_solved, fishing/puzzle runtime) + app version + a **salted IP hash**.
+  **No personal data** unless the user opts in by typing a chosen name.
+- The anonymous counter is **always on** (there is no opt-out); the app shows a
+  one-line transparency notice and the README documents the model — that notice
+  is the basis the always-on counter relies on.
+- The random id is **not a device fingerprint** and can be rotated by editing the
+  open-source client.
+- **No raw IP is stored** (salted SHA-256 only, then discarded).
+- **Erasure** is supported by install id or by name (`admin.delete` / CLI
+  `delete --install|--name`).
 
 ## Residual risks (accepted)
 
-- A determined attacker can still inflate a **single** identity's score within
-  the per-submit caps and rate limits (e.g. slow, plausible growth). For an
-  honor-system hobby board this is acceptable; bans/erasure handle the rest.
-- HWID spoofing means a banned user can return under a new HWID/username. Again,
-  mass-protection only — accepted and documented rather than overstated.
+- A determined attacker can still inflate a **single** install's score within the
+  per-submit caps and rate limits (e.g. slow, plausible growth). For an honor-
+  system hobby board this is acceptable; block/hide/erasure handle the rest.
+- Install-id rotation means a blocked installation can return under a new id, and
+  a hidden name can be re-chosen. Again, **mass-protection only** — accepted and
+  documented rather than overstated.
 
 ## Why kilab stays safe even if telemetry is fully compromised
 

@@ -10,109 +10,25 @@ from interface.app._common import *  # noqa: F401,F403
 
 
 class ShellMixin:
-    def _build_titlebar(self):
-        """Schmale Titelleiste: Logo + Titel (links), EN|DE + Schliessen (rechts).
-
-        ``self.topbar`` bleibt der Name (``_rebuild_ui`` zerstoert ihn beim
-        Sprachwechsel und baut ihn neu).
-        """
-        bar = ctk.CTkFrame(self, fg_color=PANEL_DARK, corner_radius=0)
-        bar.grid(row=0, column=0, sticky='ew')
-        bar.grid_columnconfigure(1, weight=1)   # Spacer-Spalte waechst
-        self.topbar = bar
-
-        # col 0 -- Logo + Titel.
-        ident = ctk.CTkFrame(bar, fg_color='transparent')
-        ident.grid(row=0, column=0, sticky='w', padx=(12, 0), pady=7)
-        self._place_logo(ident)
-        ctk.CTkLabel(ident, text='Metin2 ', text_color=TEXT_MUTED,
-                     font=ctk.CTkFont(size=12)).grid(row=0, column=1, sticky='w')
-        ctk.CTkLabel(ident, text='Fishing Bot', text_color=TEXT,
-                     font=ctk.CTkFont(size=12, weight='bold')).grid(
-            row=0, column=2, sticky='w')
-
-        # col 2 -- EN|DE-Umschalter (oben rechts, dezent).
-        self._build_lang_toggle(bar).grid(row=0, column=2, sticky='e', padx=4)
-
-        # col 3 -- Schliessen "X" (ASCII-sicher).
-        ctk.CTkButton(bar, width=24, height=24, text='X',
-                      fg_color='transparent', hover_color=DANGER_SOFT,
-                      text_color=TEXT_MUTED, corner_radius=7,
-                      font=ctk.CTkFont(size=12, weight='bold'),
-                      command=self._on_close).grid(
-            row=0, column=3, sticky='e', padx=(0, 10))
-
-    def _place_logo(self, parent):
-        """Laedt das musketier.ico als kleines Logo (PIL->CTkImage). Faellt das
-        aus, bleibt es text-only -- NIE crashen, KEIN neues Logo erfinden."""
-        try:
-            from PIL import Image
-            path = resource_path(ICON_FILE)
-            if os.path.exists(path):
-                img = Image.open(path).convert('RGBA')
-                self._logo_img = ctk.CTkImage(light_image=img, dark_image=img,
-                                              size=(20, 20))
-                ctk.CTkLabel(parent, image=self._logo_img, text='').grid(
-                    row=0, column=0, sticky='w', padx=(0, 6))
-                return
-        except Exception:
-            pass
-        # Fallback: kein Bild -> nur eine schmale Luecke.
-        ctk.CTkLabel(parent, text='', width=4).grid(row=0, column=0)
-
-    def _build_lang_toggle(self, parent):
-        """Kleiner, dezenter EN/DE-Umschalter: klickbare Mini-Labels (aktiv teal,
-        inaktiv grau)."""
-        frame = ctk.CTkFrame(parent, fg_color='transparent')
-        self._lang_labels = {}
-        for col, lang in ((0, 'en'), (2, 'de')):
-            lbl = ctk.CTkLabel(frame, text=lang.upper(), width=18,
-                               font=ctk.CTkFont(size=11, weight='bold'),
-                               cursor='hand2')
-            lbl.grid(row=0, column=col)
-            lbl.bind('<Button-1>',
-                     lambda _e, lng=lang: self._on_lang_change(lng))
-            self._lang_labels[lang] = lbl
-        ctk.CTkLabel(frame, text='|', text_color=TEXT_MUTED,
-                     font=ctk.CTkFont(size=10)).grid(row=0, column=1, padx=1)
-        self._refresh_lang_toggle()
-        return frame
-
-    def _refresh_lang_toggle(self):
-        cur = get_lang()
-        for lang, lbl in getattr(self, '_lang_labels', {}).items():
-            lbl.configure(text_color=(TEAL if lang == cur else TEXT_MUTED))
-
-    def _on_lang_change(self, lang):
-        """Schaltet die Sprache um, speichert sie und rendert das UI neu."""
-        if lang == get_lang():
-            return
-        set_lang(lang)
-        self.controller.set_language(lang)
-        log.event('-', t('ui.language_changed', lang=lang))
-        # Erst NACH dem Callback neu bauen (nicht das klickende Widget zerstoeren).
-        self.after(10, self._rebuild_ui)
-
     def _rebuild_ui(self):
-        """Baut Titelleiste + Shell in der aktuellen Sprache neu (Sprachwechsel).
+        """Baut die Shell in der aktuellen Sprache neu (Sprachwechsel).
 
         Der Laufzustand bleibt erhalten (steckt im BotController, nicht in den
         Widgets); die Log-Senke wird sauber ab- und wieder angehaengt. Footer
-        (row 3) und Update-Banner (row 2) liegen auf eigenen Zeilen und werden
-        NICHT zerstoert -- nur ihre Texte werden aufgefrischt.
+        (row 2) und Update-Banner (row 1) liegen auf eigenen Zeilen und werden
+        NICHT zerstoert -- nur ihre Texte/Farben werden aufgefrischt (inkl. des
+        nun im Footer wohnenden EN|DE-Umschalters via ``_refresh_lang_toggle``).
         """
         try:
             self.log_panel.detach()
         except Exception:
             pass
-        for widget in (getattr(self, 'topbar', None),
-                       getattr(self, 'content', None)):
-            if widget is not None:
-                try:
-                    widget.destroy()
-                except Exception:
-                    pass
-        self._build_titlebar()
+        widget = getattr(self, 'content', None)
+        if widget is not None:
+            try:
+                widget.destroy()
+            except Exception:
+                pass
         self._build_content()
         self._show_view(self._active_view)
         self._apply_config_to_widgets()
@@ -120,6 +36,19 @@ class ShellMixin:
         self.sync_controls()
         if self._cfg['log']['show_in_ui']:
             self.log_panel.attach()
+        # Footer ueberlebt den Neuaufbau -> den EN|DE-Umschalter neu einfaerben,
+        # damit die aktive Sprache (teal) nach dem Wechsel stimmt.
+        try:
+            self._refresh_lang_toggle()
+        except Exception:
+            pass
+        # CS4: der Footer-Modus-Umschalter ueberlebt den Neuaufbau ebenfalls ->
+        # seinen (sprachabhaengigen) Text neu setzen, damit ein Sprachwechsel ihn
+        # sofort uebersetzt (sonst erst beim naechsten 1s-Poll via Picker-Refresh).
+        try:
+            self._refresh_window_mode_label()
+        except Exception:
+            pass
         # Update-Banner liegt auf einer eigenen Grid-Zeile -> NICHT zerstoert;
         # nur seine Texte neu setzen.
         if (getattr(self, '_update_info', None) is not None
@@ -137,12 +66,12 @@ class ShellMixin:
     # -- Shell: Rail + Body ----------------------------------------------
 
     def _build_content(self):
-        """Shell (row 1): Icon-Rail (col 0) + Body (col 1).
+        """Shell (row 0): Icon-Rail (col 0) + Body (col 1).
 
         ``self.content`` bleibt der Name (``_rebuild_ui`` zerstoert ihn).
         """
         self.content = ctk.CTkFrame(self, fg_color='transparent')
-        self.content.grid(row=1, column=0, sticky='nsew')
+        self.content.grid(row=0, column=0, sticky='nsew')
         self.content.grid_columnconfigure(1, weight=1)
         self.content.grid_rowconfigure(0, weight=1)
 
@@ -150,25 +79,37 @@ class ShellMixin:
         self._build_body(self.content)
 
     def _build_rail(self, parent):
-        """Schmale Icon-Rail: Fishing/Puzzle/Console oben, Settings unten."""
+        """Schmale Icon-Rail: Fishing/Puzzle/Ranking/Roadmap/Console oben, dann
+        ein SICHTBARER Trenner, danach Inventory (separat, weil temporaer bis
+        kalibriert), und unten angepinnt Settings."""
         rail = ctk.CTkFrame(parent, width=60, corner_radius=0, fg_color=RAIL_BG)
         rail.grid(row=0, column=0, sticky='ns')
         rail.grid_propagate(False)
         rail.grid_columnconfigure(0, weight=1)
-        # Top-Gruppe Fishing/Puzzle/Console/Inventory/Ranking/Roadmap (rows 0-5);
-        # die Spacer-Zeile (row 6) waechst und drueckt Settings (row 7) nach unten.
-        rail.grid_rowconfigure(6, weight=1)
+        # Top-Gruppe Fishing/Puzzle/Ranking/Roadmap/Console (rows 0-4); ein
+        # sichtbarer Trenner (row 5) markiert den "Inventory ist temporaer"-Bruch;
+        # Inventory (row 6); die Spacer-Zeile (row 7) waechst und drueckt Settings
+        # (row 8) nach unten.
+        rail.grid_rowconfigure(7, weight=1)
 
         self._rail_items = {}
         self._rail_dots = {}
-        rows = {'fishing': 0, 'puzzle': 1, 'console': 2, 'inventory': 3,
-                'ranking': 4, 'roadmap': 5, 'settings': 7}
+        rows = {'fishing': 0, 'puzzle': 1, 'ranking': 2, 'roadmap': 3,
+                'console': 4, 'inventory': 6, 'settings': 8}
         tip_keys = {'fishing': 'ui.view_fishing', 'puzzle': 'ui.view_puzzle',
                     'console': 'ui.view_console',
                     'inventory': 'ui.view_inventory',
                     'ranking': 'ui.view_ranking',
                     'roadmap': 'ui.view_roadmap',
                     'settings': 'ui.view_settings'}
+
+        # Sichtbarer, duenner Trenner (row 5) VOR dem Inventory-Item: macht die
+        # "Inventory ist (noch) separat/temporaer"-Trennung optisch klar.
+        self._rail_separator = ctk.CTkFrame(rail, height=2, width=34,
+                                            corner_radius=1,
+                                            fg_color=RAIL_HOVER)
+        self._rail_separator.grid(row=5, column=0, pady=(8, 8), padx=13)
+
         for view in RAIL_ORDER:
             btn = ctk.CTkButton(
                 rail, text=RAIL_GLYPHS[view], width=42, height=42,

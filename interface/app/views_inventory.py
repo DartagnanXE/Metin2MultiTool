@@ -83,6 +83,25 @@ class InventoryViewMixin:
             self._set_inv_status(t('ui.inventory_blocked_running'), AMBER)
             return
         present, _hwnd, gw, gh, healthy = _probe_game()
+        # CS3 (anti-hang): no Metin2 window -> abort PROMPTLY here, BEFORE the
+        # worker spawns. The old path left the button stuck on "scanning..." until
+        # the deep WindowCapture exception (or worse, spun against a stale/headless
+        # target). Now we show a clear "Metin2 nicht gefunden / nicht offen", log
+        # it to the Console, restore the button and return -- never starting the
+        # worker. (The runner has the same guard as belt-and-suspenders.)
+        if not present:
+            self._set_inv_status(t('ui.inventory_not_open'), AMBER)
+            try:
+                log.event('-', t('ui.inventory_not_open'))
+            except Exception:
+                pass
+            try:
+                self._inv_scan_btn.configure(state='normal',
+                                             text=t('ui.inventory_scan_btn'))
+            except Exception:
+                pass
+            self._inv_scanning = False
+            return
         if present and not healthy:
             self._set_inv_status(t('ui.detect_wrong_size', w=gw, h=gh), AMBER)
             return
@@ -92,6 +111,16 @@ class InventoryViewMixin:
         try:
             self._inv_scan_btn.configure(state='disabled',
                                          text=t('ui.inventory_scanning'))
+        except Exception:
+            pass
+        # CS4: bind the SELECTED window for the scan's duration so capture+input
+        # both derive from the picked hwnd (WindowCapture binds it). Honours the
+        # window MODE ('last_focused' -> legacy FindWindow; 'specific' -> the
+        # picked hwnd). Cleared again on completion in the done/failed handlers.
+        # Scans are idle-only (guarded above), so no concurrent run can race the
+        # module-global preferred hwnd.
+        try:
+            self._apply_preferred_hwnd()
         except Exception:
             pass
         cfg = self.controller.current_config()
@@ -104,7 +133,13 @@ class InventoryViewMixin:
                     cfg, previous_map=prev)   # loggt selbst in die Console
                 self.after(0, lambda: self._inv_scan_done(inv))
             except Exception as exc:
-                self.after(0, lambda: self._inv_scan_failed(exc))
+                # exc MUSS am Lambda-Erzeugungszeitpunkt gebunden werden: Python 3
+                # loescht ``exc`` am Ende des except-Blocks implizit (``del exc``),
+                # das via after(0,...) verzoegerte Lambda liefe aber erst im
+                # NAECHSTEN Tk-Tick -> NameError im Callback (von Tk verschluckt) ->
+                # _inv_scan_failed liefe nie -> der Knopf haenge fuer immer auf
+                # "Scanning...". Mit e=exc ueberlebt die Ausnahme den del.
+                self.after(0, lambda e=exc: self._inv_scan_failed(e))
 
         threading.Thread(target=_worker, name='inv-scan', daemon=True).start()
 
@@ -113,6 +148,11 @@ class InventoryViewMixin:
         Knopf frei und schreibt eine 1-Zeilen-Zusammenfassung in die Status-Zeile."""
         self._inv_last_map = inv
         self._inv_scanning = False
+        # CS4: release the scan-scoped window preference (back to FindWindow).
+        try:
+            self._clear_preferred_hwnd()
+        except Exception:
+            pass
         try:
             self._inv_scan_btn.configure(state='normal',
                                          text=t('ui.inventory_scan_btn'))
@@ -135,6 +175,11 @@ class InventoryViewMixin:
         Fehlt das Metin2-Fenster, wirft ``WindowCapture`` denselben 'not found'-
         Text wie beim Start -- dieselbe Erkennung wie notify_start_failed."""
         self._inv_scanning = False
+        # CS4: release the scan-scoped window preference (back to FindWindow).
+        try:
+            self._clear_preferred_hwnd()
+        except Exception:
+            pass
         try:
             self._inv_scan_btn.configure(state='normal',
                                          text=t('ui.inventory_scan_btn'))

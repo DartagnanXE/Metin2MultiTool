@@ -8,8 +8,10 @@ Two responsibilities, both designed to NEVER block or crash the Tk UI:
     configured ``/submit`` endpoint. It catches ALL network errors and backs off
     exponentially on failure. If the server replies ``banned`` it sets a stop
     flag, calls ``on_status('banned')`` and stops sending. The sender is GATED:
-    it does NOTHING while telemetry is disabled or the username is empty
-    (opt-in). ``get_state`` is a thread-safe snapshot callback the UI provides.
+    it does NOTHING while there is no install id / submit url, or while the
+    installation is blocked (the anonymous counter has no user opt-out; a chosen
+    name is NOT required). ``get_state`` is a thread-safe snapshot callback the
+    UI provides.
 
 (b) LEADERBOARD -- :func:`fetch_leaderboard` does a cached GET and returns a
     dict (or ``None`` on any error). Called on a worker thread by the ranking
@@ -57,8 +59,10 @@ def post_submit(url, payload, timeout=HTTP_TIMEOUT):
             url, data=body, method='POST',
             headers={'User-Agent': _USER_AGENT,
                      'Content-Type': 'application/json',
-                     # Pass the HWID as a header too, so nginx can rate-limit
-                     # per-HWID (server design) without parsing the body.
+                     # Pass the install id as a header too, so nginx can
+                     # rate-limit per install (the X-HWID header name is kept
+                     # to avoid churn; it now carries the random install id,
+                     # not a device id) without parsing the body.
                      'X-HWID': str(payload.get('hwid', ''))[:64]})
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             status_code = getattr(resp, 'status', 200)
@@ -97,19 +101,29 @@ def _banned_from_exception(exc):
     return None
 
 
-def fetch_leaderboard(url, timeout=HTTP_TIMEOUT):
+def fetch_leaderboard(url, timeout=HTTP_TIMEOUT, force=False):
     """GET the leaderboard JSON from ``url`` (cached). Returns a dict or ``None``.
 
     Caches per-URL for :data:`_LEADERBOARD_CACHE_TTL` seconds to blunt rapid
     refresh clicks / scraping. Never raises (any error -> ``None``). MUST be
     called from a worker thread; the caller marshals the result into the UI.
+
+    ``force=True`` BYPASSES the cache READ (always re-fetches over the network)
+    while still WRITING the fresh result back to the cache. This is what the
+    explicit Refresh button uses: Refresh first POSTs the user's current stats
+    out-of-band, so the freshly fetched board must reflect that submit -- the 30s
+    TTL would otherwise return a stale pre-submit snapshot and the user's own row
+    would lag (the very confusion the submit-then-fetch flow exists to avoid).
+    The auto-load on tab-open leaves ``force=False`` so rapid re-opens still hit
+    the cache.
     """
     try:
-        cached = _LEADERBOARD_CACHE.get(url)
-        if cached is not None:
-            fetched_at, data = cached
-            if time.time() - fetched_at < _LEADERBOARD_CACHE_TTL:
-                return data
+        if not force:
+            cached = _LEADERBOARD_CACHE.get(url)
+            if cached is not None:
+                fetched_at, data = cached
+                if time.time() - fetched_at < _LEADERBOARD_CACHE_TTL:
+                    return data
         req = urllib.request.Request(
             url, headers={'User-Agent': _USER_AGENT,
                           'Accept': 'application/json'})
@@ -127,11 +141,17 @@ def fetch_leaderboard(url, timeout=HTTP_TIMEOUT):
 
 
 def _gated(state):
-    """True iff a snapshot permits sending (opt-in + non-empty username + url)."""
+    """True iff a snapshot permits sending (anonymous always-on counter).
+
+    Requires a submit URL AND a non-empty install id (carried as ``state['hwid']``
+    -- the wire field is unchanged, it now holds the random install id). A chosen
+    ``username`` is NOT required (everyone with an id+url submits anonymously).
+    ``enabled`` is honoured ONLY as the BLOCKED stop-signal: the app sets it
+    False when the installation was blocked, which halts sending."""
     try:
         if not state.get('enabled'):
             return False
-        if not str(state.get('username') or '').strip():
+        if not str(state.get('hwid') or '').strip():
             return False
         if not str(state.get('submit_url') or '').strip():
             return False
@@ -151,8 +171,9 @@ def start_sender(get_state, on_status=None, interval=DEFAULT_INTERVAL,
 
     where ``payload`` is the already-built submit dict (telemetry.payload). The
     sender:
-      * does NOTHING while ``enabled`` is False or the username/url is empty
-        (re-checked every loop, so toggling opt-in takes effect live);
+      * does NOTHING while ``enabled`` is False (blocked) or the install id/url
+        is empty (re-checked every loop, so a name set later / a block takes
+        effect live);
       * POSTs ``payload`` every ``interval_s`` (snapshot value wins; falls back
         to ``interval``);
       * on a network error backs off exponentially up to :data:`BACKOFF_MAX`;

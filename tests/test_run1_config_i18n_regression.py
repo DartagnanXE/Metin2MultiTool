@@ -2,9 +2,9 @@
 """Run-1 QA: config + i18n parity REGRESSION guard.
 
 A focused lock on the Run-1 invariants so a future edit cannot silently:
-  * flip a privacy/opt-in default (telemetry must stay OFF, username empty,
-    consent unset) or change the byte-stable fishing defaults (mount OFF, key
-    '3', golden-tuna 3);
+  * flip a privacy default of the ANONYMOUS model (install_id empty, username
+    empty, consent unset, enabled vestigial-True) or change the byte-stable
+    fishing defaults (mount OFF, key '3', golden-tuna 3);
   * drop one of the two default event windows or move the Berlin timezone;
   * de-sync the client/server numeric caps;
   * ship a Run-1 i18n key that is missing a language or whose EN/DE
@@ -44,7 +44,12 @@ RUN1_KEYS = (
     'ui.leaderboard_player', 'ui.leaderboard_catches', 'ui.leaderboard_your_rank',
     'ui.leaderboard_refresh', 'ui.leaderboard_loading',
     'ui.leaderboard_fetch_failed', 'ui.leaderboard_empty',
-    'ui.ranking_telemetry_off', 'ui.ranking_banned',
+    'ui.ranking_telemetry_off', 'ui.ranking_banned', 'ui.ranking_transparency',
+    # ranking settings + onboarding (anonymous model)
+    'ui.group_ranking', 'ui.ranking_username', 'ui.ranking_username_sub',
+    'ui.onboarding_title', 'ui.onboarding_intro', 'ui.onboarding_username_label',
+    'ui.onboarding_username_hint', 'ui.onboarding_transparency',
+    'ui.onboarding_whatissent', 'ui.onboarding_save', 'ui.onboarding_skip',
 )
 
 
@@ -60,10 +65,14 @@ class TestPrivacyDefaultsLocked(unittest.TestCase):
     def setUp(self):
         self.cfg = config.validate(config.DEFAULTS)
 
-    def test_telemetry_off_and_unconsented(self):
+    def test_anonymous_defaults(self):
+        # Anonymous always-on model: install_id starts empty (lazy), consent
+        # starts undecided (onboarding shows once), 'enabled' is vestigial-True
+        # (no opt-out -- the transparency notice + README are the basis).
         tel = self.cfg['telemetry']
-        self.assertFalse(tel['enabled'])
+        self.assertEqual(tel['install_id'], '')
         self.assertFalse(tel['consented'])
+        self.assertTrue(tel['enabled'])
 
     def test_username_empty_by_default(self):
         self.assertEqual(self.cfg['username'], '')

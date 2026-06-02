@@ -24,6 +24,7 @@ from .defaults import (
     EVENT_WARN_MIN_MAX,
     GOLDEN_TUNA_ACTIONS,
     HOTKEY_TOKENS,
+    INSTALL_ID_MAXLEN,
     KEYPOINT_KEYS,
     OVERLAY_OPACITY_MAX,
     OVERLAY_OPACITY_MIN,
@@ -123,6 +124,21 @@ def _validate_url(value, fallback):
     if not s.lower().startswith('https://'):
         return fallback
     return s[:URL_MAXLEN]
+
+
+def _validate_install_id(value):
+    """Normalisiert die zufaellige install_id -> gestrippter, kleingeschriebener
+    String, auf INSTALL_ID_MAXLEN gekappt; '' bei None/Junk.
+
+    Erzeugt NIE einen Wert (das uebernimmt die App/das Thin-Modul lazy), damit
+    ``validate`` rein/deterministisch/idempotent bleibt (Tests). Wirft nie."""
+    if value is None:
+        return ''
+    try:
+        s = str(value).strip().lower()
+    except Exception:
+        return ''
+    return s[:INSTALL_ID_MAXLEN]
 
 
 def _validate_event_window(value, default):
@@ -263,11 +279,15 @@ def validate(cfg):
             name = ''
         merged['username'] = name[:USERNAME_MAXLEN]
 
-        # -- Telemetrie: alles defensiv (Default AUS, Platzhalter-URLs, Intervall
-        #    geklemmt). consented merkt die Onboarding-Entscheidung.
+        # -- Telemetrie: anonymer Immer-An-Zaehler. install_id (zufaellig)
+        #    gestrippt/gekappt (NIE hier erzeugt). 'enabled' ist vestigial ->
+        #    default True, KEIN Opt-out mehr. consented merkt die Onboarding-
+        #    Entscheidung. URLs HTTPS-only, Intervall geklemmt.
         telemetry = merged.setdefault('telemetry',
                                       copy.deepcopy(DEFAULTS['telemetry']))
-        telemetry['enabled'] = bool(telemetry.get('enabled', False))
+        telemetry['install_id'] = _validate_install_id(
+            telemetry.get('install_id'))
+        telemetry['enabled'] = bool(telemetry.get('enabled', True))
         telemetry['consented'] = bool(telemetry.get('consented', False))
         telemetry['submit_url'] = _validate_url(
             telemetry.get('submit_url'), DEFAULTS['telemetry']['submit_url'])
@@ -361,6 +381,7 @@ def _validate_keypoints(value):
 __all__ = [
     'merge_defaults', 'validate',
     '_clamp', '_enum', '_coerce_int', '_validate_key', '_validate_hhmm',
-    '_validate_weekday', '_validate_url', '_validate_event_window',
-    '_deep_merge', '_validate_offset', '_validate_size', '_validate_keypoints',
+    '_validate_weekday', '_validate_url', '_validate_install_id',
+    '_validate_event_window', '_deep_merge', '_validate_offset',
+    '_validate_size', '_validate_keypoints',
 ]

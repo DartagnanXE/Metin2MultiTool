@@ -226,14 +226,181 @@ class TestDBLeaderboardShape(unittest.TestCase):
                   'fishing_runtime_s', 'puzzler_runtime_s', 'rank'):
             self.assertIn(k, row)
 
-    def test_delete_then_unban_roundtrip(self):
+    def test_delete_then_unblock_roundtrip(self):
         db.insert_submission(self._sub(username='a', hwid='h1'))
-        db.add_ban('hwid', 'h1', 'spam')
+        db.add_ban('install', 'h1', 'spam')
         self.assertEqual(len(db.leaderboard('all')), 0)
-        self.assertEqual(db.remove_ban('hwid', 'h1'), 1)
+        self.assertEqual(db.remove_ban('install', 'h1'), 1)
         self.assertEqual(len(db.leaderboard('all')), 1)
-        self.assertEqual(db.delete_entries('hwid', 'h1'), 1)
+        self.assertEqual(db.delete_entries('install', 'h1'), 1)
         self.assertEqual(len(db.leaderboard('all')), 0)
+
+    def test_display_name_anon_for_blank_username(self):
+        from server.app.anon_name import anon_name
+        db.insert_submission(self._sub(username='', hwid='hblank'))
+        row = db.leaderboard('all')[0]
+        self.assertEqual(row['username'], '')
+        self.assertEqual(row['display_name'], anon_name('hblank', 'en'))
+
+    def test_hidden_name_masked_but_row_kept(self):
+        from server.app.anon_name import anon_name
+        db.insert_submission(self._sub(username='Eve', hwid='heve'))
+        db.add_ban('name', 'Eve')
+        self.assertIn('Eve', db.hidden_names())
+        rows = db.leaderboard('all')
+        self.assertEqual(len(rows), 1)                # still on the board
+        self.assertEqual(rows[0]['display_name'], anon_name('heve', 'en'))
+
+    def test_everyone_ranked_mixed_chosen_and_anonymous(self):
+        # Core model guarantee in ONE board: EVERY install appears (none dropped
+        # for lacking a name); a row WITH a chosen name shows it, a row WITHOUT
+        # one shows the deterministic anon name. Ranked together by catches.
+        from server.app.anon_name import anon_name
+        db.insert_submission(self._sub(username='Named', hwid='hnamed',
+                                       fishing_catches=30))
+        db.insert_submission(self._sub(username='', hwid='hanon1',
+                                       fishing_catches=20))
+        db.insert_submission(self._sub(username='   ', hwid='hanon2',
+                                       fishing_catches=10))   # blank -> anon
+        rows = db.leaderboard('all')
+        # All three installs are present (everyone appears).
+        self.assertEqual(len(rows), 3)
+        by_hwid = {r['hwid']: r for r in rows}
+        # Chosen name shown for the opted-in row.
+        self.assertEqual(by_hwid['hnamed']['display_name'], 'Named')
+        # Anonymous funny name for both no-name rows (deterministic from the id).
+        self.assertEqual(by_hwid['hanon1']['display_name'],
+                         anon_name('hanon1', 'en'))
+        self.assertEqual(by_hwid['hanon2']['display_name'],
+                         anon_name('hanon2', 'en'))
+        # Ranked by catches desc -> Named(30) #1, hanon1(20) #2, hanon2(10) #3.
+        self.assertEqual([r['hwid'] for r in rows],
+                         ['hnamed', 'hanon1', 'hanon2'])
+        self.assertEqual([r['rank'] for r in rows], [1, 2, 3])
+
+
+class TestSelfRankAndTop20(unittest.TestCase):
+    """CS1: top-20 slice + the requesting identity's TRUE rank over the full
+    aggregated board (looked up by hwid first, then username), plus tie-break."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        db.init_db(os.path.join(self.dir, 'lb.db'))
+
+    def _sub(self, **over):
+        row = {'username': 'u', 'hwid': 'h', 'fishing_catches': 1,
+               'puzzles_solved': 0, 'fishing_runtime_s': 1.0,
+               'puzzler_runtime_s': 0.0, 'app_version': '1.0.5',
+               'ts': int(time.time()), 'ip_hash': 'x'}
+        row.update(over)
+        return row
+
+    def _seed_25(self):
+        # 25 identities; catches DESCENDING with the username so 'u01' has the
+        # MOST catches (rank 1) ... 'u25' the FEWEST (rank 25). hwid != username.
+        for i in range(1, 26):
+            db.insert_submission(self._sub(
+                username='u{:02d}'.format(i), hwid='hw{:02d}'.format(i),
+                fishing_catches=(26 - i) * 10, puzzles_solved=i))
+
+    def test_top20_is_exactly_20_ordered_by_catches(self):
+        self._seed_25()
+        lb = db.leaderboard('all', limit=20)
+        self.assertEqual(len(lb), 20)
+        catches = [r['fishing_catches'] for r in lb]
+        self.assertEqual(catches, sorted(catches, reverse=True))
+        self.assertEqual(lb[0]['username'], 'u01')   # most catches
+        self.assertEqual(lb[0]['rank'], 1)
+        self.assertEqual(lb[19]['rank'], 20)
+
+    def test_self_rank_for_25th_by_hwid(self):
+        self._seed_25()
+        # u25 has the fewest catches -> rank 25; resolve by its HWID.
+        me = db.self_rank(hwid='hw25')
+        self.assertIsNotNone(me)
+        self.assertEqual(me['rank'], 25)
+        self.assertEqual(me['username'], 'u25')
+        self.assertEqual(me['fishing_catches'], 10)
+
+    def test_self_rank_resolves_by_hwid_even_with_wrong_username(self):
+        self._seed_25()
+        # Passing a username that does NOT exist must be overridden by the hwid.
+        me = db.self_rank(hwid='hw25', username='not-a-real-name')
+        self.assertIsNotNone(me)
+        self.assertEqual(me['username'], 'u25')
+        self.assertEqual(me['rank'], 25)
+
+    def test_self_rank_by_username_when_no_hwid(self):
+        self._seed_25()
+        me = db.self_rank(username='u13')
+        self.assertIsNotNone(me)
+        self.assertEqual(me['rank'], 13)
+
+    def test_tie_break_equal_catches_higher_puzzles_first(self):
+        # Two identities, SAME catches; the one with more puzzles ranks first.
+        db.insert_submission(self._sub(username='lowp', hwid='hl',
+                                       fishing_catches=100, puzzles_solved=1))
+        db.insert_submission(self._sub(username='highp', hwid='hh',
+                                       fishing_catches=100, puzzles_solved=9))
+        lb = db.leaderboard('all', limit=20)
+        self.assertEqual([r['username'] for r in lb], ['highp', 'lowp'])
+        self.assertEqual(db.self_rank(hwid='hh')['rank'], 1)
+        self.assertEqual(db.self_rank(hwid='hl')['rank'], 2)
+
+    def test_tie_break_full_chain_username_breaks_final_tie(self):
+        # Full 3-level tie-break: equal catches AND equal puzzles -> username ASC
+        # is the deterministic final key. Insert OUT of alphabetical order to
+        # prove the ORDER BY (not insertion order) decides; ranks are 1..3.
+        for name, h in (('charlie', 'h1'), ('alice', 'h2'), ('bob', 'h3')):
+            db.insert_submission(self._sub(username=name, hwid=h,
+                                           fishing_catches=100, puzzles_solved=5))
+        lb = db.leaderboard('all', limit=20)
+        self.assertEqual([r['username'] for r in lb],
+                         ['alice', 'bob', 'charlie'])
+        self.assertEqual([r['rank'] for r in lb], [1, 2, 3])
+        # self_rank agrees with the board's deterministic order.
+        self.assertEqual(db.self_rank(hwid='h2')['rank'], 1)   # alice
+        self.assertEqual(db.self_rank(hwid='h3')['rank'], 2)   # bob
+        self.assertEqual(db.self_rank(hwid='h1')['rank'], 3)   # charlie
+
+    def test_tie_break_is_stable_across_repeated_aggregations(self):
+        # The deterministic ORDER BY must yield the SAME rank on every call (the
+        # client relies on a stable self-rank between the top-20 fetch and the
+        # self lookup). Identical scores, queried twice -> identical ranking.
+        for name, h in (('beta', 'hb'), ('alpha', 'ha'), ('gamma', 'hg')):
+            db.insert_submission(self._sub(username=name, hwid=h,
+                                           fishing_catches=7, puzzles_solved=2))
+        first = [r['username'] for r in db.leaderboard('all', limit=20)]
+        second = [r['username'] for r in db.leaderboard('all', limit=20)]
+        self.assertEqual(first, second)
+        self.assertEqual(first, ['alpha', 'beta', 'gamma'])
+
+    def test_self_rank_none_for_unknown_identity(self):
+        self._seed_25()
+        self.assertIsNone(db.self_rank(hwid='nope'))
+        self.assertIsNone(db.self_rank(username='ghost'))
+        self.assertIsNone(db.self_rank())            # no identity at all
+
+    def test_self_rank_none_for_blocked_install(self):
+        self._seed_25()
+        db.add_ban('install', 'hw10')    # hw10 blocked -> excluded from board
+        self.assertIsNone(db.self_rank(hwid='hw10'))
+        # And the board now has 24 rows max for the top-20 slice.
+        self.assertEqual(len(db.leaderboard('all', limit=100)), 24)
+
+    def test_anon_name_vector_matches_client(self):
+        # SHARED EN vector: pins the server anon_name to the client copy so the
+        # two import-isolated generators can never drift. The SAME (id->EN name)
+        # pairs are asserted by the client test (tests/test_anon_name.py).
+        from server.app.anon_name import anon_name
+        vector = {
+            'install-aaaa': 'MightyBass#1350',
+            'install-bbbb': 'LuckyCrab#0300',
+            '0123456789abcdef0123456789abcdef': 'NimbleTrout#9239',
+            'zzz': 'NimblePerch#2426',
+        }
+        for install_id, expected in vector.items():
+            self.assertEqual(anon_name(install_id, 'en'), expected)
 
 
 # ---------------------------------------------------------------------------
@@ -282,11 +449,18 @@ class TestSubmitValidationHTTP(unittest.TestCase):
                 '/submit',
                 json=self._payload(app_version='v' * 200)).status_code, 422)
 
-    def test_rejects_blank_username(self):
+    def test_blank_username_accepted_anonymous(self):
+        # Anonymous model: a blank/absent username is VALID (the row shows the
+        # anon name). It is normalised to '' and stored, returning 200.
         self.assertEqual(
             self.client.post('/submit',
                              json=self._payload(username='   ')).status_code,
-            422)
+            200)
+
+    def test_missing_username_accepted_anonymous(self):
+        p = self._payload(hwid='hmiss')
+        del p['username']
+        self.assertEqual(self.client.post('/submit', json=p).status_code, 200)
 
     def test_rejects_missing_field(self):
         bad = self._payload()
@@ -345,40 +519,91 @@ class TestLeaderboardAndBanHTTP(unittest.TestCase):
         self.assertEqual(
             self.client.get('/leaderboard?period=weekly').status_code, 422)
 
-    def test_banned_identity_told_to_stop(self):
-        db.add_ban('hwid', 'hbob', 'cheating')
+    def test_leaderboard_self_envelope_by_hwid(self):
+        # Seed 25 identities (r01 most catches ... r25 fewest) directly in the DB
+        # (the per-IP rate limiter would 429 the 6th+ HTTP submit from the single
+        # TestClient peer); then ask for the board AS r25 by HWID over HTTP ->
+        # entries<=20 + self with the true rank 25.
+        now = int(time.time())
+        for i in range(1, 26):
+            db.insert_submission({
+                'username': 'r{:02d}'.format(i), 'hwid': 'rh{:02d}'.format(i),
+                'fishing_catches': (26 - i) * 10, 'puzzles_solved': i,
+                'fishing_runtime_s': 1.0, 'puzzler_runtime_s': 0.0,
+                'app_version': '1.0.5', 'ts': now, 'ip_hash': 'x'})
+        lb = self.client.get('/leaderboard?period=all&hwid=rh25').json()
+        self.assertEqual(lb['period'], 'all')
+        self.assertLessEqual(len(lb['entries']), 20)
+        self.assertIsNotNone(lb['self'])
+        self.assertEqual(lb['self']['rank'], 25)
+        self.assertEqual(lb['self']['username'], 'r25')
+        # r25 is outside the top-20, so it is NOT in entries.
+        self.assertNotIn('r25', [e['username'] for e in lb['entries']])
+
+    def test_leaderboard_self_null_without_identity(self):
+        self.client.post('/submit', json=self._payload())
+        lb = self.client.get('/leaderboard?period=all').json()
+        self.assertIsNone(lb['self'])
+
+    def test_leaderboard_rejects_oversized_hwid_query(self):
+        self.assertEqual(
+            self.client.get(
+                '/leaderboard?hwid=' + 'h' * 200).status_code, 422)
+
+    def test_blocked_install_told_to_stop(self):
+        db.add_ban('install', 'hbob', 'cheating')
         r = self.client.post('/submit', json=self._payload())
         self.assertEqual(r.status_code, 403)
         self.assertEqual(r.json()['status'], 'banned')
 
-    def test_admin_delete_erases_entries(self):
+    def test_hidden_name_still_submits_but_label_masked(self):
+        # A hidden NAME does NOT stop submits (only the label is moderated): the
+        # submit returns 200 and the row stays on the board under the anon name.
+        from server.app.anon_name import anon_name
+        db.add_ban('name', 'bob')
+        r = self.client.post('/submit', json=self._payload(hwid='hbobhide'))
+        self.assertEqual(r.status_code, 200)         # NOT 403
+        lb = self.client.get('/leaderboard?period=all').json()
+        names = [e['username'] for e in lb['entries']]
+        self.assertIn(anon_name('hbobhide', 'en'), names)
+        self.assertNotIn('bob', names)               # the hidden label is gone
+
+    def test_admin_delete_erases_entries_by_install(self):
         self.client.post('/submit', json=self._payload(hwid='herase'))
         r = self.client.post(
             '/admin/delete', headers={'X-Admin-Token': 'secret-token'},
-            json={'kind': 'hwid', 'value': 'herase'})
+            json={'kind': 'install', 'value': 'herase'})
         self.assertEqual(r.status_code, 200)
         self.assertEqual(r.json()['deleted_rows'], 1)
 
-    def test_admin_unban_restores_board(self):
+    def test_admin_unblock_restores_board(self):
         self.client.post('/submit', json=self._payload(username='z', hwid='hz'))
         self.client.post('/admin/ban',
                          headers={'X-Admin-Token': 'secret-token'},
-                         json={'kind': 'hwid', 'value': 'hz', 'reason': 'x'})
-        # banned -> excluded
+                         json={'kind': 'install', 'value': 'hz',
+                               'reason': 'x'})
+        # blocked -> excluded
         self.assertEqual(
             len(self.client.get('/leaderboard?period=all').json()['entries']), 0)
         self.client.post('/admin/unban',
                          headers={'X-Admin-Token': 'secret-token'},
-                         json={'kind': 'hwid', 'value': 'hz'})
+                         json={'kind': 'install', 'value': 'hz'})
         # restored (cache TTL is 30s; force a fresh period to avoid the cache)
         self.assertGreaterEqual(
             len(self.client.get(
                 '/leaderboard?period=daily').json()['entries']), 1)
 
+    def test_admin_rejects_unknown_kind(self):
+        # The old vocabulary ('hwid'/'username') is no longer accepted.
+        r = self.client.post('/admin/ban',
+                             headers={'X-Admin-Token': 'secret-token'},
+                             json={'kind': 'hwid', 'value': 'x'})
+        self.assertEqual(r.status_code, 400)
+
     def test_admin_delete_requires_token(self):
         r = self.client.post('/admin/delete',
                              headers={'X-Admin-Token': 'wrong'},
-                             json={'kind': 'hwid', 'value': 'x'})
+                             json={'kind': 'install', 'value': 'x'})
         self.assertEqual(r.status_code, 401)
 
 

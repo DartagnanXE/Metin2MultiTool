@@ -110,11 +110,21 @@ sudo nginx -t && sudo systemctl reload nginx
 # Leaderboard (empty at first):
 curl -fsS https://ranking.example.tld/leaderboard
 
-# A submit (uses the wire schema; the app re-validates everything):
+# A submit (uses the wire schema; the app re-validates everything).
+# NOTE: `hwid` / the `X-HWID` header carry the client's RANDOM install id, NOT a
+# device id. `username` is OPTIONAL now (omit it -> the row shows an anonymous
+# name); here we send one:
 curl -fsS -X POST https://ranking.example.tld/submit \
-  -H 'Content-Type: application/json' -H 'X-HWID: testhwid123' \
-  -d '{"username":"smoketest","hwid":"testhwid123","fishing_catches":1,
+  -H 'Content-Type: application/json' -H 'X-HWID: testinstall123' \
+  -d '{"username":"smoketest","hwid":"testinstall123","fishing_catches":1,
        "puzzles_solved":0,"fishing_runtime_s":1.0,"puzzler_runtime_s":0.0,
+       "app_version":"1.0.5","ts":1735000000}'
+
+# An ANONYMOUS submit (no username -> appears under a generated anon name):
+curl -fsS -X POST https://ranking.example.tld/submit \
+  -H 'Content-Type: application/json' -H 'X-HWID: testanon456' \
+  -d '{"hwid":"testanon456","fishing_catches":1,"puzzles_solved":0,
+       "fishing_runtime_s":1.0,"puzzler_runtime_s":0.0,
        "app_version":"1.0.5","ts":1735000000}'
 
 # Rate-limit check (fire >10/min; expect HTTP 429 to appear):
@@ -160,23 +170,30 @@ for i in $(seq 1 15); do \
   sudo systemctl restart fail2ban && sudo fail2ban-client status ranking-429
   ```
 
-## 7. Admin (ban / unban / delete) — RUN YOURSELF
+## 7. Admin (block-install / hide-name / delete) — RUN YOURSELF
+
+Anti-cheat is **block-by-id + hide-name only** (no general person-ban):
+block-by-id removes one installation from the board; hide-name only masks a
+label (that row then shows the anonymous name); neither is durable — a source
+editor can mint a new install id.
 
 Inside the container (token from the env, never the client):
 
 ```bash
 docker compose exec telemetry python -m server.cli list-bans
-docker compose exec telemetry python -m server.cli ban   --hwid abc123 --reason cheating
-docker compose exec telemetry python -m server.cli unban --hwid abc123
-docker compose exec telemetry python -m server.cli delete --username Bob   # GDPR erasure
+docker compose exec telemetry python -m server.cli ban    --install abc123 --reason cheating
+docker compose exec telemetry python -m server.cli unban  --install abc123
+docker compose exec telemetry python -m server.cli ban    --name Bob          # hide the name 'Bob'
+docker compose exec telemetry python -m server.cli delete --install abc123    # GDPR erasure by id
+docker compose exec telemetry python -m server.cli delete --name Bob          # GDPR erasure by name
 ```
 
-Or via HTTP with the token header:
+Or via HTTP with the token header (`kind` is `install` or `name`):
 
 ```bash
 curl -fsS -X POST https://ranking.example.tld/admin/ban \
   -H "X-Admin-Token: $ADMIN_TOKEN" -H 'Content-Type: application/json' \
-  -d '{"kind":"hwid","value":"abc123","reason":"cheating"}'
+  -d '{"kind":"install","value":"abc123","reason":"cheating"}'
 ```
 
 ## 8. Backups / maintenance (RUN YOURSELF)

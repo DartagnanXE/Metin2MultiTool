@@ -164,6 +164,24 @@ class DetectionMixin:
         except Exception as exc:
             log.error(t('ui.test_window_failed'), exc=exc)
 
+    def _on_inventory_test_window(self):
+        """Oeffnet ein FAKE-„METIN2"-INVENTAR-Testfenster (CS5).
+
+        Anders als das Board-Testfenster ist dieses MEHRFENSTRIG: jeder Druck
+        oeffnet ein weiteres (bis 2), sodass der Nutzer (a) den Inventar-Scanner
+        gegen das gemalte Inventar und (b) den Mehrfenster-Picker (CS4) testen
+        kann. Die Referenzen werden in ``self._test_windows`` gehalten, damit Tk
+        sie nicht wegraeumt. Strikt defensiv: ohne Display/bei Fehler nur ein
+        Log-Hinweis, kein Crash."""
+        try:
+            from interface import testwindow
+            win = testwindow.open_inventory_test_window(self)
+            if win is not None and win not in self._test_windows:
+                self._test_windows.append(win)
+            log.event('-', t('ui.test_window_inventory_opened'))
+        except Exception as exc:
+            log.error(t('ui.test_window_failed'), exc=exc)
+
     def _refresh_detect_note(self):
         """Erkennungsnote unten rechts -- 3 Zustaende (Item M):
 

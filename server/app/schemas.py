@@ -6,7 +6,7 @@ trust the client: length caps + type coercion + sane numeric maxima at the
 boundary. Implausible values are rejected (422) before they ever touch the DB.
 """
 
-from typing import List
+from typing import List, Optional
 
 try:
     # pydantic v2
@@ -27,9 +27,15 @@ APP_VERSION_MAXLEN = 32
 
 
 class SubmitIn(BaseModel):
-    """One ranking submission from a client (POST /submit body)."""
+    """One ranking submission from a client (POST /submit body).
 
-    username: str = Field(min_length=1, max_length=USERNAME_MAXLEN)
+    ``hwid`` carries the random per-install id (the wire field name is kept; it
+    is NOT a device hash) and is always present. ``username`` is the OPTIONAL
+    self-chosen display name -- it may be absent or empty (anonymous); blank is
+    accepted and normalised to ''.
+    """
+
+    username: Optional[str] = Field(default='', max_length=USERNAME_MAXLEN)
     hwid: str = Field(min_length=1, max_length=HWID_MAXLEN)
     fishing_catches: int = Field(ge=0, le=MAX_COUNT)
     puzzles_solved: int = Field(ge=0, le=MAX_COUNT)
@@ -41,14 +47,34 @@ class SubmitIn(BaseModel):
     @field_validator('username')
     @classmethod
     def _strip_username(cls, v):
-        v = (v or '').strip()
-        if not v:
-            raise ValueError('username must not be blank')
-        return v
+        # Strip; ALLOW blank (anonymous) -> ''. The chosen name is opt-in.
+        return (v or '').strip()
 
 
 class LeaderboardEntry(BaseModel):
-    """One row on the public leaderboard."""
+    """One row on the public leaderboard.
+
+    ``username`` is the DISPLAY name: the chosen name when set + not hidden, else
+    the deterministic anonymous funny name derived server-side from the install
+    id (so a no-name / hidden-name row still shows a stable label).
+    """
+
+    rank: int
+    username: str
+    fishing_catches: int
+    puzzles_solved: int
+    fishing_runtime_s: float
+    puzzler_runtime_s: float
+
+
+class LeaderboardSelf(BaseModel):
+    """The requesting identity's own ranked row (TRUE rank over the full board).
+
+    Returned alongside the top-N so the client can render replace-Nth-with-self
+    when the user's rank falls outside the visible top-N. ``username`` is the
+    DISPLAY name (chosen-or-anon). ``null`` when the identity is absent or the
+    install is blocked.
+    """
 
     rank: int
     username: str
@@ -59,7 +85,13 @@ class LeaderboardEntry(BaseModel):
 
 
 class LeaderboardOut(BaseModel):
-    """GET /leaderboard response envelope."""
+    """GET /leaderboard response envelope.
+
+    ``entries`` is the top-N by catches; ``self`` (additive, optional -- old
+    clients ignore it) is the caller's own ranked row when an identity
+    (hwid/username) was supplied and is present + not banned.
+    """
 
     period: str
     entries: List[LeaderboardEntry]
+    self: Optional[LeaderboardSelf] = None

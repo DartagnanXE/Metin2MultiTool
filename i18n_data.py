@@ -227,6 +227,8 @@ TRANSLATIONS = {
     'ui.test_window': {'en': 'Test Window', 'de': 'Testfenster'},
     'ui.test_window_opened': {'en': "Test window 'METIN2' opened", 'de': "Testfenster 'METIN2' geöffnet"},
     'ui.test_window_failed': {'en': 'Could not open test window', 'de': 'Testfenster konnte nicht geöffnet werden'},
+    'ui.test_window_inventory': {'en': 'Inv. Test Window', 'de': 'Inv.-Testfenster'},
+    'ui.test_window_inventory_opened': {'en': "Inventory test window 'METIN2' opened", 'de': "Inventar-Testfenster 'METIN2' geöffnet"},
     # --- Settings: overlay opacity control ---
     'ui.group_overlay': {'en': 'Overlay', 'de': 'Overlay'},
     'ui.overlay_opacity': {'en': 'Overlay opacity', 'de': 'Overlay-Deckkraft'},
@@ -280,6 +282,11 @@ TRANSLATIONS = {
     'ui.pick_window_title': {'en': 'Multiple Metin2 windows', 'de': 'Mehrere Metin2-Fenster'},
     'ui.pick_window_row': {'en': 'Window {n}: {w}x{h} at ({x}, {y})', 'de': 'Fenster {n}: {w}x{h} bei ({x}, {y})'},
     'ui.window_chosen': {'en': 'Targeting Metin2 window {n} ({w}x{h})', 'de': 'Ziel-Metin2-Fenster {n} ({w}x{h})'},
+    # --- Window MODE toggle (last-focused vs the picked window) ---
+    'ui.window_mode_last_focused': {'en': 'Last focused', 'de': 'Zuletzt fokussiert'},
+    'ui.window_mode_specific': {'en': 'Specific window', 'de': 'Bestimmtes Fenster'},
+    'ui.window_mode_toggle_tip': {'en': 'Choose which Metin2 window the bot uses: the most-recently-focused one, or the window you picked.', 'de': 'Wähle, welches Metin2-Fenster der Bot nutzt: das zuletzt fokussierte oder das von dir gewählte Fenster.'},
+    'ui.window_mode_changed': {'en': 'Window mode: {mode}', 'de': 'Fenster-Modus: {mode}'},
     # --- Inventory item-recognition engine (inventory/) ---
     'inventory.icons_dir_missing': {'en': 'Inventory icon dir not found ({path}): {detail} - recognition DB will be empty', 'de': 'Inventar-Icon-Ordner nicht gefunden ({path}): {detail} - Erkennungs-DB bleibt leer'},
     'inventory.icons_dir_empty': {'en': 'Inventory icon dir has no PNGs ({path}) - recognition DB will be empty', 'de': 'Inventar-Icon-Ordner enthält keine PNGs ({path}) - Erkennungs-DB bleibt leer'},
@@ -296,6 +303,7 @@ TRANSLATIONS = {
     'inventory.scan_done': {'en': 'Inventory scan done ({pages} page(s) captured)', 'de': 'Inventar-Scan fertig ({pages} Seite(n) aufgenommen)'},
     # -- live runner + differential scan (user-facing) ----------------------
     'inventory.scan_started': {'en': 'Inventory scan started...', 'de': 'Inventar-Scan gestartet ...'},
+    'inventory.scan_no_window': {'en': 'Metin2 window not found / not open - scan aborted. Open the game first.', 'de': 'Metin2-Fenster nicht gefunden / nicht offen - Scan abgebrochen. Öffne zuerst das Spiel.'},
     'inventory.scan_not_open': {'en': 'Inventory does not appear to be open (the hotkey may have toggled it shut) - nothing recognised. Open the inventory and scan again.', 'de': 'Das Inventar scheint nicht offen zu sein (der Hotkey hat es evtl. wieder geschlossen) - nichts erkannt. Öffne das Inventar und scanne erneut.'},
     'inventory.new_unknown_item': {'en': 'New unrecognised item on page {page}, slot {slot} -- possibly a new item (icon missing from the DB)', 'de': 'Neues, nicht erkanntes Item in Seite {page}, Slot {slot} -- evtl. neues Item (Icon fehlt in der DB)'},
     'inventory.unknown_crop_saved': {'en': 'Saved unknown-item crop for later: {path}', 'de': 'Crop des unbekannten Items für später gespeichert: {path}'},
@@ -307,6 +315,7 @@ TRANSLATIONS = {
     'ui.inventory_scan_help': {'en': 'Opens the inventory via the configured hotkey, reads all four pages and prints the map to the Console. The mouse briefly sweeps the slots to clear item glow -- do not touch mouse or keyboard during a scan.', 'de': 'Öffnet das Inventar über den eingestellten Hotkey, liest alle vier Seiten und gibt die Karte in der Console aus. Die Maus fährt kurz über die Slots, um das Item-Leuchten zu entfernen -- bewege während eines Scans weder Maus noch Tastatur.'},
     'ui.inventory_scan_done': {'en': 'Scan done: {items} item(s), {unknown} unknown, {tracked} tracked', 'de': 'Scan fertig: {items} Item(s), {unknown} unbekannt, {tracked} verfolgt'},
     'ui.inventory_no_window': {'en': 'Scan failed - open Metin2 (800x600) first', 'de': 'Scan fehlgeschlagen - öffne zuerst Metin2 (800x600)'},
+    'ui.inventory_not_open': {'en': 'Metin2 not found / not open', 'de': 'Metin2 nicht gefunden / nicht offen'},
     'ui.inventory_scan_failed': {'en': 'Scan failed - see Console', 'de': 'Scan fehlgeschlagen - siehe Console'},
     'ui.inventory_never_scanned': {'en': 'Not scanned yet', 'de': 'Noch nicht gescannt'},
     'ui.inventory_blocked_running': {'en': "Can't scan while the bot is running - stop it first", 'de': 'Scannen nicht möglich während der Bot läuft - zuerst stoppen'},
@@ -350,7 +359,7 @@ TRANSLATIONS = {
 
     # -- Ranking rail item + tab body ---------------------------------------
     'ui.view_ranking': {'en': 'Ranking', 'de': 'Rangliste'},
-    'ui.ranking_sub': {'en': 'Your stats, fish events and the leaderboard', 'de': 'Deine Statistik, Fisch-Events und die Rangliste'},
+    'ui.ranking_sub': {'en': 'The top 20 by catches', 'de': 'Die Top 20 nach Fängen'},
     'ui.stats_title': {'en': 'Your stats', 'de': 'Deine Statistik'},
     'ui.stats_catches': {'en': 'Catches', 'de': 'Fänge'},
     'ui.stats_puzzles': {'en': 'Puzzles solved', 'de': 'Gelöste Puzzles'},
@@ -371,25 +380,22 @@ TRANSLATIONS = {
     'ui.leaderboard_loading': {'en': 'Loading leaderboard...', 'de': 'Lade Rangliste ...'},
     'ui.leaderboard_fetch_failed': {'en': 'Could not load the leaderboard - check your connection and try again.', 'de': 'Rangliste konnte nicht geladen werden - prüfe die Verbindung und versuche es erneut.'},
     'ui.leaderboard_empty': {'en': 'No entries yet - be the first!', 'de': 'Noch keine Einträge - sei der Erste!'},
-    'ui.ranking_telemetry_off': {'en': 'Ranking is off. Enable it in Settings -> Ranking to compare your stats with others. Your stats are still tracked locally.', 'de': 'Die Rangliste ist aus. Aktiviere sie in Einstellungen -> Rangliste, um deine Statistik mit anderen zu vergleichen. Deine Statistik wird lokal weiter gezählt.'},
+    'ui.ranking_telemetry_off': {'en': 'Usage stats are collected anonymously under a random id; everyone appears under an anonymous name. Enter a name in Settings -> Ranking to appear with it instead.', 'de': 'Nutzungs-Statistik wird anonym unter einer zufälligen ID erfasst; alle erscheinen unter einem anonymen Namen. Trage in Einstellungen -> Rangliste einen Namen ein, um stattdessen mit ihm zu erscheinen.'},
     'ui.ranking_banned': {'en': 'This installation was removed from the ranking. Local stats keep counting.', 'de': 'Diese Installation wurde aus der Rangliste entfernt. Die lokale Statistik zählt weiter.'},
+    'ui.ranking_transparency': {'en': 'Usage stats are collected anonymously under a random id. Everyone appears under an anonymous name; entering a name only reveals that name here.', 'de': 'Nutzungs-Statistik wird anonym unter einer zufälligen ID erfasst. Alle erscheinen unter einem anonymen Namen; ein Name wird nur sichtbar, wenn du ihn einträgst.'},
 
     # -- Settings: Ranking/Telemetry card -----------------------------------
     'ui.group_ranking': {'en': 'Ranking (online)', 'de': 'Rangliste (online)'},
-    'ui.ranking_enabled': {'en': 'Take part in the ranking', 'de': 'An der Rangliste teilnehmen'},
-    'ui.ranking_enabled_sub': {'en': 'Send your stats to the leaderboard', 'de': 'Statistik an die Rangliste senden'},
-    'ui.ranking_help': {'en': 'When enabled, your username and stats (catches, solved puzzles, runtimes, app version) are sent to the leaderboard server about every {interval} seconds over HTTPS. A spoof-resistant machine id is included only so the server can remove abusers. No other personal data is sent. Off by default; turn it off any time.', 'de': 'Wenn aktiviert, werden dein Benutzername und deine Statistik (Fänge, gelöste Puzzles, Laufzeiten, App-Version) etwa alle {interval} Sekunden per HTTPS an den Ranglisten-Server gesendet. Eine fälschungsanfällige Maschinen-ID wird nur mitgesendet, damit der Server Missbrauch entfernen kann. Keine weiteren personenbezogenen Daten. Standardmäßig aus; jederzeit abschaltbar.'},
     'ui.ranking_username': {'en': 'Ranking name', 'de': 'Ranglisten-Name'},
-    'ui.ranking_username_sub': {'en': 'Shown on the public leaderboard', 'de': 'Wird auf der öffentlichen Rangliste angezeigt'},
+    'ui.ranking_username_sub': {'en': 'Leave empty to appear under a random anonymous name', 'de': 'Leer lassen, um unter einem zufälligen anonymen Namen zu erscheinen'},
 
-    # -- Onboarding (first-run username + GDPR opt-in) ----------------------
-    'ui.onboarding_title': {'en': 'Welcome - choose a ranking name', 'de': 'Willkommen - wähle einen Ranglisten-Namen'},
-    'ui.onboarding_intro': {'en': 'Pick a name for the optional online ranking. You can change it later in Settings.', 'de': 'Wähle einen Namen für die optionale Online-Rangliste. Du kannst ihn später in den Einstellungen ändern.'},
+    # -- Onboarding (first-run name + transparency notice) ------------------
+    'ui.onboarding_title': {'en': 'Welcome - choose a ranking name (optional)', 'de': 'Willkommen - wähle einen Ranglisten-Namen (optional)'},
+    'ui.onboarding_intro': {'en': 'Usage stats are collected anonymously under a random id, and everyone appears on the leaderboard under a generated anonymous name. You can optionally enter a name to appear with it instead - or leave it empty and stay anonymous. Change it later in Settings.', 'de': 'Nutzungs-Statistik wird anonym unter einer zufälligen ID erfasst, und alle erscheinen auf der Rangliste unter einem generierten anonymen Namen. Du kannst optional einen Namen eintragen, um stattdessen mit ihm zu erscheinen - oder leer lassen und anonym bleiben. Später in den Einstellungen änderbar.'},
     'ui.onboarding_username_label': {'en': 'Ranking name', 'de': 'Ranglisten-Name'},
-    'ui.onboarding_username_hint': {'en': 'Do not use your real name, email or any personal data.', 'de': 'Verwende nicht deinen echten Namen, deine E-Mail oder andere persönliche Daten.'},
-    'ui.onboarding_optin': {'en': 'Take part in the online ranking (optional)', 'de': 'An der Online-Rangliste teilnehmen (optional)'},
-    'ui.onboarding_privacy': {'en': 'Privacy: participation is optional and off unless you tick the box. This is a hobby, open-source tool. If you opt in, only your chosen name plus your stats (catches, solved puzzles, runtimes, app version) and a machine id are sent over HTTPS. You can opt out any time in Settings; ask for deletion via the project page.', 'de': 'Datenschutz: Die Teilnahme ist freiwillig und aus, solange du das Kästchen nicht setzt. Dies ist ein Hobby-Open-Source-Tool. Wenn du zustimmst, werden nur dein gewählter Name sowie deine Statistik (Fänge, gelöste Puzzles, Laufzeiten, App-Version) und eine Maschinen-ID per HTTPS gesendet. Du kannst jederzeit in den Einstellungen widersprechen; Löschung über die Projektseite anfragen.'},
-    'ui.onboarding_whatissent': {'en': 'What is sent: name, catches, solved puzzles, fishing/puzzle runtime, app version, a machine id. Nothing else.', 'de': 'Was gesendet wird: Name, Fänge, gelöste Puzzles, Angel-/Puzzle-Laufzeit, App-Version, eine Maschinen-ID. Sonst nichts.'},
+    'ui.onboarding_username_hint': {'en': 'Optional. Do not use your real name, email or any personal data. Leave empty to stay anonymous.', 'de': 'Optional. Verwende nicht deinen echten Namen, deine E-Mail oder andere persönliche Daten. Leer lassen, um anonym zu bleiben.'},
+    'ui.onboarding_transparency': {'en': 'Privacy: this hobby, open-source tool collects an anonymous random per-install id + your stats (catches, solved puzzles, runtimes, app version) over HTTPS. No personal data unless you type a chosen name - which only reveals that name on the leaderboard. No raw IP is stored. Ask for deletion via the project page.', 'de': 'Datenschutz: Dieses Hobby-Open-Source-Tool erfasst eine anonyme zufällige Pro-Installation-ID + deine Statistik (Fänge, gelöste Puzzles, Laufzeiten, App-Version) per HTTPS. Keine personenbezogenen Daten, außer du trägst einen Namen ein - der nur diesen Namen auf der Rangliste zeigt. Keine rohe IP wird gespeichert. Löschung über die Projektseite anfragen.'},
+    'ui.onboarding_whatissent': {'en': 'What is sent: a random install id, catches, solved puzzles, fishing/puzzle runtime, app version, and a name only if you enter one. Nothing else.', 'de': 'Was gesendet wird: eine zufällige Installations-ID, Fänge, gelöste Puzzles, Angel-/Puzzle-Laufzeit, App-Version, und ein Name nur, wenn du einen einträgst. Sonst nichts.'},
     'ui.onboarding_save': {'en': 'Save', 'de': 'Speichern'},
     'ui.onboarding_skip': {'en': 'Skip', 'de': 'Überspringen'},
 

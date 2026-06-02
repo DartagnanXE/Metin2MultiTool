@@ -67,10 +67,11 @@ RAIL_GLYPHS = {
     'roadmap': '\U0001F5FA',   # Landkarte (geplante Features)
     'settings': '⚙',      # Zahnrad
 }
-# Reihenfolge in der Rail: Fishing, Puzzle, Console, Inventory, Ranking,
-# Roadmap, [Spacer], Settings.
-RAIL_ORDER = ('fishing', 'puzzle', 'console', 'inventory', 'ranking',
-              'roadmap', 'settings')
+# Reihenfolge in der Rail: Fishing, Puzzle, Ranking, Roadmap, Console,
+# [sichtbarer Trenner], Inventory (separat + zuletzt: TEMPORAER, bis kalibriert),
+# [Spacer], Settings (unten angepinnt).
+RAIL_ORDER = ('fishing', 'puzzle', 'ranking', 'roadmap', 'console',
+              'inventory', 'settings')
 
 # Key-Capture: which -> (config-section, config-key). Macht den Tasten-Aufnahme-
 # Fluss generisch; bait/cast verhalten sich byte-identisch wie zuvor, der

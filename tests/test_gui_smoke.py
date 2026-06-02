@@ -101,6 +101,58 @@ class TestGuiLaunchSmoke(unittest.TestCase):
             self.assertIn(view, self.app._rail_items,
                           'no rail button for {!r}'.format(view))
 
+    def test_rail_order_inventory_then_settings_last(self):
+        # CHANGE-SET 2: Inventory is kept SEPARATE + last (temporary until
+        # calibrated), with Settings pinned at the very bottom.
+        order = self.appmod.RAIL_ORDER
+        self.assertEqual(order[-2:], ('inventory', 'settings'),
+                         'rail must end with (inventory, settings); got '
+                         '{!r}'.format(order))
+        self.assertEqual(order[-1], 'settings',
+                         'settings must be the last rail item')
+        # The earlier cluster keeps the spec order before the gap.
+        self.assertEqual(order[:5],
+                         ('fishing', 'puzzle', 'ranking', 'roadmap', 'console'))
+
+    def test_rail_has_visible_separator_before_inventory(self):
+        # CHANGE-SET 2: a VISIBLE gap/separator marks the Inventory break.
+        sep = getattr(self.app, '_rail_separator', None)
+        self.assertIsNotNone(sep, 'rail separator widget is missing')
+        self.assertTrue(sep.winfo_exists())
+
+    def test_separator_sits_between_cluster_and_inventory(self):
+        # CHANGE-SET 2 (geometry): the visible separator must physically sit
+        # BELOW the leading cluster (console) and ABOVE the Inventory button in
+        # the rail's grid -- this is what makes the "Inventory is separate /
+        # temporary" break real, not just a widget that happens to exist.
+        sep = self.app._rail_separator
+        console_btn = self.app._rail_items['console']
+        inv_btn = self.app._rail_items['inventory']
+        settings_btn = self.app._rail_items['settings']
+        sep_row = sep.grid_info()['row']
+        console_row = console_btn.grid_info()['row']
+        inv_row = inv_btn.grid_info()['row']
+        settings_row = settings_btn.grid_info()['row']
+        # Leading cluster (console) is ABOVE the separator; Inventory + Settings
+        # are BELOW it. Rows are ints in the same rail grid.
+        self.assertLess(int(console_row), int(sep_row),
+                        'separator must be below the leading cluster')
+        self.assertLess(int(sep_row), int(inv_row),
+                        'separator must be above the Inventory button')
+        self.assertLess(int(inv_row), int(settings_row),
+                        'Inventory must sit above the pinned Settings button')
+        # Separator + both buttons share the rail (same master).
+        self.assertIs(sep.master, inv_btn.master)
+        self.assertIs(console_btn.master, inv_btn.master)
+
+    def test_every_rail_button_parented_in_one_rail(self):
+        # CHANGE-SET 2: all seven rail buttons live in the SAME rail container,
+        # built in RAIL_ORDER -- guards against a view drifting out of the rail.
+        masters = {self.app._rail_items[v].master
+                   for v in self.appmod.RAIL_ORDER}
+        self.assertEqual(len(masters), 1,
+                         'all rail buttons must share one rail container')
+
     def test_switch_all_views_no_exception_and_renders(self):
         # The crux of the smoke test: switch to EVERY view, pump the loop, and
         # assert the active frame is mapped and renders a non-trivial area.
@@ -150,6 +202,230 @@ class TestGuiLaunchSmoke(unittest.TestCase):
         # Switching to a non-mode view (console) must NOT change the run mode.
         self.app._show_view('console')
         self.assertEqual(self.app.controller.mode, 'puzzle')
+
+    def test_no_in_window_titlebar(self):
+        # CHANGE-SET 6: the redundant in-window header is gone (the OS title bar
+        # is the single source of title + min/max/close). No `topbar` widget,
+        # and the in-window logo is no longer built.
+        self.assertIsNone(getattr(self.app, 'topbar', None),
+                          'in-window titlebar (topbar) should be removed')
+        self.assertFalse(hasattr(self.app, '_build_titlebar'),
+                         '_build_titlebar should be deleted')
+
+    def test_language_toggle_lives_under_footer(self):
+        # CHANGE-SET 6: the EN|DE toggle was relocated from the header to the
+        # footer (next to the version chip), so it survives _rebuild_ui.
+        labels = getattr(self.app, '_lang_labels', None)
+        self.assertIsNotNone(labels, 'language toggle labels missing')
+        self.assertIn('en', labels)
+        self.assertIn('de', labels)
+        footer = self.app.footer
+        # Walk up from a toggle label to confirm the footer is an ancestor.
+        node = labels['en']
+        ancestors = []
+        for _ in range(8):
+            node = node.master
+            if node is None:
+                break
+            ancestors.append(node)
+        self.assertIn(footer, ancestors,
+                      'EN|DE toggle is not parented under the footer')
+
+    def test_live_language_switch_survives_rebuild(self):
+        # CHANGE-SET 6: the live EN/DE switch must still work AND the views must
+        # rebuild cleanly after the header removal + toggle relocation. The
+        # footer (and thus the toggle) survives _rebuild_ui; _refresh_lang_toggle
+        # re-colours it.
+        import i18n
+
+        def _pump_rebuild():
+            # _on_lang_change sets the lang synchronously but schedules
+            # _rebuild_ui via after(10, ...). A bare update() loop will NOT
+            # advance Tk's timer queue (no wall-clock elapses), so briefly run
+            # the real event loop until a short timeout fires -- this lets the
+            # 10ms rebuild timer (and its _refresh_lang_toggle) actually run.
+            self.app.after(80, self.app.quit)
+            self.app.mainloop()
+            self.app.update_idletasks()
+
+        start = i18n.get_lang()
+        try:
+            self.app._on_lang_change('de')
+            # The language flips synchronously regardless of the rebuild timer.
+            self.assertEqual(i18n.get_lang(), 'de')
+            _pump_rebuild()
+            # Active-lang colour reflects DE on the surviving footer toggle once
+            # the rebuild's _refresh_lang_toggle has run.
+            from interface.app._common import TEAL
+            self.assertEqual(
+                str(self.app._lang_labels['de'].cget('text_color')),
+                str(TEAL))
+            # Views still build/map after the rebuild.
+            for view in self.appmod.RAIL_ORDER:
+                self.app._show_view(view)
+                self.app.update_idletasks()
+                self.assertTrue(self.app._views[view].winfo_ismapped(),
+                                'view {!r} lost after rebuild'.format(view))
+            # Switch back to EN cleanly + the EN label re-colours active (teal)
+            # while DE goes inactive (muted) -- the toggle tracks both ways.
+            self.app._on_lang_change('en')
+            _pump_rebuild()
+            self.assertEqual(i18n.get_lang(), 'en')
+            from interface.app._common import TEAL as _TEAL, TEXT_MUTED
+            self.assertEqual(
+                str(self.app._lang_labels['en'].cget('text_color')),
+                str(_TEAL))
+            self.assertEqual(
+                str(self.app._lang_labels['de'].cget('text_color')),
+                str(TEXT_MUTED))
+        finally:
+            # Restore the starting language for the shared root.
+            if i18n.get_lang() != start:
+                self.app._on_lang_change(start)
+                _pump_rebuild()
+
+    def test_footer_widgets_survive_rebuild_by_identity(self):
+        # CHANGE-SET 6 (+CS4): the footer lives on its OWN grid row (row 2) and is
+        # NOT destroyed by _rebuild_ui -- only the shell (content) is rebuilt. So
+        # the footer container, the EN|DE toggle labels, AND the window-mode /
+        # picker buttons that also live there must be the SAME widget objects
+        # before and after a language rebuild (that is what lets the live toggle +
+        # mode switch keep working across rebuilds).
+        import i18n
+
+        def _pump_rebuild():
+            self.app.after(80, self.app.quit)
+            self.app.mainloop()
+            self.app.update_idletasks()
+
+        footer_before = self.app.footer
+        en_before = self.app._lang_labels['en']
+        de_before = self.app._lang_labels['de']
+        mode_before = getattr(self.app, 'mode_btn', None)
+        pick_before = getattr(self.app, 'pick_btn', None)
+        version_before = getattr(self.app, '_version_label', None)
+
+        start = i18n.get_lang()
+        target = 'de' if start != 'de' else 'en'
+        try:
+            self.app._on_lang_change(target)
+            _pump_rebuild()
+            # Identity preserved -> the footer survived (was not rebuilt).
+            self.assertIs(self.app.footer, footer_before)
+            self.assertIs(self.app._lang_labels['en'], en_before)
+            self.assertIs(self.app._lang_labels['de'], de_before)
+            self.assertIs(getattr(self.app, 'mode_btn', None), mode_before)
+            self.assertIs(getattr(self.app, 'pick_btn', None), pick_before)
+            self.assertIs(getattr(self.app, '_version_label', None),
+                          version_before)
+            # And the surviving footer widgets are still alive/usable.
+            self.assertTrue(footer_before.winfo_exists())
+            self.assertTrue(en_before.winfo_exists())
+        finally:
+            if i18n.get_lang() != start:
+                self.app._on_lang_change(start)
+                _pump_rebuild()
+
+    def test_scan_failure_restores_button_under_mainloop(self):
+        # CS3 regression (deferred-except-var bug): a scan that FAILS mid-flight
+        # (window present at probe time but the runner raises -- e.g. the window
+        # is closed mid-scan) must restore the Scan button and clear the scanning
+        # flag, NOT hang forever on "Scanning...". The worker marshals the failure
+        # via after(0, lambda e=exc: self._inv_scan_failed(e)); without binding
+        # ``exc`` at lambda-creation time Python 3's implicit ``del exc`` would make
+        # the deferred callback raise NameError (swallowed by Tk), so
+        # _inv_scan_failed never runs and the button stays disabled. Driven under a
+        # REAL mainloop so the after()-deferred handler actually fires.
+        from unittest import mock
+        from interface import inventory_runner
+        from interface.app import views_inventory as vi
+        from interface.app import _common as common
+        from i18n import t
+
+        self.app._show_view('inventory')
+        self.app.update_idletasks()
+
+        done = {'flag': False}
+
+        def _boom(*a, **k):
+            raise RuntimeError('window closed mid-scan')
+
+        orig_failed = self.app._inv_scan_failed
+
+        def _wrapped_failed(exc):
+            orig_failed(exc)
+            done['flag'] = True
+            try:
+                self.app.quit()
+            except Exception:
+                pass
+
+        with mock.patch.object(common, '_probe_game',
+                               return_value=(True, 1234, 800, 600, True)), \
+             mock.patch.object(vi, '_probe_game',
+                               return_value=(True, 1234, 800, 600, True)), \
+             mock.patch.object(inventory_runner, 'run_inventory_scan', _boom), \
+             mock.patch.object(self.app, '_inv_scan_failed', _wrapped_failed), \
+             mock.patch.object(self.app, '_apply_preferred_hwnd',
+                               lambda *a, **k: None), \
+             mock.patch.object(self.app, '_clear_preferred_hwnd',
+                               lambda *a, **k: None):
+            self.app._inv_scanning = False
+            self.app._on_scan_inventory()         # spawns the worker thread
+            # Safety timeout so a real hang fails the test instead of blocking CI.
+            self.app.after(4000, self.app.quit)
+            self.app.mainloop()
+            self.app.update_idletasks()
+
+        # The deferred failure handler MUST have run (proves no NameError ate it).
+        self.assertTrue(done['flag'],
+                        'failure handler never ran -> button would hang')
+        # And the user-visible state is recovered: not scanning, button enabled
+        # with its idle label.
+        self.assertFalse(self.app._inv_scanning,
+                         '_inv_scanning still True -> stuck on "Scanning..."')
+        btn = self.app._inv_scan_btn
+        self.assertEqual(str(btn.cget('state')), 'normal')
+        self.assertEqual(str(btn.cget('text')), t('ui.inventory_scan_btn'))
+
+    def test_update_download_failure_restores_button(self):
+        # CS6-adjacent regression (SAME deferred-except-var class): an update
+        # DOWNLOAD that raises must restore the update button -- NOT swallow a
+        # NameError and leave the button disabled. The worker marshals via
+        # after(0, lambda e=exc: self._update_failed(e)). Driven under a real loop.
+        from unittest import mock
+        import updater
+
+        info = type('Info', (), {'tag': 'v9.9.9', 'download_url': 'http://x/a',
+                                 'page_url': 'http://x', 'version': 'v9.9.9'})()
+        self.app._show_update_banner(info)
+        self.app.update_idletasks()
+
+        done = {'flag': False}
+        orig_failed = self.app._update_failed
+
+        def _wrapped_failed(exc):
+            orig_failed(exc)
+            done['flag'] = True
+            try:
+                self.app.quit()
+            except Exception:
+                pass
+
+        def _boom(*a, **k):
+            raise RuntimeError('network down mid-download')
+
+        with mock.patch.object(updater, 'download_asset', _boom), \
+             mock.patch.object(self.app, '_update_failed', _wrapped_failed):
+            self.app._start_update_download(info)
+            self.app.after(4000, self.app.quit)
+            self.app.mainloop()
+            self.app.update_idletasks()
+
+        self.assertTrue(done['flag'],
+                        'update failure handler never ran -> button stuck')
+        btn = self.app._update_btn
+        self.assertEqual(str(btn.cget('state')), 'normal')
 
 
 if __name__ == '__main__':

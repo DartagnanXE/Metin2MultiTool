@@ -30,14 +30,28 @@ class WindowPickerMixin:
         # Gewaehltes Ziel verwerfen, wenn es nicht mehr existiert.
         if self._chosen_hwnd not in sig:
             self._chosen_hwnd = None
+        multi = len(windows) > 1
         try:
             btn = getattr(self, 'pick_btn', None)
-            if btn is None:
-                return
-            if len(windows) > 1:
-                btn.grid()
-            else:
-                btn.grid_remove()
+            if btn is not None:
+                if multi:
+                    btn.grid()
+                else:
+                    btn.grid_remove()
+        except Exception:
+            pass
+        # CS4: der MODUS-Umschalter ('Zuletzt fokussiert' <-> 'Bestimmtes Fenster')
+        # erscheint nur, wenn ueberhaupt eine Wahl besteht (>1 Fenster); sonst
+        # versteckt (Single-Window = byte-identisch zu frueher). Gleiche
+        # Signatur-Gating wie der Picker-Knopf (kein Flackern).
+        try:
+            mbtn = getattr(self, 'mode_btn', None)
+            if mbtn is not None:
+                if multi:
+                    self._refresh_window_mode_label()
+                    mbtn.grid()
+                else:
+                    mbtn.grid_remove()
         except Exception:
             pass
 
@@ -99,18 +113,70 @@ class WindowPickerMixin:
             pass
 
     def _on_pick_window(self, hwnd, n, w, h):
-        """Speichert das gewaehlte Ziel-HWND (runtime-only) + loggt die Wahl."""
+        """Speichert das gewaehlte Ziel-HWND (runtime-only) + loggt die Wahl.
+
+        Eine explizite Wahl impliziert den Modus 'specific' (CS4): der Bot soll
+        ab jetzt genau dieses Fenster bespielen, bis der Nutzer im Footer-Umschalter
+        wieder auf 'Zuletzt fokussiert' zurueckschaltet."""
         self._chosen_hwnd = hwnd
+        self._window_mode = 'specific'
+        self._refresh_window_mode_label()
         log.event('-', t('ui.window_chosen', n=n, w=w, h=h))
 
     def _apply_preferred_hwnd(self):
-        """Reicht das gewaehlte Ziel-HWND an WindowCapture durch (vor Start).
+        """Reicht das (modus-abhaengige) Ziel-HWND an WindowCapture durch.
 
-        Ohne Wahl (``None``) -> ``set_preferred_hwnd(None)`` -> FindWindow-Pfad
-        (byte-identisch zu frueher). Strikt defensiv."""
+        Honoriert den Fenster-MODUS (CS4) ueber die reine
+        :func:`windowcapture.select_target_hwnd`-Logik:
+
+          * 'last_focused' -> ``None`` -> ``set_preferred_hwnd(None)`` ->
+            FindWindow-Pfad (byte-identisch zu frueher / zuletzt fokussiert).
+          * 'specific'     -> das gewaehlte ``_chosen_hwnd``, NUR wenn es noch in
+            der aktuellen Fensterliste (gueltig/sichtbar) ist; sonst sicherer
+            Rueckfall auf ``None``.
+
+        Strikt defensiv -- ein Fehler hier darf Start/Scan nie kippen."""
         try:
             import windowcapture
-            windowcapture.set_preferred_hwnd(self._chosen_hwnd)
+            mode = getattr(self, '_window_mode', 'last_focused')
+            target = windowcapture.select_target_hwnd(
+                getattr(self, '_game_windows', []), mode, self._chosen_hwnd)
+            windowcapture.set_preferred_hwnd(target)
+        except Exception:
+            pass
+
+    def _window_mode_label_text(self):
+        """Aktueller MODUS-Text fuer den Footer-Umschalter (sprachabhaengig)."""
+        if getattr(self, '_window_mode', 'last_focused') == 'specific':
+            return t('ui.window_mode_specific')
+        return t('ui.window_mode_last_focused')
+
+    def _refresh_window_mode_label(self):
+        """Frischt den Text des Footer-Modus-Umschalters auf (defensiv)."""
+        try:
+            mbtn = getattr(self, 'mode_btn', None)
+            if mbtn is not None:
+                mbtn.configure(text=self._window_mode_label_text())
+        except Exception:
+            pass
+
+    def _on_toggle_window_mode(self):
+        """Klick auf den Footer-Umschalter: kippt den Fenster-MODUS (CS4).
+
+        'last_focused' <-> 'specific'. Frischt das Label auf, loggt die Aenderung
+        und (falls gerade ein Lauf aktiv ist) wendet das bevorzugte HWND sofort
+        neu an, damit der Wechsel mitten im Lauf greift. Strikt defensiv."""
+        cur = getattr(self, '_window_mode', 'last_focused')
+        self._window_mode = ('last_focused' if cur == 'specific' else 'specific')
+        self._refresh_window_mode_label()
+        try:
+            log.event('-', t('ui.window_mode_changed',
+                             mode=self._window_mode_label_text()))
+        except Exception:
+            pass
+        try:
+            if self.controller.running:
+                self._apply_preferred_hwnd()
         except Exception:
             pass
 

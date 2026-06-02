@@ -80,6 +80,44 @@ try:  # pragma: no cover
 except Exception:  # pragma: no cover
     WindowCapture = None
 
+try:  # pragma: no cover - present only on the Windows build/runtime
+    import win32gui
+except Exception:  # pragma: no cover
+    win32gui = None
+
+
+def _window_present():
+    """Cheap, prompt check that a target Metin2 window EXISTS (CS3 anti-hang).
+
+    Belt-and-suspenders guard so :func:`run_inventory_scan` NEVER enters the long
+    pydirectinput tab-click + 45-slot hover loop (with its ``time.sleep`` settles)
+    when there is no window to scan -- the bug where "Scan inventory" with no game
+    open hung forever on "scanning...".
+
+    Honours a user-picked target first: if the multi-window picker set a preferred
+    HWND (Item N) and it is still valid + visible, that counts as present. Otherwise
+    falls back to ``FindWindow(None, GAME_NAME)`` -- the SAME lookup
+    :class:`WindowCapture` performs. Purely passive win32 reads (no process memory).
+
+    Returns ``True`` only when a window is genuinely there. Headless / missing
+    win32 -> ``False`` (so a direct headless call early-returns instead of spinning;
+    the real runtime has win32). Never raises.
+    """
+    if win32gui is None:
+        return False
+    try:
+        import windowcapture as _wc
+        pref = _wc.get_preferred_hwnd()
+        if pref and win32gui.IsWindow(pref) and win32gui.IsWindowVisible(pref):
+            return True
+    except Exception:
+        pass
+    try:
+        hwnd = win32gui.FindWindow(None, constants.GAME_NAME)
+        return bool(hwnd) and bool(win32gui.IsWindowVisible(hwnd))
+    except Exception:
+        return False
+
 
 class _Runner:
     """Holds the per-scan live context (window capture, calibration, db).
@@ -287,6 +325,19 @@ def run_inventory_scan(cfg, previous_map=None, *, log_fn=None, db=None,
     runner = _Runner(cfg, db, calib=DEFAULT_CALIBRATION)
 
     _emit_line(sink, t('inventory.scan_started'))
+
+    # CS3 (anti-hang): prompt window-presence guard BEFORE any pydirectinput
+    # tab-click / 45-slot hover loop (those accumulate time.sleep settles). With
+    # no Metin2 window open the old path could spin forever on "scanning...".
+    # Here we abort cleanly, emit a clear not-open line, warn the Console and
+    # return an EMPTY map -- the engine itself never hangs, even when called
+    # directly (tests monkeypatch _window_present). Tests assert ZERO clicks/moves.
+    if not _window_present():
+        _warn('inventory.scan_no_window')
+        _emit_line(sink, t('inventory.scan_no_window'))
+        from inventory.types import InventoryMap
+        return InventoryMap(pages={})
+
     runner.open_window()                       # may raise 'not found' (UI handles)
     hotkey = (cfg or {}).get('inventory', {}).get('hotkey', 'i')
     runner.open_inventory(hotkey)

@@ -83,6 +83,48 @@ trained_solver.py  AI puzzle solver (MDP)        version.py    single version so
 fishingbot.py      fishing core (original)       puzzle.py     puzzle core (original base)
 ```
 
+## 📊 Anonymous usage stats & leaderboard / Anonyme Nutzungs-Statistik & Rangliste
+
+**English.** The app includes a small, always-on **anonymous** usage counter that
+powers an online **leaderboard**.
+
+- **What is collected:** a **random per-install id** (a `uuid4` generated once and
+  stored locally — _not_ a device fingerprint) plus a few **counters** (catches,
+  solved puzzles, fishing / puzzle runtime) and the **app version**. **No personal
+  data.**
+- **Everyone appears anonymously** under a generated funny name derived from the
+  random id (same id → same name, e.g. `BraveTuna#4711`).
+- **Opting in = your chosen name.** Typing a name in onboarding or
+  _Settings → Ranking_ only **reveals that name** on the leaderboard. Clearing it
+  returns you to the anonymous name. The chosen name is the _only_ potentially
+  identifying datum and is strictly optional.
+- **Anti-cheat moderation:** an install id can be **blocked** from the board and a
+  chosen name can be **hidden** (it then shows the anonymous name). Neither is a
+  durable person-ban — the random id is rotatable by editing this open-source
+  client, so this is mass-protection only.
+- **No raw IP is stored** (only a salted hash, then discarded).
+- **Removal:** ask via the project page to be erased by install id or by name.
+
+**Deutsch.** Die App enthält einen kleinen, immer aktiven **anonymen** Nutzungs-
+Zähler für eine Online-**Rangliste**.
+
+- **Was erfasst wird:** eine **zufällige Pro-Installation-ID** (einmalig erzeugte
+  `uuid4`, lokal gespeichert — _kein_ Geräte-Fingerabdruck) sowie **Zähler**
+  (Fänge, gelöste Puzzles, Angel- / Puzzle-Laufzeit) und die **App-Version**.
+  **Keine personenbezogenen Daten.**
+- **Alle erscheinen anonym** unter einem generierten lustigen Namen, der aus der
+  zufälligen ID abgeleitet wird (gleiche ID → gleicher Name).
+- **Opt-in = dein gewählter Name.** Ein Name im Onboarding oder unter
+  _Einstellungen → Rangliste_ macht **nur diesen Namen** sichtbar; leeren →
+  zurück zum anonymen Namen. Der gewählte Name ist das _einzige_ potenziell
+  identifizierende Datum und strikt optional.
+- **Anti-Cheat-Moderation:** eine Installations-ID kann von der Rangliste
+  **gesperrt** und ein gewählter Name **ausgeblendet** werden (zeigt dann den
+  anonymen Namen). Keines ist eine dauerhafte Personen-Sperre — die zufällige ID
+  ist durch Editieren dieses Open-Source-Clients austauschbar (nur Massenschutz).
+- **Keine rohe IP** wird gespeichert (nur ein gesalzener Hash, dann verworfen).
+- **Löschung:** über die Projektseite anfragen (nach Installations-ID oder Name).
+
 ## 🙏 Credits
 
 This project is a reworked fork of

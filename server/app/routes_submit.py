@@ -3,8 +3,10 @@
 
 Never trusts the client:
   * pydantic SubmitIn enforces schema/types/length/numeric maxima (422 on bad).
-  * banned HWID or username -> {status: 'banned'} (the client stops + hides).
-  * per-HWID + per-IP in-process rate-limit (in addition to nginx).
+  * a BLOCKED install (bans kind='install', matched on the install id carried as
+    ``hwid``) -> {status: 'banned'} (the client stops). A chosen name is NEVER a
+    stop reason -- name moderation only hides the label in aggregation.
+  * per-install + per-IP in-process rate-limit (in addition to nginx).
   * implausible jumps vs the last stored value for that identity are rejected.
   * the raw IP is NEVER stored -- only a salted hash (GDPR).
 """
@@ -133,14 +135,15 @@ async def submit(payload: SubmitIn, request: Request):
 
     422 is returned automatically by FastAPI when the body fails SubmitIn.
     """
-    # 1) Bans (HWID OR username) -> tell the client to stop.
-    if db.is_banned('hwid', payload.hwid) or db.is_banned('username',
-                                                          payload.username):
+    # 1) Blocked install -> tell the client to stop. A hidden NAME does NOT stop
+    #    submits (the user keeps contributing counters; only their label is
+    #    moderated, in aggregation) -- so username is never checked here.
+    if db.is_banned('install', payload.hwid):
         return JSONResponse(status_code=403, content={'status': 'banned'})
 
     ip = _client_ip(request)
 
-    # 2) Rate limit per HWID and per IP (app-level; nginx adds another layer).
+    # 2) Rate limit per install id and per IP (app-level; nginx adds a layer).
     if _rate_limited('hwid:' + payload.hwid) or _rate_limited('ip:' + ip):
         return JSONResponse(status_code=429,
                             content={'status': 'error', 'detail': 'rate_limited'})

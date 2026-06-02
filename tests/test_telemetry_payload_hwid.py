@@ -2,9 +2,10 @@
 """Pure tests for telemetry.payload + telemetry.hwid (no network/threads).
 
 Only the PURE layers are exercised: build_submit/clamp_payload (schema keys,
-length caps, numeric coercion, deterministic ts from injected now) and
-compute_hwid (stable hex for same inputs, differs for different inputs, fallback
-path). Stdlib unittest.
+length caps, numeric coercion, deterministic ts from injected now) and the
+RANDOM install-id module (new_install_id is a unique uuid4 hex; ensure_install_id
+generates+persists once via an injected getter/setter; the get_hwid shim is a
+process-stable RANDOM id -- NOT a machine hash). Stdlib unittest.
 """
 
 import unittest
@@ -13,48 +14,67 @@ from datetime import datetime, timezone
 from telemetry import payload, hwid
 
 
-class TestComputeHwid(unittest.TestCase):
-    def test_deterministic_same_inputs(self):
-        a = hwid.compute_hwid(raw_guid='G', raw_serial='S', node='host')
-        b = hwid.compute_hwid(raw_guid='G', raw_serial='S', node='host')
+class TestNewInstallId(unittest.TestCase):
+    def test_uuid4_hex_shape(self):
+        i = hwid.new_install_id()
+        self.assertEqual(len(i), 32)
+        int(i, 16)                       # uuid4 hex -> valid hex (raises if not)
+        self.assertTrue(all(c in '0123456789abcdef' for c in i))
+
+    def test_unique_across_calls(self):
+        ids = {hwid.new_install_id() for _ in range(200)}
+        self.assertEqual(len(ids), 200)  # random -> (practically) all distinct
+
+    def test_no_hardware_derivation_api(self):
+        # The retired hardware-hash API must be GONE (no fingerprint remains).
+        for gone in ('compute_hwid', '_read_machine_guid', '_read_volume_serial'):
+            self.assertFalse(hasattr(hwid, gone),
+                             '{} must be retired'.format(gone))
+
+
+class TestEnsureInstallId(unittest.TestCase):
+    def test_generates_and_persists_once(self):
+        store = {'id': ''}
+        got = hwid.ensure_install_id(
+            lambda: store['id'], lambda v: store.__setitem__('id', v))
+        self.assertTrue(got)
+        self.assertEqual(store['id'], got)           # persisted via the setter
+        # Second call returns the STORED id (no regeneration).
+        again = hwid.ensure_install_id(lambda: store['id'], lambda v: None)
+        self.assertEqual(again, got)
+
+    def test_blank_or_invalid_triggers_generation(self):
+        for start in ('', '   ', None):
+            store = {'id': start}
+            got = hwid.ensure_install_id(
+                lambda: store['id'], lambda v: store.__setitem__('id', v))
+            self.assertTrue(got and len(got) == 32)
+
+    def test_never_raises_on_failing_callbacks(self):
+        def boom():
+            raise RuntimeError('getter down')
+
+        def boom_set(_v):
+            raise RuntimeError('setter down')
+
+        # Must still return a usable in-memory id so a submit can go out.
+        got = hwid.ensure_install_id(boom, boom_set)
+        self.assertEqual(len(got), 32)
+
+    def test_caps_overlong_stored_id(self):
+        store = {'id': 'a' * 500}
+        got = hwid.ensure_install_id(lambda: store['id'], lambda v: None)
+        self.assertLessEqual(len(got), hwid.INSTALL_ID_MAXLEN)
+
+
+class TestGetHwidShim(unittest.TestCase):
+    def test_process_stable_random_id(self):
+        # Compat shim: bounded, process-stable. NOT a machine hash.
+        a = hwid.get_hwid()
+        b = hwid.get_hwid()
         self.assertEqual(a, b)
-
-    def test_differs_for_different_inputs(self):
-        a = hwid.compute_hwid(raw_guid='G1', raw_serial='S', node='h')
-        b = hwid.compute_hwid(raw_guid='G2', raw_serial='S', node='h')
-        self.assertNotEqual(a, b)
-
-    def test_hex_length_and_charset(self):
-        h = hwid.compute_hwid(raw_guid='G', raw_serial='S', node='h')
-        self.assertEqual(len(h), hwid.HWID_HEX_LEN)
-        int(h, 16)   # must be valid hex (raises if not)
-
-    def test_fallback_no_machine_id_is_stable(self):
-        a = hwid.compute_hwid(node='samehost')
-        b = hwid.compute_hwid(node='samehost')
-        self.assertEqual(a, b)
-        self.assertEqual(len(a), hwid.HWID_HEX_LEN)
-
-    def test_fallback_differs_by_node(self):
-        a = hwid.compute_hwid(node='hostA')
-        b = hwid.compute_hwid(node='hostB')
-        self.assertNotEqual(a, b)
-
-    def test_never_raises_on_weird_inputs(self):
-        for args in ((object(), object(), object()), (None, None, None)):
-            h = hwid.compute_hwid(*args)
-            self.assertEqual(len(h), hwid.HWID_HEX_LEN)
-
-    def test_os_wrappers_return_none_or_str_headless(self):
-        # On non-Windows these are None; on Windows a str. Must never raise.
-        g = hwid._read_machine_guid()
-        s = hwid._read_volume_serial()
-        self.assertTrue(g is None or isinstance(g, str))
-        self.assertTrue(s is None or isinstance(s, str))
-
-    def test_get_hwid_runs(self):
-        h = hwid.get_hwid()
-        self.assertEqual(len(h), hwid.HWID_HEX_LEN)
+        self.assertTrue(0 < len(a) <= hwid.INSTALL_ID_MAXLEN)
+        int(a, 16)                       # opaque hex
 
 
 class TestBuildSubmit(unittest.TestCase):

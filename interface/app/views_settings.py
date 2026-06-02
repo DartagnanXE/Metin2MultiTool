@@ -227,18 +227,20 @@ class SettingsViewMixin:
              'start': start_entry, 'end': end_entry})
 
     def _build_ranking_card(self, parent, row):
-        """Ranking/Telemetrie: Opt-in-Schalter + Ranglisten-Name."""
+        """Ranking: ein-Zeilen-Transparenz-Hinweis + (optionaler) Anzeigename.
+
+        Kein Opt-in/Opt-out-Schalter mehr -- der anonyme Zaehler laeuft immer.
+        Der Name ist das EINZIGE, das Identitaet preisgibt: leer = anonymer
+        Zufallsname; etwas eintragen = diesen Namen zeigen."""
         card = Section(parent, t('ui.group_ranking'))
         card.grid(row=row, column=0, sticky='ew', pady=(0, 4))
         body = card.body
         body.grid_columnconfigure(0, weight=1)
-        self._ranking_var = ctk.BooleanVar(
-            value=self._cfg['telemetry']['enabled'])
-        self._switch_row(
-            body, 0, t('ui.ranking_enabled'), t('ui.ranking_enabled_sub'),
-            t('ui.ranking_help').format(
-                interval=self._cfg['telemetry']['interval_s']),
-            self._ranking_var, self._on_ranking_toggle)
+        # Ein-Zeilen-Transparenz-Hinweis (ersetzt den Opt-in-Schalter).
+        ctk.CTkLabel(body, text=t('ui.ranking_transparency'), anchor='w',
+                     justify='left', text_color=TEXT_MUTED, wraplength=380,
+                     font=ctk.CTkFont(size=10)).grid(
+            row=0, column=0, sticky='w', pady=(0, 4))
         # Ranglisten-Name (top-level username).
         name_row = ctk.CTkFrame(body, fg_color='transparent')
         name_row.grid(row=1, column=0, sticky='ew', pady=3)
@@ -249,7 +251,8 @@ class SettingsViewMixin:
                      text_color=TEXT, font=ctk.CTkFont(size=12)).grid(
             row=0, column=0, sticky='w')
         ctk.CTkLabel(text_col, text=t('ui.ranking_username_sub'), anchor='w',
-                     text_color=TEXT_FAINT, font=ctk.CTkFont(size=10)).grid(
+                     text_color=TEXT_FAINT, justify='left', wraplength=240,
+                     font=ctk.CTkFont(size=10)).grid(
             row=1, column=0, sticky='w')
         self._username_entry = ctk.CTkEntry(name_row, width=140,
                                            justify='center')

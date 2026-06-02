@@ -3,9 +3,11 @@
 
 post_submit maps 200 -> 'ok', a 'banned' body -> 'banned', exceptions ->
 'error' (never raises). fetch_leaderboard parses JSON and returns None on error
-(and uses its cache). start_sender respects the opt-in gate (does nothing when
-disabled/empty username) and stops on 'banned'. Uses a short interval + a stop
-event so the threaded test finishes fast. Stdlib unittest + unittest.mock.
+(and uses its cache). start_sender respects the anonymous gate (sends when an
+install id (carried as 'hwid') + url are present, NO chosen name required; does
+nothing when blocked / no id / no url) and stops on 'banned'. Uses a short
+interval + a stop event so the threaded test finishes fast. Stdlib unittest +
+unittest.mock.
 """
 
 import json
@@ -126,6 +128,39 @@ class TestFetchLeaderboard(unittest.TestCase):
         self.assertEqual(b, board)
         self.assertEqual(m.call_count, 1)
 
+    def test_force_bypasses_cache_within_ttl(self):
+        # The explicit Refresh path (force=True) MUST re-fetch even when a fresh
+        # cache entry exists, so the board reflects the just-sent out-of-band
+        # submit. Prime the cache, then a forced fetch hits urlopen again and the
+        # NEW server value wins -- the stale cached row never lingers.
+        old = {'entries': [{'username': 'me', 'fishing_catches': 10}]}
+        new = {'entries': [{'username': 'me', 'fishing_catches': 15}]}
+        first = mock.Mock(return_value=_FakeResp(json.dumps(old)))
+        with mock.patch('urllib.request.urlopen', first):
+            a = client.fetch_leaderboard('https://x/lb')   # primes cache
+        self.assertEqual(a, old)
+        second = mock.Mock(return_value=_FakeResp(json.dumps(new)))
+        with mock.patch('urllib.request.urlopen', second):
+            cached = client.fetch_leaderboard('https://x/lb')         # served from cache
+            forced = client.fetch_leaderboard('https://x/lb', force=True)
+        # Without force the stale cached snapshot is returned (urlopen NOT hit);
+        # with force the network is hit and the fresh value is returned.
+        self.assertEqual(cached, old)
+        self.assertEqual(second.call_count, 1)
+        self.assertEqual(forced, new)
+
+    def test_force_writes_cache_back(self):
+        # A forced fetch still WRITES the cache, so a subsequent non-forced read
+        # within the TTL is served from the freshly cached value (no extra call).
+        board = {'entries': []}
+        m = mock.Mock(return_value=_FakeResp(json.dumps(board)))
+        with mock.patch('urllib.request.urlopen', m):
+            forced = client.fetch_leaderboard('https://x/lb', force=True)
+            cached = client.fetch_leaderboard('https://x/lb')   # from cache now
+        self.assertEqual(forced, board)
+        self.assertEqual(cached, board)
+        self.assertEqual(m.call_count, 1)
+
 
 class TestSenderGate(unittest.TestCase):
     def tearDown(self):
@@ -148,16 +183,16 @@ class TestSenderGate(unittest.TestCase):
 
         return get_state
 
-    def test_disabled_sends_nothing(self):
-        # Gated OFF: drive the worker, wait until it has actually evaluated the
-        # gate several times (event-driven, not sleep-based), then assert it
-        # never POSTed and never emitted 'started'.
+    def test_blocked_sends_nothing(self):
+        # Gated OFF (blocked: enabled=False): drive the worker, wait until it has
+        # actually evaluated the gate several times (event-driven, not sleep-
+        # based), then assert it never POSTed and never emitted 'started'.
         calls = []
         looped = threading.Event()
         get_state = self._state_factory(
-            {'enabled': False, 'username': 'bob',
+            {'enabled': False, 'hwid': 'idabc', 'username': 'bob',
              'submit_url': 'https://x/submit', 'interval_s': 1,
-             'payload': {'hwid': 'h'}}, looped)
+             'payload': {'hwid': 'idabc'}}, looped)
 
         with mock.patch('urllib.request.urlopen',
                         side_effect=AssertionError('should not POST')) as m:
@@ -170,12 +205,14 @@ class TestSenderGate(unittest.TestCase):
         self.assertEqual(m.call_count, 0)
         self.assertNotIn('started', calls)
 
-    def test_empty_username_sends_nothing(self):
+    def test_no_install_id_sends_nothing(self):
+        # No install id (carried as 'hwid') -> the anonymous gate blocks sending
+        # even though enabled + url are present.
         looped = threading.Event()
         get_state = self._state_factory(
-            {'enabled': True, 'username': '   ',
+            {'enabled': True, 'hwid': '', 'username': 'bob',
              'submit_url': 'https://x/submit', 'interval_s': 1,
-             'payload': {'hwid': 'h'}}, looped)
+             'payload': {'hwid': ''}}, looped)
 
         with mock.patch('urllib.request.urlopen',
                         side_effect=AssertionError('should not POST')) as m:
@@ -185,6 +222,30 @@ class TestSenderGate(unittest.TestCase):
             if client._sender_thread is not None:
                 client._sender_thread.join(timeout=2.0)
         self.assertEqual(m.call_count, 0)
+
+    def test_anonymous_no_name_still_sends(self):
+        # Anonymous always-on: an install id + url with NO chosen name MUST send.
+        statuses = []
+        seen_ok = threading.Event()
+
+        def on_status(s):
+            statuses.append(s)
+            if s == 'ok':
+                seen_ok.set()
+
+        def get_state():
+            return {'enabled': True, 'hwid': 'idabc', 'username': '',
+                    'submit_url': 'https://x/submit', 'interval_s': 1,
+                    'payload': {'hwid': 'idabc'}}
+
+        with mock.patch('urllib.request.urlopen',
+                        return_value=_FakeResp(json.dumps({'status': 'ok'}))):
+            client.start_sender(get_state, on_status=on_status, interval=1,
+                                idle_poll=0.01)
+            fired = seen_ok.wait(2.0)
+            client.stop_sender()
+        self.assertTrue(fired, 'anonymous sender (id+url, no name) should POST')
+        self.assertIn('ok', statuses)
 
     def test_enabled_sends_and_banned_stops(self):
         statuses = []
@@ -196,9 +257,9 @@ class TestSenderGate(unittest.TestCase):
                 done.set()
 
         def get_state():
-            return {'enabled': True, 'username': 'bob',
+            return {'enabled': True, 'hwid': 'idabc', 'username': 'bob',
                     'submit_url': 'https://x/submit', 'interval_s': 1,
-                    'payload': {'hwid': 'h'}}
+                    'payload': {'hwid': 'idabc'}}
 
         with mock.patch('urllib.request.urlopen',
                         return_value=_FakeResp(json.dumps({'status': 'banned'}))):
@@ -223,9 +284,9 @@ class TestSenderGate(unittest.TestCase):
                 seen_ok.set()
 
         def get_state():
-            return {'enabled': True, 'username': 'bob',
+            return {'enabled': True, 'hwid': 'idabc', 'username': 'bob',
                     'submit_url': 'https://x/submit', 'interval_s': 1,
-                    'payload': {'hwid': 'h'}}
+                    'payload': {'hwid': 'idabc'}}
 
         with mock.patch('urllib.request.urlopen',
                         return_value=_FakeResp(json.dumps({'status': 'ok'}))):
@@ -239,12 +300,12 @@ class TestSenderGate(unittest.TestCase):
 
     def test_bad_idle_poll_does_not_crash_sender(self):
         # A garbage / non-positive idle_poll must be coerced to the safe default,
-        # never raise, and the gate must still work (no POST while disabled).
+        # never raise, and the gate must still work (no POST while blocked).
         looped = threading.Event()
         get_state = self._state_factory(
-            {'enabled': False, 'username': 'bob',
+            {'enabled': False, 'hwid': 'idabc', 'username': 'bob',
              'submit_url': 'https://x/submit', 'interval_s': 1,
-             'payload': {'hwid': 'h'}}, looped, min_loops=1)
+             'payload': {'hwid': 'idabc'}}, looped, min_loops=1)
         with mock.patch('urllib.request.urlopen',
                         side_effect=AssertionError('should not POST')) as m:
             th = client.start_sender(get_state, interval=1, idle_poll='nonsense')

@@ -77,10 +77,9 @@ class ConfigWidgetsMixin:
         except Exception:
             pass
 
-        # Ranking: Opt-in-Schalter + Name.
+        # Ranking: nur noch der (optionale) Anzeigename (kein Opt-in-Schalter).
+        # Leeren -> Box leeren (Anon-Rueckkehr spiegelt sich im Feld).
         try:
-            self._ranking_var.set(
-                bool(self._cfg.get('telemetry', {}).get('enabled', False)))
             self._username_entry.delete(0, 'end')
             self._username_entry.insert(0, self._cfg.get('username', ''))
         except Exception:

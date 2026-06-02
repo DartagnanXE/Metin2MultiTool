@@ -1,0 +1,55 @@
+-- 0002 -- anti-cheat axes: bans.kind vocabulary ('hwid','username') -> ('install','name').
+--
+-- MODEL CHANGE (anonymous ranking): the wire/DB field `hwid` now CARRIES the
+-- random per-install id (NOT a device hash); the ban axes change MEANING:
+--   * kind='install'  -> block ONE installation from the board. Matched on the
+--                        `submissions.hwid` column (the install id). Excludes the
+--                        row from aggregation entirely. Replaces the old 'hwid'.
+--   * kind='name'     -> HIDE a chosen display name (moderation). Matched on the
+--                        `submissions.username` column. Does NOT remove the row:
+--                        aggregation blanks the name so the display name falls
+--                        back to the deterministic anonymous funny name. The
+--                        install keeps contributing counters. (NEW axis,
+--                        replaces the old 'username' BAN which erased the row.)
+-- Neither is a durable person-ban: a source editor can mint a new install id, so
+-- this is mass-protection only (documented in THREAT_MODEL.md).
+--
+-- The `submissions` table is UNCHANGED. Only the bans.kind CHECK changes.
+--
+-- ====================================================================
+-- FRESH DEPLOY: nothing to do. server/app/db.py:init_db creates the bans
+-- table with the new CHECK directly (CREATE TABLE IF NOT EXISTS ...
+-- CHECK (kind IN ('install','name'))). This file documents the change.
+-- ====================================================================
+--
+-- ====================================================================
+-- EXISTING (populated) DB: sqlite cannot ALTER a CHECK in place, so rebuild the
+-- bans table. The project is artifacts-only + honor-system; RUN THIS YOURSELF
+-- only if you already have a populated DB with old-vocabulary bans. Translate
+-- the old kinds ('hwid'->'install', 'username'->'name') while copying:
+--
+--   PRAGMA foreign_keys=OFF;
+--   BEGIN;
+--   ALTER TABLE bans RENAME TO bans_old;
+--   CREATE TABLE bans (
+--       id     INTEGER PRIMARY KEY AUTOINCREMENT,
+--       kind   TEXT NOT NULL CHECK (kind IN ('install','name')),
+--       value  TEXT NOT NULL,
+--       reason TEXT,
+--       ts     INTEGER NOT NULL,
+--       UNIQUE(kind, value)
+--   );
+--   INSERT INTO bans (kind, value, reason, ts)
+--       SELECT CASE kind WHEN 'hwid'     THEN 'install'
+--                        WHEN 'username' THEN 'name'
+--                        ELSE kind END,
+--              value, reason, ts
+--       FROM bans_old;
+--   DROP TABLE bans_old;
+--   COMMIT;
+--   PRAGMA foreign_keys=ON;
+--
+-- NOTE: old 'username' bans ERASED the row from the board; the new 'name' axis
+-- only HIDES the label. After migrating, re-review any translated 'name' bans if
+-- you intended a full removal (use kind='install' on that id, or delete).
+-- ====================================================================

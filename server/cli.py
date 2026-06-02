@@ -1,11 +1,16 @@
 # -*- coding: utf-8 -*-
 """Local admin CLI -- run INSIDE the container, calls server.app.admin/db directly.
 
+Anti-cheat is block-by-id + hide-name ONLY (no general person-ban):
+  --install <id>   block/unblock/erase ONE installation by its random install id
+  --name <name>    hide/unhide/erase a chosen display name (moderation)
+Neither is a durable person-ban: a source editor can mint a new install id.
+
 Examples (inside the container, ADMIN_TOKEN in env):
-    python -m server.cli ban   --hwid    abc123 --reason cheating
-    python -m server.cli ban   --username Bob
-    python -m server.cli unban --hwid    abc123
-    python -m server.cli delete --username Bob
+    python -m server.cli ban    --install abc123 --reason cheating
+    python -m server.cli ban    --name Bob          # hide the name 'Bob'
+    python -m server.cli unban  --install abc123
+    python -m server.cli delete --name Bob
     python -m server.cli list-bans
 
 Reads ADMIN_TOKEN from the environment and verifies it (so the CLI follows the
@@ -19,14 +24,14 @@ import sys
 
 def _identity_args(parser):
     group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument('--hwid')
-    group.add_argument('--username')
+    group.add_argument('--install')
+    group.add_argument('--name')
 
 
 def _kind_value(args):
-    if getattr(args, 'hwid', None):
-        return 'hwid', args.hwid
-    return 'username', args.username
+    if getattr(args, 'install', None):
+        return 'install', args.install
+    return 'name', args.name
 
 
 def main(argv=None):
@@ -35,11 +40,13 @@ def main(argv=None):
                                      description='Telemetry admin CLI')
     sub = parser.add_subparsers(dest='command', required=True)
 
-    p_ban = sub.add_parser('ban', help='ban an HWID or username')
+    p_ban = sub.add_parser('ban',
+                           help='block an install id or hide a chosen name')
     _identity_args(p_ban)
     p_ban.add_argument('--reason', default=None)
 
-    p_unban = sub.add_parser('unban', help='remove a ban')
+    p_unban = sub.add_parser('unban',
+                             help='unblock an install id or unhide a name')
     _identity_args(p_unban)
 
     p_delete = sub.add_parser('delete',

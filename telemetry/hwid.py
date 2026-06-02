@@ -1,116 +1,94 @@
 # -*- coding: utf-8 -*-
-"""Stable per-machine id for the ranking (PURE hashing + thin OS read).
+"""Random per-install id for the ranking (NO hardware/device derivation).
 
-Threat model (honest, not oversold): the client is open source, so anyone
-editing it can spoof this id. The HWID is therefore NOT an authentication
-token -- it is mass-protection only, so the server can ban/delete the bulk of
-abusers by a stable handle. This is documented in server/THREAT_MODEL.md.
+Anonymous model: the install id is a uuid4 generated ONCE on first run and
+stored locally in config (``telemetry.install_id``). It is NOT a device
+fingerprint -- there is no winreg / volume-serial / hostname read here. Because
+the client is open source, a source editor can rotate the id, so it is
+mass-protection only (the server can block one installation by its handle), NOT
+an authentication token. This is documented honestly in server/THREAT_MODEL.md.
 
-Split for testability:
-  * compute_hwid(...) is PURE -- given raw inputs it returns a deterministic
-    sha256 hex prefix. Unit-tested with injected values (no OS access).
-  * get_hwid() reads OS sources via THIN wrappers (_read_machine_guid via
-    winreg, _read_volume_serial) that return ``None`` off-Windows/headless, then
-    delegates to compute_hwid. Never raises -> a deterministic fallback derived
-    from the hostname keeps a stable-ish id even with no OS source.
+The physical module keeps the filename ``hwid.py`` so existing imports stay
+byte-stable (the WIRE/DB field is still named ``hwid`` -- it now simply CARRIES
+this random install_id value; see the design + THREAT_MODEL.md).
 
-Stdlib only (hashlib/platform/winreg-optional). No PII: only an opaque hash.
+API:
+  * ``new_install_id()``     -> a fresh uuid4 hex (32 chars), PURE wrapper.
+  * ``ensure_install_id(getter, setter)`` -> read the stored id; generate +
+    persist one on first use; never raises.
+  * ``get_hwid()``           -> compat shim: a PROCESS-STABLE random id (cached
+    in a module global). NOT a machine hash. Prefer the config ``install_id``.
+
+Stdlib only (uuid).
 """
 
-import hashlib
-import platform
+import uuid
 
-# Truncated digest length (hex chars). 32 hex = 128 bits -> ample for a handle
-# while keeping the stored value small. Mirrored by USERNAME/HWID caps server-side.
-HWID_HEX_LEN = 32
+# Defensive length cap (uuid4 hex is 32 chars; full str form 36). Mirrors
+# interface.config.INSTALL_ID_MAXLEN + the server HWID_MAXLEN.
+INSTALL_ID_MAXLEN = 64
+
+# Process-stable random id for the get_hwid() compat shim (lazily generated +
+# cached). NOT persisted, NOT a machine hash -- just a bounded hex string that is
+# stable within one process so old call sites keep a consistent handle.
+_process_id = None
 
 
-def compute_hwid(raw_guid=None, raw_serial=None, node=None):
-    """PURE: derive a stable hex id from machine identifiers.
+def new_install_id():
+    """Return a fresh random install id (uuid4 hex, 32 chars). PURE; never raises."""
+    try:
+        return uuid.uuid4().hex
+    except Exception:
+        # uuid4 effectively never fails, but stay defensive -> a fixed-shape id.
+        return uuid.UUID(int=0).hex
 
-    Combines the (optional) Windows MachineGuid, a volume serial and the host
-    node name into a single sha256, returns the first :data:`HWID_HEX_LEN` hex
-    chars. Deterministic for the same inputs; different inputs -> different id.
-    If all identifiers are missing it falls back to ``'unknown-host'`` + node so
-    the result is still stable per machine (honestly spoofable). Never raises.
+
+def _valid(value):
+    """A stripped, lowercased, capped id string, or '' on None/junk/empty.
+
+    ``None`` is treated as empty (NOT the literal 'none') so a missing stored id
+    triggers generation. Never raises."""
+    if value is None:
+        return ''
+    try:
+        s = str(value).strip().lower()
+    except Exception:
+        return ''
+    return s[:INSTALL_ID_MAXLEN]
+
+
+def ensure_install_id(cfg_get, cfg_set):
+    """Return the stored install id, generating + persisting one on first use.
+
+    ``cfg_get()`` -> the current ``telemetry.install_id`` (str or ''); if empty/
+    invalid a fresh id is minted via :func:`new_install_id`, handed to
+    ``cfg_set(new_id)`` to persist, and returned. Never raises: on any failure
+    it returns a freshly generated in-memory id so a submit can still go out
+    (the caller may simply not have persisted it yet).
     """
     try:
-        parts = []
-        parts.append(str(raw_guid) if raw_guid else '')
-        parts.append(str(raw_serial) if raw_serial else '')
-        if node is None:
-            try:
-                node = platform.node()
-            except Exception:
-                node = ''
-        parts.append(str(node) if node else '')
-        # If we have NO real machine identifier, anchor on a constant so the
-        # fallback is deterministic rather than empty.
-        if not (raw_guid or raw_serial):
-            parts.insert(0, 'unknown-host')
-        material = '|'.join(parts).encode('utf-8', 'replace')
-        return hashlib.sha256(material).hexdigest()[:HWID_HEX_LEN]
+        current = _valid(cfg_get() if callable(cfg_get) else None)
     except Exception:
-        # Absolute last resort -- a fixed but valid hex string.
-        return hashlib.sha256(b'unknown-host').hexdigest()[:HWID_HEX_LEN]
-
-
-def _read_machine_guid():
-    """Read HKLM\\SOFTWARE\\Microsoft\\Cryptography\\MachineGuid (Windows only).
-
-    Thin OS wrapper: returns the GUID string or ``None`` off-Windows / on any
-    error. Never raises.
-    """
+        current = ''
+    if current:
+        return current
+    new_id = new_install_id()
     try:
-        import winreg
+        if callable(cfg_set):
+            cfg_set(new_id)
     except Exception:
-        return None
-    try:
-        key = winreg.OpenKey(
-            winreg.HKEY_LOCAL_MACHINE,
-            r'SOFTWARE\Microsoft\Cryptography', 0,
-            winreg.KEY_READ | getattr(winreg, 'KEY_WOW64_64KEY', 0))
-        try:
-            value, _type = winreg.QueryValueEx(key, 'MachineGuid')
-            return str(value) if value else None
-        finally:
-            winreg.CloseKey(key)
-    except Exception:
-        return None
-
-
-def _read_volume_serial():
-    """Read the system-drive volume serial via the Windows API (or ``None``).
-
-    Thin OS wrapper using ctypes (Windows only); returns ``None`` off-Windows or
-    on any error. Never raises.
-    """
-    try:
-        import ctypes
-    except Exception:
-        return None
-    try:
-        kernel32 = ctypes.windll.kernel32   # AttributeError off-Windows
-    except Exception:
-        return None
-    try:
-        serial = ctypes.c_uint(0)
-        ok = kernel32.GetVolumeInformationW(
-            ctypes.c_wchar_p('C:\\'), None, 0,
-            ctypes.byref(serial), None, None, None, 0)
-        if not ok:
-            return None
-        return str(serial.value)
-    except Exception:
-        return None
+        pass
+    return new_id
 
 
 def get_hwid():
-    """Compute the machine HWID from OS sources, with a stable fallback.
+    """Compat shim: a PROCESS-STABLE RANDOM id (NOT a machine hash).
 
-    Reads the MachineGuid + volume serial via the thin wrappers (both ``None``
-    off-Windows) and hashes them with :func:`compute_hwid`. Never raises.
+    Kept so older call sites / tests that imported ``get_hwid`` keep working.
+    Prefer the config ``install_id`` (resolved via :func:`ensure_install_id`).
+    Returns a bounded hex string, stable within one process. Never raises.
     """
-    guid = _read_machine_guid()
-    serial = _read_volume_serial()
-    return compute_hwid(raw_guid=guid, raw_serial=serial)
+    global _process_id
+    if _process_id is None:
+        _process_id = new_install_id()
+    return _process_id

@@ -16,6 +16,7 @@ new-unknown warning entirely headless:
 """
 
 import os
+import sys
 import unittest
 
 from inventory.itemdb import ItemDB
@@ -122,6 +123,10 @@ class TestRunInventoryScan(unittest.TestCase):
 
         self._patch('pydirectinput', pdi)
         self._patch('WindowCapture', lambda name: wincap)
+        # CS3 guard: the runner now aborts before the live loop if no window is
+        # present. These wiring tests simulate a present window via the fake
+        # WindowCapture, so force the presence probe True (headless win32 absent).
+        self._patch('_window_present', lambda: True)
 
         # The runner switches tabs via pydirectinput.click; make active_page
         # report the tab whose calibrated centre matches the last click so verify
@@ -176,6 +181,38 @@ class TestRunInventoryScan(unittest.TestCase):
             layout[idx] = cell
         page, _ = synth.synth_page(layout, origin=(2, 2))
         return page
+
+    def test_aborts_when_no_window(self):
+        # CS3 (anti-hang): with NO Metin2 window present the scan must abort
+        # promptly -- emit the not-open line, never raise, and perform ZERO
+        # pydirectinput clicks/moves (i.e. it never enters the long tab-click +
+        # 45-slot hover loop that accumulates time.sleep settles -> the old
+        # "scanning... forever" hang). We force the presence probe False and wire
+        # a fake pydirectinput whose any use would record a click/move.
+        pdi = _FakePDI()
+        self._patch('pydirectinput', pdi)
+        # If open_window were reached it would build a WindowCapture; make that an
+        # error so a regression (no early abort) fails loudly instead of hanging.
+        def _boom(_name):
+            raise AssertionError('open_window must not run when no window present')
+        self._patch('WindowCapture', _boom)
+        self._patch('_window_present', lambda: False)
+
+        lines = []
+        cfg = {'inventory': {'hotkey': 'i'}}
+        inv = ir.run_inventory_scan(cfg, previous_map=None,
+                                    log_fn=lines.append, db=self.db)
+
+        # Returned a (empty) map, no exception.
+        self.assertIsInstance(inv, InventoryMap)
+        self.assertEqual(inv.pages, {})
+        # The clear not-open line reached the Console sink.
+        from i18n import t as _t
+        self.assertIn(_t('inventory.scan_no_window'), lines)
+        # CRUCIAL: it never touched the input device -> no hang loop entered.
+        self.assertEqual(pdi.clicks, [])
+        self.assertEqual(pdi.moves, [])
+        self.assertEqual(pdi.keys, [])
 
     def test_full_loop_wiring(self):
         # One distinct known item per page so each page is a real grid.
@@ -416,6 +453,120 @@ class TestRunInventoryScan(unittest.TestCase):
         finally:
             if '_warn' in self._orig:
                 ir._warn = self._orig['_warn']
+
+
+class _FakeWin32Gui:
+    """Records FindWindow / IsWindow* calls; configurable returns. No real win32.
+
+    Lets us unit-test the CS3 anti-hang presence gate (``_window_present``)
+    headless -- it is the guard that makes "Scan inventory" with no game open
+    abort instead of spinning forever on "scanning...".
+    """
+
+    def __init__(self, find_hwnd=0, visible=True, valid=True):
+        self._find_hwnd = find_hwnd
+        self._visible = visible
+        self._valid = valid
+        self.find_calls = 0
+
+    def FindWindow(self, cls, title):
+        self.find_calls += 1
+        return self._find_hwnd
+
+    def IsWindowVisible(self, hwnd):
+        return bool(self._visible)
+
+    def IsWindow(self, hwnd):
+        return bool(self._valid)
+
+
+class _FakeWC:
+    """Stand-in for ``windowcapture`` exposing only ``get_preferred_hwnd``."""
+
+    def __init__(self, preferred=None):
+        self._preferred = preferred
+
+    def get_preferred_hwnd(self):
+        return self._preferred
+
+
+class TestWindowPresentGate(unittest.TestCase):
+    """Direct coverage of ``ir._window_present`` -- the anti-hang abort gate.
+
+    The scan-abort behaviour is exercised end-to-end elsewhere (the runner
+    early-returns an empty map with ZERO input). Here we pin the gate's OWN
+    branching: headless -> False; a still-valid user-picked HWND -> True without
+    FindWindow; otherwise the FindWindow(+visible) fallback; and never raises.
+    """
+
+    def setUp(self):
+        self._orig_win32 = ir.win32gui
+        self._orig_modules_wc = sys.modules.get('windowcapture')
+
+    def tearDown(self):
+        ir.win32gui = self._orig_win32
+        if self._orig_modules_wc is not None:
+            sys.modules['windowcapture'] = self._orig_modules_wc
+        else:
+            sys.modules.pop('windowcapture', None)
+
+    def _install_wc(self, preferred=None):
+        sys.modules['windowcapture'] = _FakeWC(preferred=preferred)
+
+    def test_headless_no_win32_is_false(self):
+        # No win32 at all (e.g. a direct headless call) -> False, so the runner
+        # early-returns rather than entering the long hover loop.
+        ir.win32gui = None
+        self.assertFalse(ir._window_present())
+
+    def test_findwindow_hit_visible_is_true(self):
+        ir.win32gui = _FakeWin32Gui(find_hwnd=4321, visible=True)
+        self._install_wc(preferred=None)
+        self.assertTrue(ir._window_present())
+
+    def test_findwindow_hit_but_hidden_is_false(self):
+        ir.win32gui = _FakeWin32Gui(find_hwnd=4321, visible=False)
+        self._install_wc(preferred=None)
+        self.assertFalse(ir._window_present())
+
+    def test_findwindow_miss_is_false(self):
+        ir.win32gui = _FakeWin32Gui(find_hwnd=0)
+        self._install_wc(preferred=None)
+        self.assertFalse(ir._window_present())
+
+    def test_preferred_hwnd_valid_short_circuits_before_findwindow(self):
+        # A user-picked target (Item N) that is still valid + visible counts as
+        # present WITHOUT falling back to FindWindow (the picked window wins).
+        fake = _FakeWin32Gui(find_hwnd=0, visible=True, valid=True)
+        ir.win32gui = fake
+        self._install_wc(preferred=999)
+        self.assertTrue(ir._window_present())
+        self.assertEqual(fake.find_calls, 0)
+
+    def test_preferred_hwnd_dead_falls_back_to_findwindow(self):
+        # The picked handle is no longer a window -> ignore it and fall back to
+        # the FindWindow lookup (which here finds a real, visible window).
+        fake = _FakeWin32Gui(find_hwnd=4321, visible=True, valid=False)
+        ir.win32gui = fake
+        self._install_wc(preferred=999)
+        self.assertTrue(ir._window_present())
+        self.assertEqual(fake.find_calls, 1)
+
+    def test_never_raises_when_win32_throws(self):
+        class _Boom:
+            def FindWindow(self, *a):
+                raise RuntimeError('win32 down')
+
+            def IsWindow(self, *a):
+                raise RuntimeError('win32 down')
+
+            def IsWindowVisible(self, *a):
+                raise RuntimeError('win32 down')
+
+        ir.win32gui = _Boom()
+        self._install_wc(preferred=None)
+        # Must swallow and report absent rather than propagate.
+        self.assertFalse(ir._window_present())
 
 
 if __name__ == '__main__':
