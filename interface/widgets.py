@@ -202,18 +202,21 @@ class Tooltip:
     oder die Datei, wird nur der Text gezeigt.
     """
 
-    def __init__(self, widget, text='', image_path=None, image_size=(260, 170)):
+    def __init__(self, widget, text='', image_path=None, image_size=(260, 170),
+                 image=None):
         self._widget = widget
         self._text = text
         self._image_path = image_path
         self._image_size = image_size
+        self._image = image          # optional pre-built PIL image (used as-is)
         self._tip = None
         self._photo = None
         widget.bind('<Enter>', self._show, add='+')
         widget.bind('<Leave>', self._hide, add='+')
 
     def _show(self, _event=None):
-        if self._tip is not None or (not self._text and not self._image_path):
+        if self._tip is not None or (not self._text and not self._image_path
+                                     and self._image is None):
             return
         try:
             x = self._widget.winfo_rootx()
@@ -225,12 +228,13 @@ class Tooltip:
             tip.configure(bg=TEAL_DARK)            # 1px-Rahmen-Effekt
             inner = tk.Frame(tip, bg=PANEL)
             inner.pack(padx=1, pady=1)
+            _has_img = bool(self._image_path) or self._image is not None
             if self._text:
                 tk.Label(inner, text=self._text, bg=PANEL, fg=TEXT,
                          justify='left', font=('Segoe UI', 9),
                          wraplength=320).pack(
-                    padx=10, pady=(8, 6 if self._image_path else 8))
-            if self._image_path:
+                    padx=10, pady=(8, 6 if _has_img else 8))
+            if _has_img:
                 photo = self._load_photo()
                 if photo is not None:
                     label = tk.Label(inner, image=photo, bg=PANEL)
@@ -246,10 +250,13 @@ class Tooltip:
             return self._photo
         try:
             from PIL import Image, ImageTk
-            path = resource_path(self._image_path)
-            if not os.path.exists(path):
-                return None
-            pil = Image.open(path).convert('RGBA').resize(self._image_size)
+            if self._image is not None:
+                pil = self._image.convert('RGBA')      # pre-built, used as-is
+            else:
+                path = resource_path(self._image_path)
+                if not os.path.exists(path):
+                    return None
+                pil = Image.open(path).convert('RGBA').resize(self._image_size)
             self._photo = ImageTk.PhotoImage(pil)
             return self._photo
         except Exception:
@@ -268,13 +275,13 @@ class InfoBadge(ctk.CTkLabel):
     """Kleines ``?``-Abzeichen mit Hover-Tooltip (optional Referenzbild)."""
 
     def __init__(self, master, text='', image_path=None, image_size=(260, 170),
-                 **kwargs):
+                 image=None, **kwargs):
         super().__init__(
             master, text=' ? ', width=22, height=22, corner_radius=11,
             fg_color=PANEL_LIGHT, text_color=TEAL,
             font=ctk.CTkFont(size=12, weight='bold'), **kwargs)
         self._tooltip = Tooltip(self, text=text, image_path=image_path,
-                                image_size=image_size)
+                                image_size=image_size, image=image)
 
 
 class SegmentedRow(ctk.CTkFrame):

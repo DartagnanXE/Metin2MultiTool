@@ -240,8 +240,9 @@ class TestRunInventoryScan(unittest.TestCase):
         self.assertEqual(len(pdi.clicks), 4)
         # Full map assembled.
         self.assertEqual(set(inv.pages), set(PAGES))
-        # Report lines emitted (a header line at least).
-        self.assertTrue(any('Page I' in ln for ln in lines))
+        # Console readout emitted: the simple found-items list + the tracked
+        # summary (the verbose per-page grids were dropped for the plain list).
+        self.assertTrue(any('Found items' in ln for ln in lines))
         self.assertTrue(any('Tracked found at:' in ln for ln in lines))
 
     def test_configurable_hotkey_used(self):

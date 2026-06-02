@@ -41,6 +41,9 @@ class InventoryViewMixin:
         self._inv_status.grid(row=1, column=0, columnspan=2, sticky='w',
                               pady=(6, 0))
 
+        # Inventar-Management-Grid (alle Angel-Items als 3-Status-Bild-Toggles).
+        self._build_inventory_manage(view, 2)
+
         # Lebenden Zustand spiegeln: wird das UI WAEHREND eines Scans oder eines
         # laufenden Bots neu gebaut (z.B. EN/DE-Sprachwechsel), zeigt der frische
         # Knopf sonst faelschlich "klickbar". Der Scan-Worker heilt das ohnehin per
@@ -52,6 +55,142 @@ class InventoryViewMixin:
                     state='disabled', text=t('ui.inventory_scanning'))
             elif self.controller.running:
                 self._inv_scan_btn.configure(state='disabled')
+        except Exception:
+            pass
+
+    # -- Inventar-Management-Grid (3-Status-Bild-Toggles) ----------------
+
+    def _build_inventory_manage(self, parent, row):
+        """Alle Angel-Items als kleine Bilder; jedes ein 3-Status-Toggle per Klick
+        (behalten -> entfernen -> Lagerfeuer). Legende + 'Inventar managen'-Knopf.
+        Fische zuerst, dann der Rest. Der Apply ist ein PLATZHALTER (loggt nur den
+        Plan in die Console -- die echten Handler schreibt der Nutzer noch)."""
+        from interface import inventory_manage as im
+        card = Section(parent, t('ui.group_inventory_manage'))
+        card.grid(row=row, column=0, sticky='ew', pady=(0, 6))
+        body = card.body
+        body.grid_columnconfigure(0, weight=1)
+
+        # ?-Legende statt Textzeile: EIN Fisch in allen 3 Formen + Beschriftung,
+        # versteckt hinter einem ?-Badge (oben rechts, wie die anderen Hilfen).
+        try:
+            legend = im.legend_image(px=40, lang=get_lang())
+        except Exception:
+            legend = None
+        InfoBadge(body, text=t('ui.inv_manage_help'), image=legend).grid(
+            row=0, column=0, sticky='e', pady=(0, 2))
+
+        grid = ctk.CTkFrame(body, fg_color='transparent')
+        grid.grid(row=1, column=0, sticky='ew')
+        self._inv_manage_states = {}
+        self._inv_manage_btns = {}
+        self._inv_manage_imgs = {}
+        self._inv_manage_base = {}
+        self._inv_manage_px = 34
+        items = im.available_items()
+        if not items:
+            ctk.CTkLabel(grid, text=t('ui.inv_manage_no_icons'),
+                         text_color=AMBER, font=ctk.CTkFont(size=11)).grid(
+                row=0, column=0, sticky='w')
+            return
+        PX, COLS = self._inv_manage_px, 9
+        flame = im.make_flame(PX)
+        for i, name in enumerate(items):
+            keep, remove, fire = im.variants(name, PX, flame=flame)
+            if keep is None:
+                continue
+            self._inv_manage_base[name] = (keep, remove, fire)
+            imgs = tuple(
+                ctk.CTkImage(light_image=v, dark_image=v, size=(PX, PX))
+                for v in (keep, remove, fire))
+            self._inv_manage_imgs[name] = imgs
+            self._inv_manage_states[name] = im.KEEP
+            btn = ctk.CTkButton(
+                grid, text='', image=imgs[0], width=PX + 8, height=PX + 8,
+                corner_radius=6, fg_color=PANEL_DARK, hover_color=PANEL_HOVER,
+                border_width=2, border_color=TEAL,
+                command=lambda n=name: self._on_inv_manage_click(n))
+            btn.grid(row=i // COLS, column=i % COLS, padx=2, pady=2)
+            self._inv_manage_btns[name] = btn
+            try:
+                Tooltip(btn, text=im.localized_name(name))
+            except Exception:
+                pass
+
+        ctk.CTkButton(
+            body, text=t('ui.inv_manage_apply'), height=34, corner_radius=10,
+            font=ctk.CTkFont(size=13, weight='bold'),
+            fg_color=TEAL, hover_color=TEAL_HOVER, text_color=INK,
+            command=self._on_inv_manage_apply).grid(
+            row=2, column=0, sticky='ew', pady=(6, 0))
+
+    def _update_inv_manage_counts(self, inv):
+        """Nach einem Scan: die erkannte Stack-Menge pro Item als Zahl in ALLE 3
+        Bildvarianten zeichnen (0 = nichts) + die Buttons aktualisieren. Wirft
+        nie -- existiert das Grid nicht (Tab nie geoeffnet), passiert nichts."""
+        from interface import inventory_manage as im
+        try:
+            from inventory.types import STATE_ITEM
+        except Exception:
+            return
+        counts = {}
+        try:
+            pages = getattr(inv, 'pages', {}) or {}
+            for page in pages:
+                for s in pages.get(page, ()):
+                    if getattr(s, 'state', None) == STATE_ITEM and s.name:
+                        counts[s.name] = counts.get(s.name, 0) + 1
+        except Exception:
+            return
+        px = getattr(self, '_inv_manage_px', 34)
+        for name, base in getattr(self, '_inv_manage_base', {}).items():
+            count = counts.get(name, 0)
+            try:
+                withc = [im.apply_count(v, count, px) for v in base]
+                imgs = tuple(
+                    ctk.CTkImage(light_image=w, dark_image=w, size=(px, px))
+                    for w in withc)
+                self._inv_manage_imgs[name] = imgs
+                state = self._inv_manage_states.get(name, im.KEEP)
+                self._inv_manage_btns[name].configure(image=imgs[state])
+            except Exception:
+                pass
+
+    def _on_inv_manage_click(self, name):
+        """Item angeklickt: Status weiterschalten + Bild/Rahmen aktualisieren
+        (behalten=teal / entfernen=grau / Lagerfeuer=amber). Wirft nie."""
+        from interface import inventory_manage as im
+        state = im.cycle_state(self._inv_manage_states.get(name, im.KEEP))
+        self._inv_manage_states[name] = state
+        try:
+            border = (TEAL, '#6b7280', AMBER)[state]
+            self._inv_manage_btns[name].configure(
+                image=self._inv_manage_imgs[name][state], border_color=border)
+        except Exception:
+            pass
+
+    def _on_inv_manage_apply(self):
+        """'Inventar managen': wendet die per-Item-Entscheidungen an. PLATZHALTER
+        -- loggt nur den Plan in die Console; die echten Move/Delete/Lagerfeuer-
+        Handler schreibt der Nutzer noch (Roadmap). Wirft nie."""
+        from interface import inventory_manage as im
+        st = getattr(self, '_inv_manage_states', {})
+        remove = sorted(n for n, s in st.items() if s == im.REMOVE)
+        campfire = sorted(n for n, s in st.items() if s == im.CAMPFIRE)
+        keep = len(st) - len(remove) - len(campfire)
+        try:
+            log.event('0', t('ui.inv_manage_applied', keep=keep,
+                             remove=len(remove), campfire=len(campfire)))
+            for n in remove:
+                log.event('-', '  ' + t('ui.inv_manage_remove') + ': '
+                          + im.localized_name(n))
+            for n in campfire:
+                log.event('-', '  ' + t('ui.inv_manage_campfire') + ': '
+                          + im.localized_name(n))
+        except Exception:
+            pass
+        try:
+            self.flash_saved()
         except Exception:
             pass
 
@@ -165,6 +304,11 @@ class InventoryViewMixin:
             self._set_inv_status(
                 t('ui.inventory_scan_done', items=items, unknown=unknown,
                   tracked=tracked), TEAL)
+        except Exception:
+            pass
+        # Stack-Mengen auf die Management-Bilder schreiben (falls Grid existiert).
+        try:
+            self._update_inv_manage_counts(inv)
         except Exception:
             pass
         self.flash_saved()
