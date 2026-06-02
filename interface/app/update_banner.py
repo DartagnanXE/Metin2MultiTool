@@ -8,18 +8,41 @@ Mixin for :class:`interface.app.App`. Holds only methods (no
 
 from interface.app._common import *  # noqa: F401,F403
 
+# Periodische Update-Pruefung: alle 30 Minuten erneut gegen GitHub pruefen und
+# den Status aktualisieren, falls eine neue Version erscheint (nicht nur beim
+# Start). 30 min = 1_800_000 ms.
+UPDATE_RECHECK_MS = 30 * 60 * 1000
+
 
 class UpdateBannerMixin:
     def _kick_off_update_check(self):
-        """Startet die Hintergrund-Versionspruefung. Wirft NIE; ohne Netz oder
-        bei Fehlern passiert einfach nichts (kein Banner). ``updater`` wird hier
-        LAZY importiert, damit headless-Tests von :mod:`interface.app` nie das
-        Netz-/Updater-Modul benoetigen."""
+        """Startet die Hintergrund-Versionspruefung beim Start UND plant die
+        wiederkehrende 30-Minuten-Pruefung. Wirft NIE; ohne Netz oder bei
+        Fehlern passiert einfach nichts (kein Banner)."""
+        self._start_one_update_check()
+        try:
+            self.after(UPDATE_RECHECK_MS, self._periodic_update_check)
+        except Exception:
+            pass
+
+    def _start_one_update_check(self):
+        """Eine einzelne Hintergrundpruefung anstossen. ``updater`` LAZY
+        importiert, damit headless-Tests nie das Netz-/Updater-Modul brauchen."""
         try:
             import updater
             from version import __version__
             updater.start_background_check(self._on_update_available,
                                            __version__)
+        except Exception:
+            pass
+
+    def _periodic_update_check(self):
+        """Wiederkehrende 30-Minuten-Pruefung: erneut pruefen + sich selbst neu
+        planen. Findet sie eine neue Version, aktualisiert ``_on_update_available``
+        den Status (Banner/Versionsanzeige). Wirft nie."""
+        self._start_one_update_check()
+        try:
+            self.after(UPDATE_RECHECK_MS, self._periodic_update_check)
         except Exception:
             pass
 
@@ -32,19 +55,28 @@ class UpdateBannerMixin:
             pass
 
     def _show_update_banner(self, info):
-        """Zeigt das dezente, schliessbare Update-Banner (GUI-Thread). Idempotent:
-        mehrfaches Aufrufen ersetzt nur den Text und macht es wieder sichtbar."""
+        """Zeigt das dezente, schliessbare Update-Banner (GUI-Thread).
+
+        Idempotent ueber die 30-Minuten-Wiederholpruefungen: die Versionsanzeige
+        unten links spiegelt IMMER die neueste gefundene Version, das Banner
+        ploppt aber nur EINMAL pro Version auf (kein 30-Min-Generve) und NIE fuer
+        eine vom Nutzer weggeklickte Version (eine NEUERE ploppt wieder)."""
         try:
+            tag = getattr(info, 'tag', None)
             self._update_info = info
+            self._highlight_version_update(info)   # Status immer aktualisieren
+            if tag == getattr(self, '_update_surfaced_tag', None):
+                return                              # diese Version schon gezeigt
+            if tag == getattr(self, '_update_dismissed_tag', None):
+                return                              # weggeklickt -> nicht neu nerven
+            self._update_surfaced_tag = tag
             if self._update_banner is None:
                 self._build_update_banner()
             self._refresh_update_banner_text()
             self._update_btn.configure(state='normal', text=t('ui.update_now'))
             self._update_banner.grid()           # sichtbar machen
-            self._highlight_version_update(info)  # Versionsanzeige aufleuchten
             try:
-                log.event('-', t('ui.update_found_log',
-                                 version=getattr(info, 'tag', '')))
+                log.event('-', t('ui.update_found_log', version=tag or ''))
             except Exception:
                 pass
         except Exception:
@@ -84,9 +116,13 @@ class UpdateBannerMixin:
             pass
 
     def _on_update_dismiss(self):
-        """Blendet das Banner aus (nur ausblenden, Info bleibt) -- die
-        Abweisung haelt die Sitzung."""
+        """Blendet das Banner aus (nur ausblenden, Info bleibt) -- die Abweisung
+        haelt die Sitzung. Merkt sich die weggeklickte Version, damit die
+        30-Minuten-Wiederholpruefung dieselbe Version nicht erneut aufpoppt
+        (eine NEUERE Version poppt sehr wohl wieder)."""
         try:
+            self._update_dismissed_tag = getattr(
+                getattr(self, '_update_info', None), 'tag', None)
             if self._update_banner is not None:
                 self._update_banner.grid_remove()
         except Exception:
