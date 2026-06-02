@@ -313,7 +313,7 @@ TRANSLATIONS = {
     'ui.inventory_scan_btn': {'en': 'Scan inventory', 'de': 'Inventar scannen'},
     'ui.inventory_scanning': {'en': 'Scanning...', 'de': 'Scanne ...'},
     'ui.inventory_scan_help': {'en': 'Opens the inventory via the configured hotkey, reads all four pages and prints the map to the Console. The mouse briefly sweeps the slots to clear item glow -- do not touch mouse or keyboard during a scan.', 'de': 'Öffnet das Inventar über den eingestellten Hotkey, liest alle vier Seiten und gibt die Karte in der Console aus. Die Maus fährt kurz über die Slots, um das Item-Leuchten zu entfernen -- bewege während eines Scans weder Maus noch Tastatur.'},
-    'ui.inventory_scan_done': {'en': 'Scan done: {items} item(s), {unknown} unknown, {tracked} tracked', 'de': 'Scan fertig: {items} Item(s), {unknown} unbekannt, {tracked} verfolgt'},
+    'ui.inventory_scan_done': {'en': 'Scan done: {items} item(s) found, {tracked} tracked -- full list in the Console', 'de': 'Scan fertig: {items} Item(s) gefunden, {tracked} verfolgt -- volle Liste in der Console'},
     'ui.inventory_no_window': {'en': 'Scan failed - open Metin2 (800x600) first', 'de': 'Scan fehlgeschlagen - öffne zuerst Metin2 (800x600)'},
     'ui.inventory_not_open': {'en': 'Metin2 not found / not open', 'de': 'Metin2 nicht gefunden / nicht offen'},
     'ui.inventory_scan_failed': {'en': 'Scan failed - see Console', 'de': 'Scan fehlgeschlagen - siehe Console'},

@@ -55,9 +55,15 @@ class SettingsViewMixin:
         self.cast_key_btn = self._key_row(
             hbody, 1, t('ui.cast_key'), t('ui.cast_key_sub'),
             None, 'cast', self._cfg['fishing']['cast_key'])
+        # Reittier-Taste gehoert thematisch zu den Angel-Tasten (kein eigener
+        # "Mount"-Abschnitt mehr); der AN/AUS-Schalter sitzt in der Fishing-View.
+        self.mount_key_btn = self._key_row(
+            hbody, 2, t('ui.mount_key'), t('ui.mount_key_sub'),
+            None, 'mount', self._cfg['fishing']['mount_key'])
 
-        # -- Karte "Mount" (Animation-Cancel: Checkbox + Hotkey) --------
-        self._build_mount_card(scroll, 3)
+        # (Der fruehere "Mount"-Abschnitt entfaellt: der AN/AUS-Schalter sitzt
+        # jetzt als Option in der Fishing-View, die Reittier-TASTE oben unter
+        # "Angel-Tasten".)
 
         # -- Karte "Fish events" (zwei Fenster + Warn-Minuten) ----------
         self._build_events_card(scroll, 4)
@@ -130,23 +136,7 @@ class SettingsViewMixin:
             font=ctk.CTkFont(size=11), command=self._on_reset_settings)
         self.reset_btn.grid(row=0, column=2, sticky='e')
 
-    # -- Settings: neue Karten (Mount / Fish-Events / Ranking) -----------
-
-    def _build_mount_card(self, parent, row):
-        """Mount-Animation-Cancel: Checkbox (fishing.mount_enabled) + Key-Capture
-        (generisch via WHICH_TO_CFG['mount'])."""
-        card = Section(parent, t('ui.group_mount'))
-        card.grid(row=row, column=0, sticky='ew', pady=(0, 4))
-        body = card.body
-        body.grid_columnconfigure(0, weight=1)
-        self._mount_var = ctk.BooleanVar(
-            value=self._cfg['fishing']['mount_enabled'])
-        self._switch_row(
-            body, 0, t('ui.mount_enabled'), t('ui.mount_enabled_sub'),
-            t('ui.mount_help'), self._mount_var, self._on_mount_toggle)
-        self.mount_key_btn = self._key_row(
-            body, 1, t('ui.mount_key'), t('ui.mount_key_sub'),
-            None, 'mount', self._cfg['fishing']['mount_key'])
+    # -- Settings: neue Karten (Fish-Events / Ranking) -----------
 
     def _build_events_card(self, parent, row):
         """Fish-Events: zwei Fenster (Wochentag-Dropdown + Start/Ende HH:MM) +

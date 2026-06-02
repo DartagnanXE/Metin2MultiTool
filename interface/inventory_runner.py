@@ -369,8 +369,13 @@ def run_inventory_scan(cfg, previous_map=None, *, log_fn=None, db=None,
         _emit_line(sink, t('inventory.scan_not_open'))
         return inv
 
-    # Render the full readout to the Console.
-    for line in report.format_full(inv, names=tracked):
+    # Render a SIMPLE found-items list (+ the tracked summary) to the Console.
+    # The per-page grids are intentionally dropped here -- too noisy, and the
+    # inventory view itself has no room (hence routing the readout to the
+    # Console). ``format_item_list`` = the plain "what did the scan find?" view.
+    for line in report.format_item_list(inv):
+        _emit_line(sink, line)
+    for line in report.format_tracked(inv, names=tracked):
         _emit_line(sink, line)
 
     # Diff vs the previous scan; warn ONCE per newly-appeared unknown.

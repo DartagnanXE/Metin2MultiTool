@@ -82,6 +82,22 @@ class FishingPuzzleConsoleViewsMixin:
             info=t('ui.golden_tuna_verified'))
         self.golden_tuna_seg.grid(row=4, column=0, sticky='ew', pady=(0, 4))
 
+        # Reittier/Mount-Animation-Cancel: direkt als Fishing-OPTION (Checkbox +
+        # ?-Hilfe), Stil wie die Stop-after-Zeile. Die zugehoerige Reittier-TASTE
+        # sitzt in den Settings unter "Angel-Tasten" (kein eigener Mount-Abschnitt).
+        mount_row = ctk.CTkFrame(view, fg_color='transparent')
+        mount_row.grid(row=5, column=0, sticky='ew', pady=(0, 4))
+        mount_row.grid_columnconfigure(0, weight=1)
+        self._mount_var = ctk.BooleanVar(
+            value=self._cfg['fishing']['mount_enabled'])
+        self.mount_chk = ctk.CTkCheckBox(
+            mount_row, text=t('ui.mount_enabled'), variable=self._mount_var,
+            text_color=TEXT, fg_color=TEAL, hover_color=TEAL_HOVER,
+            command=self._on_mount_toggle)
+        self.mount_chk.grid(row=0, column=0, sticky='w')
+        InfoBadge(mount_row, text=t('ui.mount_help')).grid(
+            row=0, column=1, sticky='e', padx=(4, 4))
+
     def _build_puzzle_view(self, _parent):
         view = self._new_view('puzzle')
         # Inhalt OBEN gruppiert: KEIN verteilender Zwischenraum (row 3 bleibt leer ->

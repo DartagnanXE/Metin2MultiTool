@@ -121,5 +121,40 @@ class TestFormatFull(unittest.TestCase):
         self.assertIn('  Worm x1: I(0,0)', text)
 
 
+class TestFormatItemList(unittest.TestCase):
+    """The plain Console 'what did the scan find?' list."""
+
+    def test_counts_sorted_desc_with_unknown_note(self):
+        page_i = _full_page('I', {
+            (0, 0): _slot(STATE_ITEM, 'Worm', 'I', 0, 0),
+            (0, 1): _slot(STATE_ITEM, 'Carp', 'I', 0, 1),
+            (0, 2): _slot(STATE_ITEM, 'Carp', 'I', 0, 2),
+            (0, 3): _slot(STATE_ITEM, 'Carp', 'I', 0, 3),
+            (1, 0): _slot(STATE_UNKNOWN, None, 'I', 1, 0, sig=(1, 2)),
+        })
+        lines = report.format_item_list(InventoryMap(pages={'I': page_i}))
+        self.assertEqual(lines[0], 'Found items (4):')   # 4 recognised slots
+        # Sorted by count DESC then name ASC: Carp x3 before Worm x1.
+        self.assertEqual(lines[1], '  Carp x3')
+        self.assertEqual(lines[2], '  Worm x1')
+        self.assertIn('  (+1 unrecognised)', lines)
+
+    def test_empty_inventory(self):
+        inv = InventoryMap(pages={'I': _full_page('I', {})})
+        lines = report.format_item_list(inv)
+        self.assertEqual(lines[0], 'Found items (0):')
+        self.assertIn('  (none)', lines)
+        self.assertFalse(any('unrecognised' in ln for ln in lines))
+
+    def test_aggregates_across_pages(self):
+        inv = InventoryMap(pages={
+            'I': _full_page('I', {(0, 0): _slot(STATE_ITEM, 'Eel', 'I', 0, 0)}),
+            'II': _full_page('II', {(0, 0): _slot(STATE_ITEM, 'Eel', 'II', 0, 0)}),
+        })
+        lines = report.format_item_list(inv)
+        self.assertEqual(lines[0], 'Found items (2):')
+        self.assertIn('  Eel x2', lines)
+
+
 if __name__ == '__main__':
     unittest.main()

@@ -127,6 +127,33 @@ def format_tracked(inv_map, names=KEY_ITEMS) -> List[str]:
     return lines
 
 
+def format_item_list(inv_map) -> List[str]:
+    """Render a flat, human-friendly list of EVERY recognised item with its
+    total count across all scanned pages -- the plain "what did the scan find?"
+    view (Console). One line per distinct item name, sorted by count DESC then
+    name ASC: ``  <name> x<count>``. A trailing ``(+N unrecognised)`` note when
+    any slot was unknown. Header ``Found items (N):``; ``  (none)`` on an empty
+    inventory. PURE + deterministic -> unit-testable on a hand-built map.
+    """
+    counts = {}
+    unknown = 0
+    for page in inv_map.pages:
+        for s in inv_map.pages.get(page, ()):
+            if s.state == STATE_ITEM and s.name:
+                counts[s.name] = counts.get(s.name, 0) + 1
+            elif s.state == STATE_UNKNOWN:
+                unknown += 1
+    lines = ['Found items ({}):'.format(sum(counts.values()))]
+    if not counts:
+        lines.append('  (none)')
+    else:
+        for name, n in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0])):
+            lines.append('  {} x{}'.format(name, n))
+    if unknown:
+        lines.append('  (+{} unrecognised)'.format(unknown))
+    return lines
+
+
 def format_full(inv_map, names=KEY_ITEMS) -> List[str]:
     """Assemble per-page grids (for every present page, in PAGES order) followed
     by the tracked summary. Deterministic -> directly unit-testable.
