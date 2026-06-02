@@ -50,7 +50,7 @@ except Exception:  # pragma: no cover
 
 from inventory.itemdb import ItemDB
 from inventory import grid as grid_mod
-from inventory import scanner, overlay
+from inventory import scanner, overlay, digits
 from inventory.constants import DEFAULT_CALIBRATION
 from inventory.types import STATE_EMPTY, STATE_ITEM, STATE_UNKNOWN
 
@@ -150,13 +150,34 @@ def recognize(shot_path, calib_path=None, page=None, overlay_path=None,
         lattice.origin, lattice.pitch), file=out)
     print('slots      : {} (row-major)'.format(len(results)), file=out)
     print('-' * 56, file=out)
+    sums = {}            # item name -> summed stack count
+    unsure_counts = []   # slots whose number read was NOT confident
     for r in results:
         counts[r.state] = counts.get(r.state, 0) + 1
-        print(format_result(r), file=out)
+        line = format_result(r)
+        if r.state == STATE_ITEM:
+            slot = grid_mod.extract_slot(image_bgr, lattice.slot_box(r.row, r.col))
+            cr = digits.read_count(slot)
+            val = cr.value if cr.value is not None else 0
+            sums[r.name] = sums.get(r.name, 0) + val
+            tag = 'x{}'.format(cr.value if cr.value is not None else '?')
+            if not cr.confident:
+                tag += ' UNSURE(conf={:.2f})'.format(cr.confidence)
+                unsure_counts.append((r.row, r.col, r.name, cr))
+            line += '  ' + tag
+        print(line, file=out)
     print('-' * 56, file=out)
     print('summary    : ITEM={} EMPTY={} UNKNOWN={} (of {})'.format(
         counts[STATE_ITEM], counts[STATE_EMPTY], counts[STATE_UNKNOWN],
         len(results)), file=out)
+    if sums:
+        print('sums       : (item = summed stack count)', file=out)
+        for name in sorted(sums):
+            print('   {:<26} = {}'.format(name, sums[name]), file=out)
+    if counts[STATE_UNKNOWN] or unsure_counts:
+        print('CONFIDENCE : scan may be incomplete -- {} unrecognised slot(s), '
+              '{} uncertain number(s)'.format(
+                  counts[STATE_UNKNOWN], len(unsure_counts)), file=out)
 
     written = None
     if write_overlay:

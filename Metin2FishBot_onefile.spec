@@ -75,6 +75,7 @@ a = Analysis(
     datas=[
         ('images', 'images'),
         ('inventory_icons', 'inventory_icons'),  # Item-Erkennungs-DB (inventory/)
+        ('inventory_digits', 'inventory_digits'),  # Stack-Zahlen-OCR-Templates (inventory.digits)
         ('pieces_second.json', '.'),
         ('fishs.txt', '.'),
     ] + ctk_datas + tz_datas + ([(APP_ICON, '.')] if APP_ICON else []),

@@ -106,6 +106,7 @@ a = Analysis(
     datas=[
         ('images', 'images'),               # alle Template-Bilder
         ('inventory_icons', 'inventory_icons'),  # Item-Erkennungs-DB (inventory/)
+        ('inventory_digits', 'inventory_digits'),  # Stack-Zahlen-OCR-Templates (inventory.digits)
         ('pieces_second.json', '.'),        # Eroeffnungsbuch
         ('fishs.txt', '.'),                 # Fischnamen-Liste (Angeln)
     ] + ctk_datas + tz_datas + ([(APP_ICON, '.')] if APP_ICON else []),  # Icon als Laufzeit-Datei (Fenster-Icon)

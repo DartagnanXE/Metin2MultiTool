@@ -6,16 +6,16 @@ together on STATIC images (no game, no win32, no live capture/input -- every
 live primitive is either a fake callback or a monkeypatch). They are deliberately
 the HARD, exact-number counterpart to the looser ``test_inventory_smoke_real``:
 where that module only prints recognition counts, here the real no-glow shot
-``FischOhneLeuchten.png`` is pinned to its exact 26-item ground truth.
+``FischOhneLeuchten.png`` is pinned to its exact 28-item ground truth.
 
 Covered (one TestCase per area; numbers asserted, not printed):
 
-  1. CORE scan on FischOhneLeuchten.png -> a 26-item InventoryMap with the
-     expected names at the expected slots (exact set; full page tally 26/1/18).
+  1. CORE scan on FischOhneLeuchten.png -> a 28-item InventoryMap with the
+     expected names at the expected slots (exact set; full page tally 28/1/16).
   2. The hover-clear slot-centre sweep: 45 serpentine centres in the right order,
      each == slot-box CENTRE (origin + col*px + 16 / row*py + 16), + to_screen.
   3. Margin-acceptance: synthetic GLOW recall IMPROVES with margin-primary on,
-     AND a no-glow regression keeps 26/26 with ZERO close-family confusion.
+     AND a no-glow regression keeps 28/28 with ZERO close-family confusion.
   4. The Console / map formatter output (format_full on the real map).
   5. The DIFFERENTIAL diff (previous-vs-new): only newly-appeared UNKNOWNs warn
      (exactly one), unchanged unknowns stay SILENT, recognised changes tracked,
@@ -80,44 +80,53 @@ def _load_bgr(path):
 
 # Ground truth for FischOhneLeuchten.png (no glow), derived by running the real
 # auto-align + recognize_page pipeline once and frozen here. Every one of these
-# 26 matches has distance < 1.7 and margin > 27 on the real pixels, so they are
+# 28 matches has distance < 1.7 and margin > 27 on the real pixels, so they are
 # stable, confident, close-family-unambiguous recognitions -- the exact set the
 # CORE scan must reproduce. Note the genuine close-family pair both present and
 # DISTINCT: 'Zander' and 'Large_Zander'.
+#
+# The grid locks at origin y=243 -- the inventory's TRUE top row. auto_align's
+# row-band + full-res re-rank recovers the topmost item row (two 'Worm' baits at
+# (0,1)/(0,2)) that the older +-radius-only sweep silently dropped one slot-row
+# LOW (it locked y=275, scoring 26 and missing that row); the corrected lock is
+# 28 items, every one a < 1.7 match. Everything below is the same set shifted one
+# row down.
 _EXPECTED_ITEMS = {
-    (0, 0): 'Yabby',
-    (0, 1): 'Mandarin_Fish',
-    (0, 2): 'White_Hair_Dye',
-    (0, 3): 'Large_Zander',
-    (1, 0): 'Large_Zander',
-    (1, 1): 'Sage_King_Symbol',
-    (1, 2): 'Silver_Key',
-    (1, 3): 'Grass_Carp',
-    (1, 4): 'Zander',
-    (2, 0): 'Shiri',
-    (2, 2): 'Sage_King_Symbol',
-    (2, 3): 'Perch',
-    (2, 4): 'Large_Zander',
-    (3, 0): 'Tenchi',
-    (3, 1): 'Lotus_Fish',
-    (3, 2): 'Goldfish',
-    (3, 3): 'Salmon',
-    (3, 4): 'Zander',
-    (4, 0): 'Carp',
-    (4, 2): 'Perch',
-    (4, 4): 'Gold_Key',
-    (5, 1): 'Salmon',
-    (5, 3): 'Tenchi',
-    (5, 4): 'Lagerfeuer',
-    (6, 1): 'Sage_King_Symbol',
-    (6, 2): 'Lagerfeuer',
+    (0, 1): 'Worm',
+    (0, 2): 'Worm',
+    (1, 0): 'Yabby',
+    (1, 1): 'Mandarin_Fish',
+    (1, 2): 'White_Hair_Dye',
+    (1, 3): 'Large_Zander',
+    (2, 0): 'Large_Zander',
+    (2, 1): 'Sage_King_Symbol',
+    (2, 2): 'Silver_Key',
+    (2, 3): 'Grass_Carp',
+    (2, 4): 'Zander',
+    (3, 0): 'Shiri',
+    (3, 2): 'Sage_King_Symbol',
+    (3, 3): 'Perch',
+    (3, 4): 'Large_Zander',
+    (4, 0): 'Tenchi',
+    (4, 1): 'Lotus_Fish',
+    (4, 2): 'Goldfish',
+    (4, 3): 'Salmon',
+    (4, 4): 'Zander',
+    (5, 0): 'Carp',
+    (5, 2): 'Perch',
+    (5, 4): 'Gold_Key',
+    (6, 1): 'Salmon',
+    (6, 3): 'Tenchi',
+    (6, 4): 'Lagerfeuer',
+    (7, 1): 'Sage_King_Symbol',
+    (7, 2): 'Lagerfeuer',
 }
-_EXPECTED_ITEM_COUNT = 26
+_EXPECTED_ITEM_COUNT = 28
 _EXPECTED_EMPTY_COUNT = 1
-_EXPECTED_UNKNOWN_COUNT = 18
+_EXPECTED_UNKNOWN_COUNT = 16
 
 # The locked lattice the real shot aligns to (origin + 32px pitch on both axes).
-_EXPECTED_ORIGIN = (633, 275)
+_EXPECTED_ORIGIN = (633, 243)
 _EXPECTED_PITCH = (32, 32)
 _EXPECTED_PAGE = 'I'
 
@@ -169,11 +178,11 @@ class TestCoreScanGroundTruth(unittest.TestCase):
         self.assertEqual(self.lattice.origin, _EXPECTED_ORIGIN)
         self.assertEqual(self.lattice.pitch, _EXPECTED_PITCH)
 
-    def test_exactly_26_items(self):
+    def test_exactly_28_items(self):
         items = self.inv.items()
         self.assertEqual(len(items), _EXPECTED_ITEM_COUNT,
-                         'expected exactly 26 recognised items')
-        # And the whole-page tally is exactly 26 item / 1 empty / 18 unknown.
+                         'expected exactly 28 recognised items')
+        # And the whole-page tally is exactly 28 item / 1 empty / 16 unknown.
         self.assertEqual(len(self.results), SLOTS_PER_PAGE)
         empties = [r for r in self.results if r.state == STATE_EMPTY]
         unknowns = self.inv.unknowns()
@@ -201,9 +210,9 @@ class TestCoreScanGroundTruth(unittest.TestCase):
         # The pure InventoryMap helpers agree with the ground truth.
         self.assertEqual(self.inv.count('Lagerfeuer'), 2)
         self.assertEqual(sorted(self.inv.locations('Lagerfeuer')),
-                         [('I', 5, 4), ('I', 6, 2)])
-        self.assertEqual(self.inv.count('Zander'), 2)        # (1,4) + (3,4)
-        self.assertEqual(self.inv.count('Large_Zander'), 3)  # (0,3)+(1,0)+(2,4)
+                         [('I', 6, 4), ('I', 7, 2)])
+        self.assertEqual(self.inv.count('Zander'), 2)        # (2,4) + (4,4)
+        self.assertEqual(self.inv.count('Large_Zander'), 3)  # (1,3)+(2,0)+(3,4)
         # 'Lagerfeuer' is a tracked KEY_ITEM and is found.
         self.assertIn('Lagerfeuer', self.inv.tracked())
 
@@ -370,7 +379,7 @@ class TestMarginAcceptanceGlowRecall(unittest.TestCase):
 @unittest.skipUnless(np is not None and Image is not None and _shot_present(),
                      'numpy/PIL/screenshot required')
 class TestNoGlowRegressionNoCloseFamilyConfusion(unittest.TestCase):
-    """The no-glow shot stays 26/26 with ZERO close-family confusion."""
+    """The no-glow shot stays 28/28 with ZERO close-family confusion."""
 
     @classmethod
     def setUpClass(cls):
@@ -383,9 +392,9 @@ class TestNoGlowRegressionNoCloseFamilyConfusion(unittest.TestCase):
             img, cls.db, DEFAULT_CALIBRATION, lattice=lattice, page='I')
         cls.items = [r for r in cls.results if r.state == STATE_ITEM]
 
-    def test_still_26_of_26(self):
+    def test_still_28_of_28(self):
         # Margin-primary (which is ALWAYS on in the real classifier) must NOT
-        # have inflated or changed the no-glow result: still exactly 26, still
+        # have inflated or changed the no-glow result: still exactly 28, still
         # the exact ground-truth set.
         self.assertEqual(len(self.items), _EXPECTED_ITEM_COUNT)
         got = {(r.row, r.col): r.name for r in self.items}
@@ -418,8 +427,8 @@ class TestNoGlowRegressionNoCloseFamilyConfusion(unittest.TestCase):
         zander_slots = {(r.row, r.col) for r in self.items if r.name == 'Zander'}
         lz_slots = {(r.row, r.col)
                     for r in self.items if r.name == 'Large_Zander'}
-        self.assertEqual(zander_slots, {(1, 4), (3, 4)})
-        self.assertEqual(lz_slots, {(0, 3), (1, 0), (2, 4)})
+        self.assertEqual(zander_slots, {(2, 4), (4, 4)})
+        self.assertEqual(lz_slots, {(1, 3), (2, 0), (3, 4)})
         self.assertFalse(zander_slots & lz_slots)   # disjoint, no confusion
 
 
@@ -442,8 +451,8 @@ class TestFormatterOnRealMap(unittest.TestCase):
 
     def test_page_grid_header_and_shape(self):
         lines = report.format_page_grid(self.inv, 'I')
-        # Header carries the exact 26/18 tally.
-        self.assertEqual(lines[0], 'Page I  (items=26 unknown=18)')
+        # Header carries the exact 28/16 tally.
+        self.assertEqual(lines[0], 'Page I  (items=28 unknown=16)')
         # 1 header + ROWS body lines.
         self.assertEqual(len(lines), 1 + ROWS)
 
@@ -451,26 +460,28 @@ class TestFormatterOnRealMap(unittest.TestCase):
         lines = report.format_full(self.inv)
         text = '\n'.join(lines)
         # The page header appears, then the tracked summary after the grid.
-        self.assertIn('Page I  (items=26 unknown=18)', lines)
+        self.assertIn('Page I  (items=28 unknown=16)', lines)
         self.assertIn('Tracked found at:', lines)
         self.assertLess(text.index('Page I '), text.index('Tracked found at:'))
         # Lagerfeuer (a KEY_ITEM) is found twice at its ground-truth slots.
-        self.assertIn('  Lagerfeuer x2: I(5,4), I(6,2)', lines)
-        # The other tracked key items are genuinely absent from this inventory.
+        self.assertIn('  Lagerfeuer x2: I(6,4), I(7,2)', lines)
+        # Worm is now found (two baits in the recovered top row); the remaining
+        # tracked key items are genuinely absent from this inventory.
+        self.assertIn('  Worm x2: I(0,1), I(0,2)', lines)
         self.assertIn(
-            '  not found: Fischpuzzlebox, Fischpuzzlebox_Deluxe, Worm', lines)
+            '  not found: Fischpuzzlebox, Fischpuzzlebox_Deluxe', lines)
 
     def test_tokens_render_for_known_unknown_empty(self):
-        # The grid row for row 0 starts with the Yabby token, and row 6 contains
-        # the single empty '.' (slot (6,3)) plus '?' unknowns -- proving every
-        # cell-state token path is exercised by the real map.
+        # Body row 1 starts with the Yabby token (the recovered top row of baits
+        # pushed it down one), and body row 7 holds the single empty '.' (slot
+        # (7,3)) plus '?' unknowns -- exercising every cell-state token path on
+        # the real map. (grid[0] is the header, so body row r == grid[1 + r].)
         grid = report.format_page_grid(self.inv, 'I')
-        row0 = grid[1].split()
-        self.assertEqual(row0[0], report.short_token('Yabby'))
-        # Row index 7 in `grid` == body row 6 (header is grid[0]).
-        body_row6 = grid[1 + 6].split()
-        self.assertIn('.', body_row6)   # the lone empty slot at (6,3)
-        self.assertIn('?', body_row6)   # unknown(s) on the same row
+        body_row1 = grid[1 + 1].split()
+        self.assertEqual(body_row1[0], report.short_token('Yabby'))
+        body_row7 = grid[1 + 7].split()
+        self.assertIn('.', body_row7)   # the lone empty slot at (7,3)
+        self.assertIn('?', body_row7)   # unknown(s) on the same row
 
 
 # --------------------------------------------------------------------------- #

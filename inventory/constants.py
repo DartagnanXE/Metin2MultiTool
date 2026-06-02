@@ -113,6 +113,15 @@ SHIFT_RADIUS = 2
 # below keeps the dense sweep cheap.
 AUTO_ALIGN_RADIUS = 10
 
+# Beyond the dense +-radius window, auto_align runs a COARSE step-2 pass that
+# reaches +-(AUTO_ALIGN_ROW_REACH * pitch_y + radius) in Y to bridge a
+# WHOLE-ROW calibration drift (an inventory that sits one slot-row higher/lower
+# than the bundled default -- observed on foreign clients, where the +-radius
+# window alone locks one row off, silently dropping the off-grid row and
+# inventing a phantom one). A dense +-3 refine then recovers the exact peak the
+# step-2 pass may straddle. Set to 0 to restore the pure +-radius behaviour.
+AUTO_ALIGN_ROW_REACH = 1
+
 # The auto-align origin sweep matches DOWNSAMPLED references/slots (block-mean
 # pooled by this factor) instead of the full 32x32. Alignment only needs to
 # LOCATE the lattice, not name items, so 16x16 (factor 2) is plenty precise and

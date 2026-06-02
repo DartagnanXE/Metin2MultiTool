@@ -22,6 +22,7 @@ from .constants import (
     EMPTY_REF,
     UPPER_REGION_END,
     AUTO_ALIGN_RADIUS,
+    AUTO_ALIGN_ROW_REACH,
     ACTIVE_TAB_SAMPLE,
     MATCH_THRESHOLD,
     DEFAULT_TOLERANCE,
@@ -160,13 +161,12 @@ def upper_region_is_empty(slot_rgb, tol=DEFAULT_TOLERANCE):
     return dev <= float(tol)
 
 
-def auto_align(image_bgr, db, calib, radius=AUTO_ALIGN_RADIUS):
+def auto_align(image_bgr, db, calib, radius=AUTO_ALIGN_RADIUS,
+               row_reach=AUTO_ALIGN_ROW_REACH):
     """Re-lock the grid for THIS image by a dense origin-offset sweep.
 
-    Starts from ``lattice_from_calibration`` and tries every integer origin
-    offset ``dy,dx in [-radius..radius]^2`` (pitch held -- the documented
-    failure was a pure origin drift). For each candidate lattice it scores how
-    many slots hold a confident reference match, choosing the offset that
+    Starts from ``lattice_from_calibration`` and tries integer origin offsets,
+    choosing the offset that
 
         maximises   the count of slots with best masked distance <= threshold,
         then minimises the mean of those matched distances,
@@ -178,10 +178,25 @@ def auto_align(image_bgr, db, calib, radius=AUTO_ALIGN_RADIUS):
     registering zero occupied cells. The ``|dx|+|dy|`` tie-break makes an all-
     empty page (every count 0) lock to the calibration origin, not a corner.
 
-    To keep the dense sweep fast the scoring matches DOWNSAMPLED references
-    (:meth:`ItemDB.alignment_distances`); localisation does not need full
-    resolution. Returns the locked :class:`GridLattice` (the calibration lattice
-    unchanged if numpy is missing or there is no usable DB).
+    Search has THREE additive passes (each can only pick a STRICTLY better key,
+    so a calibration that is already correct stays put -- the nearer offset wins
+    ties):
+
+      1. DENSE ``[-radius..radius]^2`` around the calibration origin (the
+         original behaviour; handles the normal small drift, dense so the 1-px
+         match-count well of a sparse page is never stepped over).
+      2. COARSE step-2 sweep that reaches ``+-(row_reach*pitch_y + radius)`` in
+         Y (and ``+-radius`` in X) -- bridges a WHOLE-ROW calibration drift
+         (e.g. an inventory that sits one slot-row higher than the bundled
+         default), which the +-radius window alone cannot reach and which
+         otherwise silently drops the off-grid row + invents a phantom one.
+      3. DENSE +-3 refine around the current winner, recovering the exact peak
+         the coarse step-2 may have straddled.
+
+    To keep the sweep fast the scoring matches DOWNSAMPLED references
+    (:meth:`ItemDB.alignment_distances`). Returns the locked
+    :class:`GridLattice` (the calibration lattice unchanged if numpy is missing
+    or there is no usable DB).
     """
     base = lattice_from_calibration(calib)
     if np is None or image_bgr is None or db is None:
@@ -189,28 +204,73 @@ def auto_align(image_bgr, db, calib, radius=AUTO_ALIGN_RADIUS):
     if getattr(db, 'alignment_distances', None) is None:
         return base
 
-    best_key = None
-    best_lattice = base
     ox, oy = base.origin
     px, py = base.pitch
     boxes = slot_indices()
-    for dy in range(-radius, radius + 1):
-        for dx in range(-radius, radius + 1):
-            cand = GridLattice(origin=(ox + dx, oy + dy), pitch=(px, py))
-            score = _lattice_score(image_bgr, db, cand, boxes)
-            if score is None:
+    tol = int((calib or {}).get('tolerance', DEFAULT_TOLERANCE))
+
+    def band_rep(center_y):
+        """Best-aligned FUZZY lattice in the dense +-radius window around
+        ``(ox, center_y)``, localised PURELY by fit (max matches, then lowest
+        mean) -- no calibration bias here, so each band reports its own true
+        peak. The calibration-proximity tie-break lives in the cross-band step.
+        """
+        bk = None
+        bl = None
+        for dy in range(-radius, radius + 1):
+            for dx in range(-radius, radius + 1):
+                cand = GridLattice(origin=(ox + dx, center_y + dy),
+                                   pitch=(px, py))
+                s = _lattice_score(image_bgr, db, cand, boxes)
+                if s is None:
+                    continue
+                key = (-s[0], s[1])
+                if bk is None or key < bk:
+                    bk = key
+                    bl = cand
+        return bl
+
+    # One representative per ROW-BAND: the calibration row (k=0) plus +-row_reach
+    # whole-row shifts. A whole-row calibration drift puts the true origin in a
+    # NEIGHBOURING band that the +-radius dense sweep alone cannot reach.
+    reps = []
+    seen = set()
+    for k in range(-int(row_reach or 0), int(row_reach or 0) + 1):
+        lat = band_rep(oy + k * py)
+        if lat is not None and lat.origin not in seen:
+            seen.add(lat.origin)
+            reps.append(lat)
+
+    if not reps:
+        return base
+    if len(reps) == 1:
+        best_lat = reps[0]
+        fit = None
+    else:
+        # Decide BETWEEN bands at FULL RESOLUTION: most confident items, then
+        # lowest mean distance, then NEAREST to the calibration origin. The last
+        # key is decisive for a full inventory, where a one-row shift is a real
+        # alias of EQUAL quality (each row's slot just remaps to the next) -- so
+        # ties must fall back to the trusted calibration row, while a genuinely
+        # better band (e.g. a foreign client one row off, with strictly more
+        # matches) still wins on the count.
+        best_key = None
+        best_lat = reps[0]
+        fit = None
+        for lat in reps:
+            fm = _lattice_score_full(image_bgr, db, lat, boxes, tol)
+            if fm is None:
                 continue
-            matched, mean_dist = score
-            # Lower key wins: most matches, then lowest mean, then nearest.
-            key = (-matched, mean_dist, abs(dx) + abs(dy))
+            off = abs(lat.origin[0] - ox) + abs(lat.origin[1] - oy)
+            key = (-fm[0], fm[1], off)
             if best_key is None or key < best_key:
                 best_key = key
-                best_lattice = cand
+                best_lat = lat
+                fit = fm[0]
 
     _log('inventory.grid_locked',
-         origin=best_lattice.origin, pitch=best_lattice.pitch,
-         fit=None if best_key is None else -best_key[0])
-    return best_lattice
+         origin=best_lat.origin, pitch=best_lat.pitch, fit=fit)
+    return best_lat
 
 
 def _lattice_score(image_bgr, db, lattice, boxes, thr=MATCH_THRESHOLD):
@@ -235,6 +295,32 @@ def _lattice_score(image_bgr, db, lattice, boxes, thr=MATCH_THRESHOLD):
         if best <= thr:
             matched += 1
             sum_dist += best
+    mean_dist = (sum_dist / matched) if matched else float('inf')
+    return matched, mean_dist
+
+
+def _lattice_score_full(image_bgr, db, lattice, boxes, tol):
+    """Score a candidate at FULL resolution: ``(item_count, mean_distance)``.
+
+    Uses the real per-slot classifier (:meth:`ItemDB.best_slot_result`, the
+    same one :func:`inventory.scanner.classify_slot` calls) so a slot only
+    counts when it is a CONFIDENT item on the full 32x32 pixels -- the sharp
+    arbiter the fuzzy downsampled :func:`_lattice_score` cannot be. Returns
+    ``None`` if a slot cannot be extracted (off-image candidate -> skip it).
+    """
+    from .types import STATE_ITEM
+    matched = 0
+    sum_dist = 0.0
+    for row, col in boxes:
+        slot = extract_slot(image_bgr, lattice.slot_box(row, col))
+        if slot is None:
+            return None
+        empty = upper_region_is_empty(slot, tol)
+        res = db.best_slot_result(slot, row=row, col=col, page=None,
+                                  empty=empty, tol=tol)
+        if res.state == STATE_ITEM:
+            matched += 1
+            sum_dist += res.distance
     mean_dist = (sum_dist / matched) if matched else float('inf')
     return matched, mean_dist
 
