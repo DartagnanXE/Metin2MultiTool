@@ -76,7 +76,12 @@ STATS_MAX_RUNTIME_S = 100_000_000.0  # ~3 Jahre Laufzeit in Sekunden
 DEFAULT_SUBMIT_URL = 'https://telemetry.musketier.net/submit'
 DEFAULT_LEADERBOARD_URL = 'https://telemetry.musketier.net/leaderboard'
 
-DEFAULT_CONFIG_PATH = 'config.json'
+# Stabile Position: NEBEN der EXE (frozen/Portable) bzw. 'config.json' im CWD
+# (Dev/Test). Der frueher nackte CWD-Pfad liess die Portable-EXE bei jedem Start
+# die Config verlieren (Re-Onboarding + neue install_id). Siehe paths.py.
+from .paths import config_path as _config_path  # noqa: E402
+
+DEFAULT_CONFIG_PATH = _config_path()
 
 # Vollstaendiges Default-Schema. Entspricht exakt dem heutigen Verhalten:
 #   * Fishing-Timings 2.0s (wie FishingBot.bait_time/throw_time/game_time = 2),

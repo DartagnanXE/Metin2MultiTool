@@ -18,11 +18,13 @@ does not loop, and the app continues.
 All strings via ``i18n.t`` (EN/DE parity). Reuses interface.widgets colors.
 """
 
+import threading
+
 import customtkinter as ctk
 
 from i18n import t
 from interface import config as cfgmod
-from interface.widgets import (BG, INK, PANEL_HOVER, PANEL_LIGHT, TEAL,
+from interface.widgets import (AMBER, BG, INK, PANEL_HOVER, PANEL_LIGHT, TEAL,
                                TEAL_HOVER, TEXT, TEXT_FAINT, TEXT_MUTED)
 
 
@@ -54,7 +56,7 @@ def open_onboarding(app, on_done=None):
         dlg.title(t('ui.onboarding_title'))
         dlg.configure(fg_color=BG)
         dlg.resizable(False, False)
-        dlg.geometry('420x380')
+        dlg.geometry('420x420')
         try:
             dlg.transient(app)
         except Exception:
@@ -93,32 +95,13 @@ def open_onboarding(app, on_done=None):
                      font=ctk.CTkFont(size=10)).grid(
             row=6, column=0, sticky='w', padx=18, pady=(0, 8))
 
+        # -- inline status/warning line (e.g. "name already taken") -------
+        warn = ctk.CTkLabel(dlg, text='', text_color=AMBER, justify='left',
+                            wraplength=380, font=ctk.CTkFont(size=10))
+        warn.grid(row=7, column=0, sticky='w', padx=18, pady=(0, 2))
+
         btns = ctk.CTkFrame(dlg, fg_color='transparent')
-        btns.grid(row=7, column=0, sticky='e', padx=18, pady=(0, 14))
-
-        def _finish():
-            """Save/Skip: write the (possibly empty) name + mark consent decided.
-
-            Empty name = stay anonymous (valid). The typed name is always taken
-            -- there is no checkbox condition any more."""
-            username = ''
-            try:
-                username = entry.get().strip()[:cfgmod.USERNAME_MAXLEN]
-            except Exception:
-                username = ''
-            try:
-                app.controller.update_config('telemetry', 'consented', True)
-                # username is a top-level key; _set_username goes through the
-                # controller so validation + auto-save apply.
-                app._set_username(username)
-            except Exception:
-                pass
-            _close()
-            if callable(on_done):
-                try:
-                    on_done({'username': username})
-                except Exception:
-                    pass
+        btns.grid(row=8, column=0, sticky='e', padx=18, pady=(0, 14))
 
         def _close():
             try:
@@ -130,20 +113,111 @@ def open_onboarding(app, on_done=None):
             except Exception:
                 pass
 
-        # Skip leaves the name empty; Save takes whatever was typed. Both record
-        # consent (decided) so the dialog shows only once.
-        ctk.CTkButton(
+        def _commit(username):
+            """Write the (possibly empty) name + consent IMMEDIATELY, then close.
+
+            Empty name = stay anonymous (valid). persist_now -> the dialog never
+            reappears, even on a hard close right after."""
+            try:
+                app.controller.update_config('telemetry', 'consented', True)
+                app._set_username(username)
+                app.controller.persist_now()
+            except Exception:
+                pass
+            _close()
+            if callable(on_done):
+                try:
+                    on_done({'username': username})
+                except Exception:
+                    pass
+
+        def _set_busy(on):
+            """Disable the buttons while the (async) name check runs."""
+            try:
+                state = 'disabled' if on else 'normal'
+                save_btn.configure(state=state)
+                skip_btn.configure(state=state)
+                if on:
+                    warn.configure(text=t('ui.onboarding_checking'),
+                                   text_color=TEXT_FAINT)
+            except Exception:
+                pass
+
+        def _on_check(username, result):
+            """Back on the GUI thread with the availability verdict."""
+            _set_busy(False)
+            if result.get('available', True) or result.get('owner_is_self'):
+                _commit(username)
+            else:
+                # Taken by someone else -> warn + keep the dialog open so the
+                # user can choose another (or Skip to stay anonymous).
+                try:
+                    warn.configure(text=t('ui.onboarding_name_taken'),
+                                   text_color=AMBER)
+                    entry.focus_set()
+                except Exception:
+                    _commit(username)        # never trap the user on a UI error
+
+        def _attempt_save():
+            """Save: check name availability (async, never blocks), then commit."""
+            try:
+                username = entry.get().strip()[:cfgmod.USERNAME_MAXLEN]
+            except Exception:
+                username = ''
+            if not username:
+                _commit('')                  # anonymous -> no check needed
+                return
+            _set_busy(True)
+
+            def _worker():
+                result = {'available': True, 'owner_is_self': False}
+                try:
+                    from telemetry import client
+                    cfg = app.controller.current_config()
+                    lb_url = cfg.get('telemetry', {}).get('leaderboard_url', '')
+                    hwid = getattr(app, '_install_id', '') or ''
+                    result = client.check_name(lb_url, username, hwid)
+                except Exception:
+                    result = {'available': True, 'owner_is_self': False}
+                try:
+                    app.after(0, lambda: _on_check(username, result))
+                except Exception:
+                    pass
+
+            threading.Thread(target=_worker, name='onboarding-checkname',
+                             daemon=True).start()
+
+        def _skip():
+            try:
+                entry.delete(0, 'end')
+            except Exception:
+                pass
+            _commit('')
+
+        def _commit_typed():
+            """Window-close (X): commit whatever is typed WITHOUT a check (closing
+            must ALWAYS work); the server enforces uniqueness regardless."""
+            try:
+                username = entry.get().strip()[:cfgmod.USERNAME_MAXLEN]
+            except Exception:
+                username = ''
+            _commit(username)
+
+        # Skip leaves the name empty; Save checks availability then takes the
+        # typed name. Both record consent (decided) so the dialog shows only once.
+        skip_btn = ctk.CTkButton(
             btns, text=t('ui.onboarding_skip'), width=100, height=32,
             corner_radius=8, fg_color='transparent', hover_color=PANEL_HOVER,
             text_color=TEXT_MUTED, border_width=1, border_color=PANEL_LIGHT,
-            command=lambda: (entry.delete(0, 'end'), _finish())).grid(
-            row=0, column=0, padx=(0, 8))
-        ctk.CTkButton(
+            command=_skip)
+        skip_btn.grid(row=0, column=0, padx=(0, 8))
+        save_btn = ctk.CTkButton(
             btns, text=t('ui.onboarding_save'), width=120, height=32,
             corner_radius=8, fg_color=TEAL, hover_color=TEAL_HOVER,
-            text_color=INK, command=_finish).grid(row=0, column=1)
+            text_color=INK, command=_attempt_save)
+        save_btn.grid(row=0, column=1)
 
-        dlg.protocol('WM_DELETE_WINDOW', _finish)
+        dlg.protocol('WM_DELETE_WINDOW', _commit_typed)
         try:
             dlg.after(60, dlg.grab_set)
             dlg.lift()
@@ -153,9 +227,10 @@ def open_onboarding(app, on_done=None):
         return dlg
     except Exception:
         # Build failed -> app continues. Best-effort: still mark consent decided
-        # so we do not loop on every start.
+        # (and persist it immediately) so we do not loop on every start.
         try:
             app.controller.update_config('telemetry', 'consented', True)
+            app.controller.persist_now()
         except Exception:
             pass
         return None

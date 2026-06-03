@@ -248,6 +248,9 @@ class SettingsEffectsMixin:
             if solved < 10:
                 return
             self.controller.update_config('telemetry', 'rating_prompted', True)
+            # Sofort auf Platte -> das Popup kommt nie erneut, auch nach hartem
+            # Schliessen direkt nach dem 10. Puzzle.
+            self.controller.persist_now()
         except Exception:
             return
 

@@ -425,6 +425,8 @@ TRANSLATIONS = {
     'ui.onboarding_whatissent': {'en': 'What is sent: a random install id, catches, solved puzzles, fishing/puzzle runtime, app version, and a name only if you enter one. Nothing else.', 'de': 'Was gesendet wird: eine zufällige Installations-ID, Fänge, gelöste Puzzles, Angel-/Puzzle-Laufzeit, App-Version, und ein Name nur, wenn du einen einträgst. Sonst nichts.'},
     'ui.onboarding_save': {'en': 'Save', 'de': 'Speichern'},
     'ui.onboarding_skip': {'en': 'Skip', 'de': 'Überspringen'},
+    'ui.onboarding_checking': {'en': 'Checking name availability...', 'de': 'Prüfe Namensverfügbarkeit...'},
+    'ui.onboarding_name_taken': {'en': 'That name is already taken. Please choose another - or Skip to stay anonymous.', 'de': 'Dieser Name ist bereits vergeben. Bitte wähle einen anderen - oder Überspringen, um anonym zu bleiben.'},
 
     # -- Telemetry log lines -------------------------------------------------
     'telemetry.sender_started': {'en': 'Ranking sender started (every {interval}s)', 'de': 'Ranglisten-Sender gestartet (alle {interval}s)'},

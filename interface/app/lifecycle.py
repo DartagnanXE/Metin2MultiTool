@@ -65,6 +65,33 @@ class LifecycleMixin:
         except Exception:
             pass
 
+    def _ensure_install_id(self):
+        """Mintet + persistiert die zufaellige ``install_id`` EINMALIG, auf dem
+        GUI-Thread, beim Start -- BEVOR der Telemetrie-Worker-Thread laeuft.
+
+        Wurzelfix gegen "zwei FishLover"/Re-Onboarding: Frueher wurde die ID erst
+        LAZY im ``_telemetry_state`` auf dem WORKER-Thread erzeugt und ihr Save
+        ueber ``self.app.after()`` -- vom Nicht-GUI-Thread -- geplant (unzuver-
+        laessig). Damit haftete die Identitaet nur am sauberen ``_on_close``. Hier
+        liegt sie ab dem ersten Start synchron auf der Platte (``persist_now``)
+        und der Worker liest sie nur noch. Idempotent (vorhandene ID bleibt).
+        Streng defensiv -- ein Fehler darf den Start nie kippen."""
+        try:
+            from telemetry import hwid
+            current = getattr(self, '_install_id', None)
+            if not current:
+                current = str(self.controller.current_config().get(
+                    'telemetry', {}).get('install_id', '') or '')
+            if not current:
+                current = hwid.new_install_id()
+                self.controller.update_config('telemetry', 'install_id', current)
+                # Sofort auf Platte -> ueberlebt auch einen harten Exit gleich
+                # nach dem ersten Start (sonst neue ID beim naechsten Start).
+                self.controller.persist_now()
+            self._install_id = current
+        except Exception:
+            pass
+
     def _telemetry_state(self):
         """Thread-sicherer Snapshot fuer den Telemetrie-Sender.
 

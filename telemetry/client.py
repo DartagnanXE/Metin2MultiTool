@@ -43,6 +43,43 @@ _LEADERBOARD_CACHE = {}
 _LEADERBOARD_CACHE_TTL = 30     # seconds
 
 
+def check_name(leaderboard_url, username, hwid, timeout=HTTP_TIMEOUT):
+    """Ask the server whether a self-chosen ``username`` is still available.
+
+    Derives the ``/check_name`` endpoint from the leaderboard URL (same host) and
+    GETs it. Returns ``{'available': bool, 'owner_is_self': bool, 'name': str}``.
+    NEVER raises: on ANY problem (offline, timeout, bad body, empty URL) it returns
+    ``available=True`` so a network hiccup can never trap a user out of choosing a
+    name -- the SERVER still enforces uniqueness at display time, this call is only
+    a proactive convenience. An empty name is always available (anonymous). Stdlib
+    only (urllib + json).
+    """
+    name = (username or '').strip()
+    if not name:
+        return {'available': True, 'owner_is_self': False, 'name': ''}
+    try:
+        from urllib.parse import urlencode, urlsplit, urlunsplit
+        base = str(leaderboard_url or '').strip()
+        if not base:
+            return {'available': True, 'owner_is_self': False, 'name': name}
+        parts = urlsplit(base)
+        # same host/scheme, swap the last path segment -> .../check_name
+        path = parts.path.rsplit('/', 1)[0] + '/check_name'
+        query = urlencode({'username': name, 'hwid': str(hwid or '')[:64]})
+        url = urlunsplit((parts.scheme, parts.netloc, path, query, ''))
+        req = urllib.request.Request(
+            url, method='GET', headers={'User-Agent': _USER_AGENT})
+        with urllib.request.urlopen(req, timeout=timeout) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+        if not isinstance(data, dict):
+            return {'available': True, 'owner_is_self': False, 'name': name}
+        return {'available': bool(data.get('available', True)),
+                'owner_is_self': bool(data.get('owner_is_self', False)),
+                'name': name}
+    except Exception:
+        return {'available': True, 'owner_is_self': False, 'name': name}
+
+
 def post_submit(url, payload, timeout=HTTP_TIMEOUT):
     """POST ``payload`` (dict) as JSON to ``url``. Returns ``(status, data)``.
 

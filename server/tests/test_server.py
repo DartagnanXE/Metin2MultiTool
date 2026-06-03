@@ -122,6 +122,62 @@ class TestDB(unittest.TestCase):
 
 
 @unittest.skipUnless(_HAS_FASTAPI, 'fastapi not installed')
+class TestNameUniqueness(unittest.TestCase):
+    """Chosen names are UNIQUE: the EARLIEST install owns a name; a later install
+    with the same name (case-insensitive) falls back to its anonymous funny name
+    -- no 'FishLover2' implying a second owner. Server half of the fix; the
+    client warns up front via /check_name (db.name_owner)."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        db.init_db(os.path.join(self.dir, 'u.db'))
+
+    def _sub(self, **over):
+        row = {'username': 'u', 'hwid': 'h', 'fishing_catches': 1,
+               'puzzles_solved': 0, 'fishing_runtime_s': 1.0,
+               'puzzler_runtime_s': 0.0, 'app_version': '1.0.7',
+               'ts': int(time.time()), 'ip_hash': 'x'}
+        row.update(over)
+        return row
+
+    def test_earliest_install_owns_chosen_name(self):
+        from server.app.anon_name import anon_name
+        db.insert_submission(self._sub(username='FishLover', hwid='h1',
+                                       fishing_catches=50, ts=1000))
+        db.insert_submission(self._sub(username='FishLover', hwid='h2',
+                                       fishing_catches=80, ts=2000))
+        lb = db.leaderboard('all')
+        by_hwid = {r['hwid']: r['display_name'] for r in lb}
+        self.assertEqual(by_hwid['h1'], 'FishLover')              # owner keeps it
+        self.assertEqual(by_hwid['h2'], anon_name('h2', 'en'))    # later -> anon
+        labels = [r['display_name'] for r in lb]
+        self.assertEqual(labels.count('FishLover'), 1)            # exactly once
+
+    def test_ownership_is_case_insensitive(self):
+        db.insert_submission(self._sub(username='FishLover', hwid='h1', ts=1000))
+        db.insert_submission(self._sub(username='fishlover', hwid='h2', ts=2000))
+        by_hwid = {r['hwid']: r['display_name'] for r in db.leaderboard('all')}
+        self.assertEqual(by_hwid['h1'], 'FishLover')
+        self.assertNotEqual(by_hwid['h2'].casefold(), 'fishlover')
+
+    def test_name_owner_returns_earliest_case_insensitive(self):
+        db.insert_submission(self._sub(username='FishLover', hwid='h1', ts=1000))
+        db.insert_submission(self._sub(username='FishLover', hwid='h2', ts=2000))
+        self.assertEqual(db.name_owner('FishLover'), 'h1')
+        self.assertEqual(db.name_owner('FISHLOVER'), 'h1')
+        self.assertIsNone(db.name_owner('Unclaimed'))
+        self.assertIsNone(db.name_owner(''))
+
+    def test_self_rank_by_name_resolves_to_owner(self):
+        db.insert_submission(self._sub(username='FishLover', hwid='h1', ts=1000,
+                                       fishing_catches=50))
+        db.insert_submission(self._sub(username='FishLover', hwid='h2', ts=2000,
+                                       fishing_catches=80))
+        row = db.self_rank(username='FishLover')
+        self.assertIsNotNone(row)
+        self.assertEqual(row['hwid'], 'h1')          # the owner, not the blanked
+
+
 class TestRoutes(unittest.TestCase):
     def setUp(self):
         self.dir = tempfile.mkdtemp()
@@ -185,6 +241,30 @@ class TestRoutes(unittest.TestCase):
             '/admin/ban', headers={'X-Admin-Token': 'secret-token'},
             json={'kind': 'install', 'value': 'z', 'reason': 'x'})
         self.assertEqual(r2.status_code, 200)
+
+    def test_check_name_availability(self):
+        # Fresh name -> available.
+        r = self.client.get('/check_name?username=Nemere&hwid=hx')
+        self.assertEqual(r.status_code, 200)
+        self.assertTrue(r.json()['available'])
+        # 'bob' claimed by hbob.
+        self.client.post('/submit',
+                         json=self._payload(username='bob', hwid='hbob'))
+        # A DIFFERENT install asking for 'bob' -> taken (and case-insensitive).
+        self.assertFalse(
+            self.client.get('/check_name?username=bob&hwid=hother')
+            .json()['available'])
+        self.assertFalse(
+            self.client.get('/check_name?username=BOB&hwid=hother')
+            .json()['available'])
+        # The OWNER asking for their own name -> available (owner_is_self).
+        body = self.client.get('/check_name?username=bob&hwid=hbob').json()
+        self.assertTrue(body['available'])
+        self.assertTrue(body['owner_is_self'])
+        # Empty/whitespace name -> always available (anonymous is allowed).
+        self.assertTrue(
+            self.client.get('/check_name?username=%20&hwid=hother')
+            .json()['available'])
 
     def test_health(self):
         self.assertEqual(self.client.get('/health').status_code, 200)

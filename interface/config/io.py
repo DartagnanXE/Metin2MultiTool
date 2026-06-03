@@ -16,21 +16,47 @@ Grundregeln:
 import json
 
 from .defaults import DEFAULT_CONFIG_PATH, DEFAULTS
+from .paths import FILENAME as _LEGACY_FILENAME
 from .validate import validate
 
 
-def load(path=DEFAULT_CONFIG_PATH):
-    """Laedt und validiert die Konfiguration. Wirft NIE.
-
-    Fehlende oder fehlerhafte Datei -> validierte Defaults (es wird nichts auf
-    die Platte geschrieben; das uebernimmt erst :func:`save`).
-    """
+def _read_json(path):
+    """Liest + parst JSON oder gibt ``None`` (fehlt/kaputt/Fehler). Wirft nie."""
     try:
         with open(path, 'r', encoding='utf-8') as handle:
-            raw = json.loads(handle.read())
-    except (OSError, ValueError):
-        return validate(DEFAULTS)
+            return json.loads(handle.read())
     except Exception:
+        return None
+
+
+def load(path=None):
+    """Laedt und validiert die Konfiguration. Wirft NIE.
+
+    ``path=None`` (der Normalfall, ``hack.py`` ruft ``cfgmod.load()``) liest den
+    aktuellen Default-Pfad (``DEFAULT_CONFIG_PATH``, EXE-gebunden im frozen-Lauf).
+    Fehlende/fehlerhafte Datei -> validierte Defaults (es wird nichts geschrieben;
+    das uebernimmt erst :func:`save`).
+
+    MIGRATION (nur impliziter Default-Load im frozen-Lauf): Seit der Pfad an die
+    EXE gebunden ist (s. paths.py), kann eine alte ``config.json`` aus dem
+    frueheren CWD-Pfad herumliegen. Fehlt die Datei am (neuen) Default-Pfad UND
+    unterscheidet der sich vom nackten ``'config.json'`` (also: frozen), wird der
+    CWD-Pfad EINMAL als Fallback gelesen -> ein Upgrader verliert seine
+    Einstellungen nicht. Geschrieben wird beim naechsten :func:`save` an den
+    neuen Pfad.
+
+    Wichtig: bei EXPLIZIT uebergebenem ``path`` (Tests, Spezialaufrufe) gibt es
+    KEINE CWD-Migration -- ein fehlender expliziter Pfad liefert sauber Defaults
+    (sonst wuerde ein Test, der aus einem Verzeichnis MIT ``config.json`` laeuft,
+    faelschlich diese aufsammeln).
+    """
+    explicit = path is not None
+    if path is None:
+        path = DEFAULT_CONFIG_PATH
+    raw = _read_json(path)
+    if raw is None and not explicit and path != _LEGACY_FILENAME:
+        raw = _read_json(_LEGACY_FILENAME)
+    if raw is None:
         return validate(DEFAULTS)
     return validate(raw)
 

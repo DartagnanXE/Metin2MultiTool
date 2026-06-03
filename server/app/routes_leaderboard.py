@@ -85,3 +85,31 @@ async def leaderboard(
     entries = _cached_entries(period)
     me = _self_row(hwid, username, period)
     return LeaderboardOut(period=period, entries=entries, self=me)
+
+
+@router.get('/check_name')
+async def check_name(
+        username: str = Query(..., max_length=32),
+        hwid: Optional[str] = Query(None, max_length=64)):
+    """Is a self-chosen ``username`` still available (case-insensitive)?
+
+    Returns ``{name, available, owner_is_self}``. A name is AVAILABLE when no
+    install owns it yet, or when the OWNER is the caller's own ``hwid`` (a
+    returning user re-confirming their own name is never told it is taken). An
+    empty/whitespace name is always available (staying anonymous is allowed).
+    The first-run onboarding calls this to warn BEFORE a collision -- the server
+    half (ownership = earliest install) lives in :func:`db.name_owner`. Strictly
+    defensive: any error -> treated as available (never blocks a user).
+    """
+    name = (username or '').strip()
+    if not name:
+        return {'name': '', 'available': True, 'owner_is_self': False}
+    try:
+        owner = db.name_owner(name)
+    except Exception:
+        owner = None
+    me = (hwid or '').strip()
+    owner_is_self = bool(owner and me and owner == me)
+    available = (owner is None) or owner_is_self
+    return {'name': name, 'available': available,
+            'owner_is_self': owner_is_self}

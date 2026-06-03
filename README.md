@@ -9,6 +9,23 @@ behaviour is fully preserved as the default.
 > violates the game's Terms of Service and may get your account banned. Use at
 > your own risk. See [`LICENSE.txt`](LICENSE.txt).
 
+## 🆕 What's new in 1.0.7
+
+- **Leaderboard identity fix (important):** your install now keeps a **stable
+  identity across restarts**, so your score stays on **one** entry. Previously a
+  Portable EXE could lose its config on relaunch (the file was looked up relative
+  to the working directory, not next to the EXE) — which silently **re-showed the
+  name dialog**, **re-asked you to rate on GitHub**, and could create a **second
+  leaderboard row** (e.g. two "FishLover"). The config now lives **next to the
+  EXE** (Portable; `%APPDATA%` fallback) and the install id + your choices are
+  saved **immediately**.
+- **Unique names:** a self-chosen name now belongs to the **first** install that
+  picks it. A later install choosing the same name falls back to its anonymous
+  name instead of a confusing duplicate, and the first-run dialog **warns you up
+  front** if a name is already taken.
+- The name dialog and the GitHub rating prompt now **never reappear** once you
+  have decided them.
+
 ## 🆕 What's new in 1.0.6
 
 - **Puzzle fix (important):** the solver no longer **stops after every placed

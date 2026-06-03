@@ -212,6 +212,11 @@ class App(
 
         # Onboarding (erster Start: Name + Transparenz-Hinweis) NACH dem Aufbau
         # planen. Streng defensiv -- ein Fehler hier darf den Start nie kippen.
+        # Identitaet (zufaellige install_id) ZUERST + auf dem GUI-Thread sichern
+        # -- vor Onboarding/Telemetrie. Persistiert sofort (s. _ensure_install_id)
+        # -> stabile Leaderboard-Identitaet ueber Neustarts (kein Re-Onboarding,
+        # keine doppelten Eintraege).
+        self.after(600, self._ensure_install_id)
         self.after(700, self._maybe_onboard)
         # Anonymer Telemetrie-Sender (Daemon-Thread) ~1.5s nach Start anwerfen.
         self.after(1500, self._start_telemetry)

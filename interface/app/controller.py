@@ -123,6 +123,30 @@ class BotController:
         except Exception:
             pass
 
+    def persist_now(self):
+        """Speichert die Config SOFORT auf Platte (umgeht die 0.7s-Entprellung).
+
+        Fuer identitaetskritische Schreibvorgaenge (``install_id``, Onboarding-
+        ``consented``/``username``): Sie muessen ab dem ERSTEN Start auf der
+        Platte stehen -- unabhaengig vom Telemetrie-Worker-Thread UND von einem
+        sauberen Schliessen. Sonst wuerde ein harter Exit (Absturz, Task-Kill)
+        direkt nach dem ersten Start die Identitaet verlieren -> beim naechsten
+        Start neue ID + erneutes Onboarding (genau der gemeldete Bug). Bricht
+        ein evtl. geplantes Entprell-Save ab und schreibt direkt. Wirft nie."""
+        try:
+            if self._save_job is not None:
+                try:
+                    self.app.after_cancel(self._save_job)
+                except Exception:
+                    pass
+                self._save_job = None
+        except Exception:
+            pass
+        try:
+            cfgmod.save(self._cfg)
+        except Exception:
+            pass
+
     # -- Start/Stop -------------------------------------------------------
 
     def on_start_stop(self):

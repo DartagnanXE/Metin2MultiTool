@@ -177,18 +177,40 @@ def _aggregate(period='all'):
             """,
             (since, since))
         rows = [dict(r) for r in cur.fetchall()]
+    # 1) Hidden-name moderation: a hidden chosen name is blanked (row stays on
+    #    the board under the anonymous funny name).
     for r in rows:
         name = (r.get('username') or '').strip()
         if name and name in hidden:
-            name = ''                       # hidden -> blank -> anon fallback
+            name = ''
         r['username'] = name
-        r['display_name'] = name if name else anon_name(r['hwid'], 'en')
-    # Collision disambiguation: with a 100-name anon pool (and possibly repeated
-    # chosen names) two rows can share a display name. The EARLIEST install (by
-    # first-seen ts) keeps the bare name; later ones get '2', '3', ... so the
-    # public board never shows two identical labels. Ordered by (first_ts, hwid)
-    # for a stable, deterministic result. `username` (the raw chosen name) is
-    # left intact, so self-lookup by name still matches.
+    # 2) Chosen-name OWNERSHIP (real uniqueness): a self-chosen name belongs to
+    #    the EARLIEST install using it (by first_ts, then hwid). A LATER install
+    #    carrying the SAME name (case-insensitive) does NOT get it -- its name is
+    #    blanked so it falls back to its anonymous funny name. A chosen name thus
+    #    appears at most ONCE on the board -- no "FishLover2" that wrongly implies
+    #    a second owner. This is the server half of name uniqueness; the client
+    #    warns up front via /check_name (-> :func:`name_owner`). `username` on the
+    #    OWNER row stays intact so self-lookup by name still matches the owner.
+    _owners = {}
+    for r in sorted(rows, key=lambda r: (int(r.get('first_ts') or 0),
+                                         str(r['hwid']))):
+        nm = r['username']
+        if not nm:
+            continue
+        key = nm.casefold()
+        if key in _owners:
+            r['username'] = ''              # not the owner -> revert to anon
+        else:
+            _owners[key] = r['hwid']
+    # 3) Display name: the (owned) chosen name, else the anonymous funny name.
+    for r in rows:
+        r['display_name'] = r['username'] if r['username'] \
+            else anon_name(r['hwid'], 'en')
+    # 4) Anonymous-pool disambiguation: chosen names are unique now, but the
+    #    100-name ANON pool can still collide. The EARLIEST install keeps the bare
+    #    anon name; later ones get '2', '3', ... so the public board never shows
+    #    two identical labels. Ordered by (first_ts, hwid) for a stable result.
     _by_name = {}
     for r in rows:
         _by_name.setdefault(r['display_name'], []).append(r)
@@ -245,6 +267,28 @@ def self_rank(hwid=None, username=None, period='all'):
     for row in rows:
         if row['username'] == username:
             return row
+    return None
+
+
+def name_owner(username, period='all'):
+    """Install id that OWNS a chosen name (case-insensitive), or ``None``.
+
+    Ownership mirrors the leaderboard exactly: :func:`_aggregate` resolves chosen
+    names to the EARLIEST install (first_ts, then hwid) and blanks the name on
+    every later install, so the OWNER is the single row whose ``username`` still
+    equals the requested name. Used by ``/check_name`` so the client can warn a
+    user that a name is already taken BEFORE they pick it. Never raises -> None on
+    any error (the caller treats unknown as 'available').
+    """
+    target = (username or '').strip()
+    if not target:
+        return None
+    try:
+        for row in _aggregate(period):
+            if (row.get('username') or '').casefold() == target.casefold():
+                return row['hwid']
+    except Exception:
+        return None
     return None
 
 
