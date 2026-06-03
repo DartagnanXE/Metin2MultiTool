@@ -135,15 +135,26 @@ def _occ(board):
     return o
 
 
-def choose_placement(board, piece, deluxe_available=False):
+def choose_placement(board, piece, deluxe_available=False, finish=False):
     """Box-spar-optimaler Anker ``(x, y)`` fuer ``Tetris.insert_piece`` -- oder
     ``None``, wenn Verwerfen die optimale Aktion ist.
 
-    Verwirft genau dann, wenn KEINE Platzierung den erwarteten Boxenwert
-    verbessert (beweisbar optimal). ``deluxe_available`` wird derzeit ignoriert
-    (Box-Zaehler-Erkennung noch nicht vorhanden) -> reines Platzierungsoptimum;
-    der Deluxe-Finisher kann spaeter additiv ergaenzt werden. Defensiv: kein
-    Board / ungueltiger Stein -> ``None`` (nie Crash).
+    Verwirft (im Normalmodus) genau dann, wenn KEINE Platzierung den erwarteten
+    Boxenwert ``V`` *strikt* senkt (``best_v < base``) -- box-spar-optimal UNTER
+    UNENDLICH vielen Boxen. In der Realitaet sind Boxen ENDLICH: wartet der
+    Loeser am Endspiel auf den perfekten Stein, verwirft er Boxen endlos und das
+    Brett wird nie fertig.
+
+    ``finish=True`` schaltet daher auf FINISH-Modus: platziere den am WENIGSTEN
+    schlechten gueltigen Stein (kleinstes ``V[occ|m]`` -- bevorzugt also Lagen,
+    die KEINE unfuellbare Luecke erzeugen, da solche ein hohes V haben), auch
+    wenn das den Wert nicht strikt verbessert. So macht das Brett garantiert
+    Fortschritt -> wird voll -> Truhe, statt in einer Verwerf-Schleife zu haengen.
+    Der Aufrufer aktiviert ``finish`` z.B. nach mehreren Verwerfen in Folge.
+
+    ``deluxe_available`` bleibt vorerst ungenutzt (eine box-zaehler-bewusste
+    Strategie ueber die Inventar-OCR ist der naechste, additive Schritt).
+    Defensiv: kein Board / ungueltiger Stein -> ``None`` (nie Crash).
     """
     if board is None or piece is None:
         return None
@@ -162,7 +173,9 @@ def choose_placement(board, piece, deluxe_available=False):
                 if best_v is None or v < best_v:
                     best_v = v
                     best_xy = (x, y)
-        if best_xy is not None and best_v < base:
+        # Normalmodus: nur platzieren, wenn es den Boxwert strikt senkt.
+        # Finish-Modus: jede gueltige (least-bad) Lage platzieren -> Fortschritt.
+        if best_xy is not None and (finish or best_v < base):
             return best_xy
         return None
     except Exception:

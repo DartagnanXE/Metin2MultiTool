@@ -66,6 +66,22 @@ class TestChoosePlacement(unittest.TestCase):
         board = [[0] * 6 for _ in range(4)]
         self.assertIsNone(ts.choose_placement(board, _Piece(1)))
 
+    def test_finish_mode_places_when_no_improvement(self):
+        # Same constant-V state where the DEFAULT policy discards (waits): in
+        # FINISH mode it must place the least-bad valid anchor instead, so a
+        # stuck end-game completes the board rather than discarding forever.
+        board = [[0] * 6 for _ in range(4)]
+        self.assertIsNone(ts.choose_placement(board, _Piece(1)))          # default: discard
+        a = ts.choose_placement(board, _Piece(1), finish=True)
+        self.assertIsNotNone(a)
+        self.assertTrue(0 <= a[0] <= 3 and 0 <= a[1] <= 5)
+
+    def test_finish_mode_full_board_still_none(self):
+        # Finish mode never invents a move: a FULL board has no valid anchor.
+        board = [[1] * 6 for _ in range(4)]
+        for t in range(1, 7):
+            self.assertIsNone(ts.choose_placement(board, _Piece(t), finish=True))
+
     def test_picks_the_improving_placement(self):
         board = [[0] * 6 for _ in range(4)]
         m = 1 << ts._idx(2, 3)  # Single an (2,3)

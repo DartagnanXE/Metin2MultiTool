@@ -14,6 +14,12 @@ from respath import resource_path
 from i18n import t
 from puzzle_detect import PuzzleDetectMixin
 
+# Nach so vielen Verwerfen IN FOLGE (ohne Platzierung dazwischen) gilt der
+# box-optimale Loeser als "festgefahren" (wartet auf einen perfekten Stein) und
+# schaltet auf FINISH-Modus (irgendeinen least-bad Stein platzieren), damit das
+# Brett fertig wird statt Boxen endlos zu verwerfen.
+FINISH_AFTER_DISCARDS = 3
+
 
 fish_jigsaw_chest = cv.imread(resource_path("images/fish_jigsaw_chest.png"))
 
@@ -99,6 +105,7 @@ class PuzzleBot(PuzzleDetectMixin):
         log.section(t('puzzle.start_section'))
         self.wincap = WindowCapture(constants.GAME_NAME)
         self.state = 0
+        self._discard_streak = 0      # Verwerfen-in-Folge (Finish-Modus-Trigger)
         # Offset auf den Klassen-Default zuruecksetzen; die Integration setzt
         # danach den aus dem Detection-Modus aufgeloesten Offset (falls
         # abweichend). Garantiert einen wohldefinierten Startwert pro Lauf.
@@ -239,13 +246,22 @@ class PuzzleBot(PuzzleDetectMixin):
         # gesamte Greedy-Pfad unten bleibt ausschliesslich dem 'standard'-Modus
         # vorbehalten und unveraendert.
         if self.solver_mode == 'trained':
-            a = trained_solver.choose_placement(self.tetris.board, piece, False)
+            # Nach FINISH_AFTER_DISCARDS Verwerfen in Folge OHNE Fortschritt
+            # haengt der box-optimale Loeser fest (er wartet auf einen perfekten
+            # Stein, der evtl. nie kommt, und verwirft Boxen endlos). Dann auf
+            # FINISH-Modus schalten: den am wenigsten schlechten Stein platzieren
+            # -> Brett wird voll -> Truhe, statt Endlos-Verwerfen.
+            finish = getattr(self, '_discard_streak', 0) >= FINISH_AFTER_DISCARDS
+            a = trained_solver.choose_placement(self.tetris.board, piece,
+                                                finish=finish)
             if a is None:
+                self._discard_streak = getattr(self, '_discard_streak', 0) + 1
                 log.event(self.state,
                           t('puzzle.ai_no_improving_placement'),
                           piece_type=piece.piece_type, solver_mode='trained')
                 return None
 
+            self._discard_streak = 0
             log.event(self.state, t('puzzle.placement_chosen'), piece_type=piece.piece_type,
                       pos=a, solver_mode='trained')
             self.tetris.insert_piece(a[0], a[1], piece)
