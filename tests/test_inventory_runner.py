@@ -232,11 +232,13 @@ class TestRunInventoryScan(unittest.TestCase):
         self.assertEqual(pdi.keys, [('i', 'down'), ('i', 'up')])
         # All four tabs clicked, in order.
         self.assertEqual(len(pdi.clicks), 4)
-        # Hover sweep ran: 45 slot-centre moves + 1 off-grid park move per page,
-        # x 4 pages (the park keeps the cursor off any slot for the re-capture).
-        self.assertEqual(len(pdi.moves), 46 * len(PAGES))
-        # And NO clicks happened during the sweep (only the 4 tab clicks total) --
-        # the hover sweep + park are strictly MOVE-only (can never grab an item).
+        # Per page: 1 post-tab-click park move (off the tab/grid before the page
+        # capture) + 45 slot-centre hover moves + 1 post-sweep off-grid park move
+        # = 47 moves, x 4 pages. Both parks keep the cursor off any slot/tab for
+        # the captured frame.
+        self.assertEqual(len(pdi.moves), 47 * len(PAGES))
+        # And NO clicks happened during the sweep/parks (only the 4 tab clicks
+        # total) -- every move is strictly MOVE-only (can never grab an item).
         self.assertEqual(len(pdi.clicks), 4)
         # Full map assembled.
         self.assertEqual(set(inv.pages), set(PAGES))

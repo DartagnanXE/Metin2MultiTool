@@ -34,7 +34,7 @@ import unittest
 from inventory.itemdb import ItemDB
 from inventory import grid as grid_mod, scanner, report
 from inventory.grid import GridLattice
-from inventory.hover import slot_centres, to_screen, park_point
+from inventory.hover import slot_centres, to_screen, park_point, tab_park_point
 from inventory.diff import diff_maps, InventoryDiff
 from inventory.types import (
     InventoryMap, SlotResult, STATE_EMPTY, STATE_ITEM, STATE_UNKNOWN,
@@ -289,6 +289,27 @@ class TestHoverSlotCentres(unittest.TestCase):
                                 'park point must be below the grid')
         # And it lines up under the bottom-left column (x == col 0 centre).
         self.assertEqual(park[0], self._expected_centre(ROWS - 1, 0)[0])
+
+    def test_tab_park_point_is_clear_of_tabs_and_grid(self):
+        # The post-TAB-CLICK park (computed from the CALIBRATION, before any
+        # lattice exists) must sit LEFT of the grid's left edge -- so no slot is
+        # occluded -- and BELOW the tabs row -- so the cursor is never on a tab
+        # when the page is captured. Asserted against the real DEFAULT_CALIBRATION.
+        calib = DEFAULT_CALIBRATION
+        grid = calib['grid']
+        left = grid['tl'][0]
+        top = grid['tl'][1]
+        bottom = grid['br'][1]
+        px, py = tab_park_point(calib)
+        # Strictly left of every slot (all slots sit at x >= grid left edge).
+        self.assertLess(px, left, 'tab park must be left of the grid')
+        self.assertGreaterEqual(px, 0, 'tab park x must stay on-screen')
+        # Inside the grid's vertical band -> far below the tabs (tabs.y ~231 is
+        # well above grid top ~275), so the cursor never rests on a tab.
+        self.assertGreaterEqual(py, top)
+        self.assertLessEqual(py, bottom)
+        tabs_y = max(c[1] for c in calib['tabs'].values())
+        self.assertGreater(py, tabs_y, 'tab park must be below the tabs row')
 
 
 # --------------------------------------------------------------------------- #

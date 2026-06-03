@@ -77,6 +77,43 @@ def park_point(lattice) -> Tuple[int, int]:
     return (int(box[0]) + _HALF, int(box[1]) + SLOT_PX + pitch_y)
 
 
+def tab_park_point(calib) -> Tuple[int, int]:
+    """An engine-space point clear of BOTH the page tabs AND the slot grid.
+
+    Used right AFTER a tab click (I/II/III/IV), BEFORE the page is captured. A
+    plain ``pydirectinput.click`` leaves the cursor resting ON the tab button,
+    which sits just ABOVE the grid: the hardware cursor (or the tooltip it
+    triggers) can then bleed into the screenshot and occlude the TOP slot row,
+    demoting it to unknown. We therefore move the cursor to a neutral spot to the
+    LEFT of the grid's left edge -- past every slot (all at x >= grid.tl.x) and
+    below the tabs row -- so the captured page has no cursor over any slot or tab.
+
+    Unlike :func:`park_point` this works from the CALIBRATION alone (no locked
+    lattice exists yet at tab-click time, since auto_align runs only after the
+    capture). It reads ``calib['grid']`` (``tl``/``br``): x = one-and-a-half slot
+    widths LEFT of the grid's left edge, y = the grid's vertical midpoint (well
+    below the tabs, well inside the grid's height so it is never near a tab). Pure
+    + deterministic -> the live wrapper maps it via :func:`to_screen` once.
+
+    :param calib: the calibration dict (reads ``grid.tl`` / ``grid.br``).
+    :return: an ``(x, y)`` engine-space point left of the grid, clear of tabs.
+    """
+    grid = (calib or {}).get('grid', {})
+    tl = grid.get('tl', [0, 0])
+    br = grid.get('br', [int(tl[0]) + SLOT_PX * COLS,
+                         int(tl[1]) + SLOT_PX * ROWS])
+    left = int(tl[0])
+    top = int(tl[1])
+    bottom = int(br[1])
+    # 1.5 slot widths left of the grid's left edge -> clear of every slot (which
+    # all sit at x >= left). Clamp at 0 so we never produce a negative screen x.
+    park_x = max(0, left - (SLOT_PX + _HALF))
+    # Vertical midpoint of the grid: far below the tabs row, safely inside the
+    # grid's height so a small move (never a click) lands in dead space, not a tab.
+    park_y = (top + bottom) // 2
+    return (park_x, park_y)
+
+
 def to_screen(centres, offset) -> List[Tuple[int, int]]:
     """Shift engine-space centre points into absolute SCREEN coordinates.
 

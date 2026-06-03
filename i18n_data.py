@@ -309,6 +309,7 @@ TRANSLATIONS = {
     'inventory.scan_done': {'en': 'Inventory scan done ({pages} page(s) captured)', 'de': 'Inventar-Scan fertig ({pages} Seite(n) aufgenommen)'},
     # -- live runner + differential scan (user-facing) ----------------------
     'inventory.scan_started': {'en': 'Inventory scan started...', 'de': 'Inventar-Scan gestartet ...'},
+    'inventory.scan_page_progress': {'en': 'Scanning page {page} of {total}...', 'de': 'Scanne Seite {page} von {total} ...'},
     'inventory.scan_no_window': {'en': 'Metin2 window not found / not open - scan aborted. Open the game first.', 'de': 'Metin2-Fenster nicht gefunden / nicht offen - Scan abgebrochen. Öffne zuerst das Spiel.'},
     'inventory.scan_not_open': {'en': 'Inventory does not appear to be open (the hotkey may have toggled it shut) - nothing recognised. Open the inventory and scan again.', 'de': 'Das Inventar scheint nicht offen zu sein (der Hotkey hat es evtl. wieder geschlossen) - nichts erkannt. Öffne das Inventar und scanne erneut.'},
     'inventory.new_unknown_item': {'en': 'New unrecognised item on page {page}, slot {slot} -- possibly a new item (icon missing from the DB)', 'de': 'Neues, nicht erkanntes Item in Seite {page}, Slot {slot} -- evtl. neues Item (Icon fehlt in der DB)'},

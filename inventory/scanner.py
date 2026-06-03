@@ -172,7 +172,7 @@ def _scan_one_page(page, capture_fn, switch_page_fn, hover_fn, verify_page_fn,
 
 def scan_inventory(capture_fn, switch_page_fn, db,
                    calib=DEFAULT_CALIBRATION, pages=PAGES,
-                   hover_fn=None, verify_page_fn=None):
+                   hover_fn=None, verify_page_fn=None, progress_fn=None):
     """Drive a full I->IV scan via injected callbacks; assemble an InventoryMap.
 
     For each page label the per-page steps (switch -> capture -> optional verify
@@ -192,10 +192,21 @@ def scan_inventory(capture_fn, switch_page_fn, db,
         clears the lavender glow before the de-glowed re-capture (live only).
     :param verify_page_fn: optional ``(bgr_image) -> page_label`` that confirms
         the expected tab is open (wraps :func:`inventory.grid.active_page`).
+    :param progress_fn: optional ``(page, index, total) -> None`` called ONCE
+        just before each page's work starts (``index`` is 1-based) so the UI can
+        show live per-page feedback instead of only a final summary. Defaults to
+        ``None`` (no progress) and is wrapped defensively -- a raising callback
+        never aborts the scan.
     :return: :class:`InventoryMap` keyed by the pages successfully scanned.
     """
     page_results = {}
-    for page in pages:
+    total = len(pages)
+    for index, page in enumerate(pages, start=1):
+        if progress_fn is not None:
+            try:
+                progress_fn(page, index, total)
+            except Exception:
+                pass  # progress is cosmetic; never let it abort the scan
         results = _scan_one_page(page, capture_fn, switch_page_fn, hover_fn,
                                  verify_page_fn, db, calib)
         if results is None:

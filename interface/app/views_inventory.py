@@ -287,11 +287,19 @@ class InventoryViewMixin:
         cfg = self.controller.current_config()
         prev = self._inv_last_map
 
+        def _on_progress(page, index, total):
+            # Worker-Thread: per-Seite-Fortschritt auf den GUI-Thread spiegeln
+            # (Tk single-threaded), damit die Status-Zeile WAEHREND des Scans
+            # mitlaeuft statt erst am Ende. Rein kosmetisch + defensiv.
+            self.after(0, lambda p=page, i=index, n=total:
+                       self._inv_scan_progress(p, i, n))
+
         def _worker():
             try:
                 from interface import inventory_runner
                 inv = inventory_runner.run_inventory_scan(
-                    cfg, previous_map=prev)   # loggt selbst in die Console
+                    cfg, previous_map=prev,   # loggt selbst in die Console
+                    progress_fn=_on_progress)
                 self.after(0, lambda: self._inv_scan_done(inv))
             except Exception as exc:
                 # exc MUSS am Lambda-Erzeugungszeitpunkt gebunden werden: Python 3
@@ -303,6 +311,21 @@ class InventoryViewMixin:
                 self.after(0, lambda e=exc: self._inv_scan_failed(e))
 
         threading.Thread(target=_worker, name='inv-scan', daemon=True).start()
+
+    def _inv_scan_progress(self, page, index, total):
+        """Per-Seite-Fortschritt (GUI-Thread): aktualisiert die Status-Zeile auf
+        'Scanne Seite X von N', damit der laufende Scan sichtbares Feedback gibt
+        statt erst am Ende. Rein kosmetisch + defensiv -- wirft nie, faesst nur die
+        Status-Zeile an (der Knopf bleibt deaktiviert wie in _on_scan_inventory
+        gesetzt). Kommt der Callback verspaetet erst nach _inv_scan_done an (Scan
+        schon fertig), wird er ignoriert, um die Endmeldung nicht zu ueberschreiben."""
+        if not getattr(self, '_inv_scanning', False):
+            return
+        try:
+            self._set_inv_status(
+                t('inventory.scan_page_progress', page=page, total=total), TEAL)
+        except Exception:
+            pass
 
     def _inv_scan_done(self, inv):
         """Scan fertig (GUI-Thread): merkt die neue Map als Diff-Basis, gibt den

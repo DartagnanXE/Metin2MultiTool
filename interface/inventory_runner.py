@@ -179,9 +179,16 @@ class _Runner:
         return self.wincap.get_screenshot()
 
     def switch_page(self, page):
-        """Click the tab for ``page`` (offset + calib tab centre), then settle.
+        """Click the tab for ``page`` (offset + calib tab centre), PARK the cursor
+        off the inventory, then settle.
 
-        Mirrors fishingbot's offset_x/offset_y click math exactly.
+        Mirrors fishingbot's offset_x/offset_y click math exactly for the click.
+        After the click the cursor would otherwise rest ON the tab button (which
+        sits just above the grid) and its tooltip/hardware-cursor could occlude
+        the top slot row on the captured page. So we MOVE the cursor to a neutral
+        park point clear of every tab + slot (:func:`hover.tab_park_point`) BEFORE
+        the page is captured. MOVE-only (never a click) at ``PAUSE=0`` (restored in
+        a ``finally``); a failed park is non-fatal (we still settle + capture).
         """
         if pydirectinput is None:
             return
@@ -194,10 +201,21 @@ class _Runner:
             return
         x = int(self.offset[0]) + int(center[0])
         y = int(self.offset[1]) + int(center[1])
+        park = hover.to_screen([hover.tab_park_point(self.calib)], self.offset)[0]
+        old_pause = getattr(pydirectinput, 'PAUSE', None)
         try:
             pydirectinput.click(x=x, y=y)
+            # Park the cursor OFF the tab/grid before the capture so neither the
+            # cursor nor a tab tooltip occludes a slot (esp. the top row).
+            pydirectinput.PAUSE = 0
+            pydirectinput.moveTo(park[0], park[1])
         except Exception as exc:
             _warn('inventory.scan_page_failed', page=page, detail=str(exc)[:120])
+        finally:
+            try:
+                pydirectinput.PAUSE = old_pause
+            except Exception:
+                pass
         time.sleep(TAB_SETTLE_S)
 
     def verify(self, image):
@@ -298,7 +316,7 @@ class _Runner:
 
 
 def run_inventory_scan(cfg, previous_map=None, *, log_fn=None, db=None,
-                       tracked=KEY_ITEMS):
+                       tracked=KEY_ITEMS, progress_fn=None):
     """Run ONE live I->IV inventory scan; render + diff it; return the new map.
 
     Steps: build/reuse the DB -> open the capture window -> press the configured
@@ -318,6 +336,11 @@ def run_inventory_scan(cfg, previous_map=None, *, log_fn=None, db=None,
         DB, built once).
     :param tracked: tracked-item names for the report summary (default
         KEY_ITEMS); the seam a future handler narrows.
+    :param progress_fn: optional ``(page, index, total) -> None`` for LIVE
+        per-page UI feedback (the worker thread calls it before each page, so a
+        Tk caller must marshal via ``after``). It is purely cosmetic and wrapped
+        defensively; a per-page line is ALSO pushed to the Console regardless, so
+        the scan no longer feels silent until the final summary.
     :return: the new :class:`InventoryMap`.
     """
     sink = log_fn or _default_log_fn
@@ -352,6 +375,22 @@ def run_inventory_scan(cfg, previous_map=None, *, log_fn=None, db=None,
         runner.note_page_frame(img)
         return img
 
+    # Live per-page feedback so the scan does not feel silent until the end:
+    # push a "Scanning page X of N" line to the Console for EVERY scan, and also
+    # forward to the optional UI callback (which marshals onto the GUI thread).
+    # Both are best-effort -- a raising sink/callback must never abort the scan.
+    def _progress(page, index, total):
+        try:
+            _emit_line(sink, t('inventory.scan_page_progress',
+                               page=page, total=total))
+        except Exception:
+            pass
+        if progress_fn is not None:
+            try:
+                progress_fn(page, index, total)
+            except Exception:
+                pass
+
     inv = scanner.scan_inventory(
         capture_fn,
         runner.switch_page,
@@ -360,6 +399,7 @@ def run_inventory_scan(cfg, previous_map=None, *, log_fn=None, db=None,
         pages=PAGES,
         hover_fn=runner.hover_clear,
         verify_page_fn=runner.verify,
+        progress_fn=_progress,
     )
 
     # Toggled-shut detection: a hotkey that CLOSED the inventory yields no items
