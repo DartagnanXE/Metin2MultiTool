@@ -29,6 +29,11 @@ class ConfigWidgetsMixin:
             self._refresh_opacity_value()
         except Exception:
             pass
+        try:
+            self._delay_slider.set(float(puzzle['step_delay']))
+            self._refresh_delay_value()
+        except Exception:
+            pass
 
         window = self._cfg['window']
         self._close_metin2_var.set(window['close_on_metin2_close'])

@@ -289,6 +289,7 @@ class RunLoop:
         self.puzzlebot.color_mode = puzzle['color_mode']
         self.puzzlebot.color_patch = puzzle['color_patch']
         self.puzzlebot.solver_mode = puzzle['solver_mode']
+        self.puzzlebot.step_delay = puzzle['step_delay']
 
     def inject_offset(self):
         """Loest den Board-Offset aus dem Detection-Modus auf und injiziert ihn.

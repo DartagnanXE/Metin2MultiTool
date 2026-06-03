@@ -124,6 +124,10 @@ class SettingsViewMixin:
         # Settings-Hoehe). Steuert die Transparenz von Mark-/Vorschau-Overlay.
         self._build_opacity_row(wbody, 2)
 
+        # Puzzle-Schritt-Delay: Slider 0.01..1.0 s (schneller = fluessigeres
+        # Puzzle). Neben der Deckkraft eingefaltet (beides Puzzle-Steuerung).
+        self._build_delay_row(wbody, 3)
+
         # -- Reset-Zeile (Item K) ---------------------------------------
         # Bewusst SEKUNDAER (transparent + duenner Rand, gedaempfte Schrift, klein
         # + rechtsbuendig) -- kein teal/roter Hero-Knopf. "?"-Hilfe links daneben.

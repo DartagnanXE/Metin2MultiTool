@@ -235,6 +235,8 @@ TRANSLATIONS = {
     'ui.group_overlay': {'en': 'Overlay', 'de': 'Overlay'},
     'ui.overlay_opacity': {'en': 'Overlay opacity', 'de': 'Overlay-Deckkraft'},
     'ui.overlay_opacity_help': {'en': 'How solid the board-preview / Mark overlays look. Higher = more opaque.', 'de': 'Wie deckend die Brett-Vorschau / Mark-Overlays aussehen. Höher = undurchsichtiger.'},
+    'ui.puzzle_delay': {'en': 'Puzzle speed (delay)', 'de': 'Puzzle-Tempo (Delay)'},
+    'ui.puzzle_delay_help': {'en': 'Wait between each puzzle step (0.01–1.0 s). Lower = faster solving; too low and the game may not render the next piece in time.', 'de': 'Wartezeit zwischen den Puzzle-Schritten (0,01–1,0 s). Niedriger = schnelleres Lösen; zu niedrig und das Spiel rendert den nächsten Stein evtl. nicht rechtzeitig.'},
     # --- Detection-mode previews (Default / Auto) ---
     'ui.preview_default_shown': {'en': 'Showing default board position (270, 227) for ~5s', 'de': 'Zeige Standard-Brettposition (270, 227) für ~5s'},
     'ui.preview_auto_failed': {'en': 'Auto-detect found nothing solid - showing best guess. Auto needs a real board onscreen.', 'de': 'Auto-Erkennung fand nichts Eindeutiges - zeige beste Schätzung. Auto braucht ein echtes Brett auf dem Bildschirm.'},

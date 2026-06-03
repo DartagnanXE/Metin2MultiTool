@@ -80,6 +80,20 @@ class TestEnumCoercion(unittest.TestCase):
         self.assertEqual(cfg['puzzle']['color_patch'], 5)
 
 
+class TestPuzzleStepDelay(unittest.TestCase):
+    """Puzzle-Schritt-Delay: Default 0.1 s, geklemmt auf 0.01..1.0 s."""
+
+    def test_default(self):
+        self.assertEqual(
+            config.validate(config.DEFAULTS)['puzzle']['step_delay'], 0.1)
+
+    def test_clamped_to_range(self):
+        self.assertEqual(
+            config.validate({'puzzle': {'step_delay': 5.0}})['puzzle']['step_delay'], 1.0)
+        self.assertEqual(
+            config.validate({'puzzle': {'step_delay': 0.0001}})['puzzle']['step_delay'], 0.01)
+
+
 class TestBaitKeyQuickslotConstraint(unittest.TestCase):
     """bait_key is FIXED to the 8 quick-slot keys (1-4 / F1-F4); the bait lives
     in a quick-slot, so anything else falls back to the default."""

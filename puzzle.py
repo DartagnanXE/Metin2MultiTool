@@ -374,7 +374,7 @@ class PuzzleBot(PuzzleDetectMixin):
 
         crop_image = self.get_image()
 
-        timep = PUZZLE_STEP_DELAY
+        timep = getattr(self, 'step_delay', PUZZLE_STEP_DELAY)
 
         # Selbstdiagnose VOR dem Auslesen von Board/Stein: zeigt der Ausschnitt
         # ueberhaupt plausibel das Puzzle? Bei verschobenem Fenster / falscher

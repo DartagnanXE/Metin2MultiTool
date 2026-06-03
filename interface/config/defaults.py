@@ -37,6 +37,9 @@ DELAY_MAX = 20.0
 # (taucht NICHT in to_values auf).
 OVERLAY_OPACITY_MIN = 0.4
 OVERLAY_OPACITY_MAX = 1.0
+# Wartezeit zwischen den Puzzle-State-Schritten (Sekunden), einstellbar.
+PUZZLE_DELAY_MIN = 0.01
+PUZZLE_DELAY_MAX = 1.0
 
 # Erlaubte Hotkey-Tokens fuer Angeln (pydirectinput-Keynamen). Einzelne
 # Ziffern/Buchstaben + eine Whitelist gebraeuchlicher Sondertasten. Ungueltige
@@ -107,6 +110,7 @@ DEFAULTS = {
         'color_patch': 3,
         'solver_mode': 'standard',
         'overlay_opacity': 0.85,  # Deckkraft Mark-/Vorschau-Overlay (0.4..1.0)
+        'step_delay': 0.1,        # Wartezeit zwischen Puzzle-Schritten (0.01..1.0 s)
     },
     'log': {
         'show_in_ui': True,
@@ -171,6 +175,7 @@ __all__ = [
     'DETECTION_MODES', 'COLOR_MODES', 'SOLVER_MODES', 'APP_MODES',
     'COLOR_PATCHES', 'GOLDEN_TUNA_ACTIONS', 'KEYPOINT_KEYS',
     'DELAY_MIN', 'DELAY_MAX', 'OVERLAY_OPACITY_MIN', 'OVERLAY_OPACITY_MAX',
+    'PUZZLE_DELAY_MIN', 'PUZZLE_DELAY_MAX',
     'HOTKEY_TOKENS', 'WEEKDAYS', 'EVENT_WARN_MIN_MAX',
     'TELEMETRY_INTERVAL_MIN', 'TELEMETRY_INTERVAL_MAX',
     'TELEMETRY_INTERVAL_DEFAULT', 'USERNAME_MAXLEN', 'URL_MAXLEN',

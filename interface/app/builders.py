@@ -113,3 +113,57 @@ class RowBuildersMixin:
         except Exception:
             pass
         self._refresh_opacity_value()
+
+    def _build_delay_row(self, parent, row):
+        """Puzzle-Schritt-Delay-Zeile (Label + ?-Hilfe + Slider + Sekunden-Wert).
+
+        Bereich 0.01..1.0 s in 0.01-Schritten; der Wert wird live in Sekunden
+        gezeigt und ueber ``_on_delay_change`` in der Config gesichert. Schneller
+        = fluessigeres Puzzle, zu schnell -> Client rendert evtl. nicht mit."""
+        frame = ctk.CTkFrame(parent, fg_color='transparent')
+        frame.grid(row=row, column=0, sticky='ew', pady=3)
+        frame.grid_columnconfigure(0, weight=1)
+
+        head = ctk.CTkFrame(frame, fg_color='transparent')
+        head.grid(row=0, column=0, sticky='ew')
+        head.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(head, text=t('ui.puzzle_delay'), anchor='w',
+                     text_color=TEXT, font=ctk.CTkFont(size=12)).grid(
+            row=0, column=0, sticky='w')
+        InfoBadge(head, text=t('ui.puzzle_delay_help')).grid(
+            row=0, column=1, sticky='e', padx=(4, 4))
+        self._delay_value = ctk.CTkLabel(
+            head, text='', anchor='e', text_color=TEAL,
+            font=ctk.CTkFont(size=13, weight='bold'))
+        self._delay_value.grid(row=0, column=2, sticky='e')
+
+        lo = cfgmod.PUZZLE_DELAY_MIN
+        hi = cfgmod.PUZZLE_DELAY_MAX
+        steps = max(1, int(round((hi - lo) / 0.01)))
+        self._delay_slider = ctk.CTkSlider(
+            frame, from_=lo, to=hi, number_of_steps=steps,
+            progress_color=TEAL, button_color=TEAL,
+            button_hover_color=TEAL_HOVER, command=self._on_delay_change)
+        self._delay_slider.grid(row=1, column=0, sticky='ew', pady=(2, 0))
+        try:
+            self._delay_slider.set(float(self._cfg['puzzle']['step_delay']))
+        except Exception:
+            pass
+        self._refresh_delay_value()
+
+    def _refresh_delay_value(self):
+        """Schreibt den aktuellen Slider-Wert in Sekunden neben das Label."""
+        try:
+            self._delay_value.configure(
+                text='{:.2f} s'.format(float(self._delay_slider.get())))
+        except Exception:
+            pass
+
+    def _on_delay_change(self, value):
+        """Slider bewegt: Schritt-Delay (gerundet) in der Config sichern."""
+        try:
+            self._cfg = self.controller.update_config(
+                'puzzle', 'step_delay', round(float(value), 2))
+        except Exception:
+            pass
+        self._refresh_delay_value()

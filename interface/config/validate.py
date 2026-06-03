@@ -28,6 +28,8 @@ from .defaults import (
     KEYPOINT_KEYS,
     OVERLAY_OPACITY_MAX,
     OVERLAY_OPACITY_MIN,
+    PUZZLE_DELAY_MAX,
+    PUZZLE_DELAY_MIN,
     SOLVER_MODES,
     TELEMETRY_INTERVAL_DEFAULT,
     TELEMETRY_INTERVAL_MAX,
@@ -264,6 +266,10 @@ def validate(cfg):
             puzzle.get('overlay_opacity'),
             OVERLAY_OPACITY_MIN, OVERLAY_OPACITY_MAX,
             DEFAULTS['puzzle']['overlay_opacity'])
+        puzzle['step_delay'] = _clamp(
+            puzzle.get('step_delay'),
+            PUZZLE_DELAY_MIN, PUZZLE_DELAY_MAX,
+            DEFAULTS['puzzle']['step_delay'])
 
         merged['log']['show_in_ui'] = bool(merged['log'].get('show_in_ui', True))
 
