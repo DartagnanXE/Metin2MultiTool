@@ -60,6 +60,11 @@ class SettingsViewMixin:
         self.mount_key_btn = self._key_row(
             hbody, 2, t('ui.mount_key'), t('ui.mount_key_sub'),
             None, 'mount', self._cfg['fishing']['mount_key'])
+        # Bot-Stop-Hotkey -- global (wirkt auch bei Spiel-Fokus), Default F6,
+        # wird im laufenden Stop-Button angezeigt.
+        self.stop_key_btn = self._key_row(
+            hbody, 3, t('ui.stop_key'), t('ui.stop_key_sub'),
+            None, 'stop', self._cfg.get('controls', {}).get('stop_hotkey', 'f6'))
 
         # (Der fruehere "Mount"-Abschnitt entfaellt: der AN/AUS-Schalter sitzt
         # jetzt als Option in der Fishing-View, die Reittier-TASTE oben unter

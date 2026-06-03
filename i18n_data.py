@@ -106,6 +106,8 @@ TRANSLATIONS = {
     'run.reason_time_limit_reached': {'en': 'Time limit reached', 'de': 'Zeitlimit erreicht'},
     'run.stop_due_to_exception': {'en': 'Stop due to exception', 'de': 'Stop wegen Exception'},
     'run.stop_time_limit_reached': {'en': 'Stop: time limit reached', 'de': 'Stop: Zeitlimit erreicht'},
+    'run.stop_hotkey': {'en': 'Stop: stop-hotkey pressed', 'de': 'Stop: Stop-Hotkey gedrückt'},
+    'run.reason_stop_hotkey': {'en': 'Stop hotkey pressed', 'de': 'Stop-Hotkey gedrückt'},
     'tetris.invalid_piece_no_opening_book': {'en': 'Invalid piece -> no opening book', 'de': 'Ungültiger Stein -> kein Eröffnungsbuch'},
     'ui.board_detection': {'en': 'Board Detection', 'de': 'Bretterkennung'},
     'ui.color_sampling': {'en': 'Color Sampling', 'de': 'Farbabtastung'},
@@ -349,6 +351,8 @@ TRANSLATIONS = {
     'ui.mount_enabled_sub': {'en': 'Mount + dismount after each catch', 'de': 'Nach jedem Fang auf-/absteigen'},
     'ui.mount_key': {'en': 'Mount key', 'de': 'Reittier-Taste'},
     'ui.mount_key_sub': {'en': 'In-game key that mounts/dismounts (default: 3)', 'de': 'Spiel-Taste zum Auf-/Absteigen (Standard: 3)'},
+    'ui.stop_key': {'en': 'Stop hotkey', 'de': 'Stop-Hotkey'},
+    'ui.stop_key_sub': {'en': 'Key that stops the bot, even while the game has focus (default: F6). Shown on the running Stop button.', 'de': 'Taste, die den Bot stoppt – auch wenn das Spiel im Fokus ist (Standard: F6). Wird im laufenden Stop-Button angezeigt.'},
     'ui.mount_help': {'en': 'After each finished minigame the bot presses the mount key, waits 0.1 s, and presses it again. Mounting then dismounting cancels the catch animation so the rod re-casts faster. Requires a mount on the chosen key. Off by default.', 'de': 'Nach jedem beendeten Minispiel drückt der Bot die Reittier-Taste, wartet 0,1 s und drückt sie erneut. Auf- und sofort wieder Absteigen bricht die Fang-Animation ab, sodass die Angel schneller neu auswirft. Setzt ein Reittier auf der gewählten Taste voraus. Standardmäßig aus.'},
 
     # -- Fish events card ---------------------------------------------------

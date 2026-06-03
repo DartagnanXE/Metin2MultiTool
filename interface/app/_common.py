@@ -81,6 +81,7 @@ WHICH_TO_CFG = {
     'cast': ('fishing', 'cast_key'),
     'inventory': ('inventory', 'hotkey'),
     'mount': ('fishing', 'mount_key'),
+    'stop': ('controls', 'stop_hotkey'),
 }
 
 

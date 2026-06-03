@@ -236,6 +236,11 @@ def validate(cfg):
         fishing['mount_key'] = _validate_key(
             fishing.get('mount_key'), DEFAULTS['fishing']['mount_key'])
 
+        # Bot-Stop-Hotkey (frei waehlbare Taste, Default F6).
+        controls = merged.setdefault('controls', {})
+        controls['stop_hotkey'] = _validate_key(
+            controls.get('stop_hotkey'), DEFAULTS['controls']['stop_hotkey'])
+
         puzzle = merged['puzzle']
         puzzle['detection_mode'] = _enum(
             puzzle.get('detection_mode'), DETECTION_MODES,

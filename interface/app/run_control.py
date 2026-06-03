@@ -62,8 +62,14 @@ class RunControlMixin:
         if running:
             key = ('ui.hero_stop_puzzle' if mode == 'puzzle'
                    else 'ui.hero_stop_fishing')
-            self.hero_btn.configure(text='■  ' + t(key), fg_color=DANGER,
-                                    hover_color=DANGER_HOVER, text_color='#fff')
+            try:
+                sk = str(self.controller.current_config()
+                         .get('controls', {}).get('stop_hotkey', 'f6')).upper()
+            except Exception:
+                sk = 'F6'
+            self.hero_btn.configure(
+                text='■  ' + t(key) + '   [' + sk + ']', fg_color=DANGER,
+                hover_color=DANGER_HOVER, text_color='#fff')
         else:
             self.hero_btn.configure(text='▶  ' + t('ui.hero_start'),
                                     fg_color=TEAL, hover_color=TEAL_HOVER,

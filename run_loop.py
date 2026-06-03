@@ -37,6 +37,32 @@ import stats as statsmod
 # CTk-Redraws verzahnen -> 10 ms ist deutlich robuster und genauso fluessig.
 TICK_MS = 10
 
+# Bot-Stop-Hotkey: global via GetAsyncKeyState gepollt (wirkt auch, wenn das
+# Spiel den Fokus hat). win32 SOFT importiert -- fehlt es, ist der Hotkey aus.
+try:  # pragma: no cover - pywin32 in Produktion vorhanden
+    import win32api as _win32api
+    import win32con as _win32con
+except Exception:  # pragma: no cover
+    _win32api = None
+    _win32con = None
+
+
+def _key_to_vk(key):
+    """Virtual-Key-Code einer Hotkey-Taste (F1-F12 / Buchstabe / Ziffer) oder
+    ``None``. Reine Funktion, headless testbar (VK-Konstanten gespiegelt, falls
+    win32con fehlt)."""
+    vk_f1 = getattr(_win32con, 'VK_F1', 112)
+    k = str(key or '').strip().lower()
+    if not k:
+        return None
+    if k[0] == 'f' and k[1:].isdigit():
+        n = int(k[1:])
+        if 1 <= n <= 12:
+            return vk_f1 + (n - 1)
+    if len(k) == 1 and (k.isalpha() or k.isdigit()):
+        return ord(k.upper())
+    return None
+
 
 class RunLoop:
     """Haelt App/Controller/Bots + den Lauf-Zustand und treibt die Tick-Schleife.
@@ -382,9 +408,39 @@ class RunLoop:
 
     # -- Tick --------------------------------------------------------------
 
+    def _stop_hotkey_down(self):
+        """``True``, wenn die konfigurierte Stop-Taste GERADE gedrueckt ist.
+
+        Global (GetAsyncKeyState) -> wirkt auch bei Spiel-Fokus. Der VK wird nur
+        ~4x/s aus der Config aufgefrischt (kein ``validate()`` pro 10ms-Tick),
+        aber JEDEN Tick gepollt. Strikt defensiv -> nie den Tick kippen."""
+        if _win32api is None:
+            return False
+        try:
+            self._stop_vk_tick = getattr(self, '_stop_vk_tick', 99) + 1
+            if self._stop_vk_tick >= 25 or not hasattr(self, '_stop_vk'):
+                self._stop_vk_tick = 0
+                key = (self.controller.current_config()
+                       .get('controls', {}).get('stop_hotkey', 'f6'))
+                self._stop_vk = _key_to_vk(key)
+            if self._stop_vk is None:
+                return False
+            return bool(_win32api.GetAsyncKeyState(self._stop_vk) & 0x8000)
+        except Exception:
+            return False
+
     def tick(self):
         """Ein Bot-Schritt pro after()-Durchlauf. Genau ein Bot tickt (exklusiv)."""
         stop_reason = None
+
+        # 0) Globaler Stop-Hotkey (Default F6): wirkt auch wenn das Spiel den
+        #    Fokus hat. Nur wenn ueberhaupt ein Bot laeuft; strikt defensiv.
+        if ((self.fishbot.botting or self.puzzlebot.botting)
+                and self._stop_hotkey_down()):
+            log.event('-', t('run.stop_hotkey'))
+            self.fishbot.botting = False
+            self.puzzlebot.botting = False
+            stop_reason = t('run.reason_stop_hotkey')
 
         # 1) Globales Zeitlimit ZUERST (beide Modi) -- vor dem Bot-Schritt, damit
         #    der Grund "Zeitlimit" zuverlaessig vor einem evtl. internen Stop

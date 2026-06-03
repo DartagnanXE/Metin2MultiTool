@@ -158,6 +158,12 @@ DEFAULTS = {
         'warn_minutes': 0,
         'timezone': 'Europe/Berlin',
     },
+    # Bot-Stop-Hotkey -- global gepollt (GetAsyncKeyState) im Tick, wirkt auch
+    # wenn das Spiel den Fokus hat. Default F6, in den Einstellungen aenderbar
+    # und im laufenden Stop-Button angezeigt.
+    'controls': {
+        'stop_hotkey': 'f6',
+    },
 }
 
 

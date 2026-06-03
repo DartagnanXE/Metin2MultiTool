@@ -19,6 +19,7 @@ class KeyCaptureMixin:
             'bait': getattr(self, 'bait_key_btn', None),
             'cast': getattr(self, 'cast_key_btn', None),
             'inventory': getattr(self, 'inventory_key_btn', None),
+            'stop': getattr(self, 'stop_key_btn', None),
         }.get(which)
 
     def _start_key_capture(self, which):
