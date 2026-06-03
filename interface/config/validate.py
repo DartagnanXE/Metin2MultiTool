@@ -237,6 +237,11 @@ def validate(cfg):
         fishing['mount_enabled'] = bool(fishing.get('mount_enabled', False))
         fishing['mount_key'] = _validate_key(
             fishing.get('mount_key'), DEFAULTS['fishing']['mount_key'])
+        # Angel-Whitelist: reines bool (fehlend/kaputt -> False). Strikt additiv,
+        # default aus -> byte-stabiler Pfad (angelt alles).
+        fishing['whitelist_enabled'] = bool(
+            fishing.get('whitelist_enabled',
+                        DEFAULTS['fishing']['whitelist_enabled']))
 
         # Bot-Stop-Hotkey (frei waehlbare Taste, Default F6).
         controls = merged.setdefault('controls', {})

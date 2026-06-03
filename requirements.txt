@@ -21,9 +21,6 @@ opencv-python>=4.10.0   # cv2: Template-Matching, Screenshots
 PyDirectInput>=1.0.4
 pywin32>=307            # 306 existiert nicht mehr; 307+ deckt Python 3.11-3.13 ab.
 
-# --- OCR (optional, Angeln: Fischnamen) ---
-pytesseract>=0.3.13     # braucht zusaetzlich die Tesseract-Binary (separat installieren)
-
 # --- System-Tray (optional: "Minimize to tray") ---
 pystray>=0.19.5
 Pillow>=10.0.0          # von pystray + den Tooltip-/Icon-Bildern genutzt

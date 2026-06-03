@@ -415,6 +415,35 @@ class TestGuiLaunchSmoke(unittest.TestCase):
         btn = self.app._update_btn
         self.assertEqual(str(btn.cget('state')), 'normal')
 
+    def test_fishing_whitelist_toggle_wired_to_config(self):
+        # The Fishing view builds the whitelist checkbox; it reflects the config
+        # default (OFF) on build, and toggling it through the REAL handler
+        # persists fishing.whitelist_enabled via the controller (and clears
+        # again). Guards the UI<->config seam for the whitelist master switch.
+        self.app._show_view('fishing')
+        self.app.update_idletasks()
+        chk = getattr(self.app, 'whitelist_chk', None)
+        var = getattr(self.app, '_whitelist_var', None)
+        self.assertIsNotNone(chk, 'whitelist checkbox not built')
+        self.assertIsNotNone(var, 'whitelist BooleanVar not built')
+        self.assertTrue(chk.winfo_exists())
+        # Default OFF -> byte-stable "fish everything".
+        self.assertFalse(bool(var.get()))
+        self.assertFalse(
+            self.app.controller.current_config()['fishing']['whitelist_enabled'])
+        # Flip ON via the real handler -> persisted as a real bool.
+        var.set(True)
+        self.app._on_whitelist_toggle()
+        self.assertIs(
+            self.app.controller.current_config()['fishing']['whitelist_enabled'],
+            True)
+        # Flip OFF again -> persisted False (restores the byte-stable default).
+        var.set(False)
+        self.app._on_whitelist_toggle()
+        self.assertIs(
+            self.app.controller.current_config()['fishing']['whitelist_enabled'],
+            False)
+
 
 if __name__ == '__main__':
     unittest.main()

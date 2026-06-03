@@ -42,6 +42,7 @@ def _values(**over):
         '-ENDTIMEP-': False, '-ENDTIME-': '0',
         '-BAITTIME-': 2.0, '-THROWTIME-': 2.0, '-STARTGAME-': 2.0,
         '-GOLDENTUNA-': 3, '-MOUNT-': False, '-MOUNTKEY-': '3',
+        '-WHITELIST-': False,
     }
     base.update(over)
     return base
@@ -119,28 +120,46 @@ class TestSetToBeginParsing(unittest.TestCase):
         bot = self._begin(_values(**{'-MOUNTKEY-': ''}))
         self.assertEqual(bot.mount_key, '3')
 
+    def test_whitelist_default_off(self):
+        bot = self._begin(_values())
+        self.assertFalse(bot.whitelist_enabled)
+        # Per-cycle decision flag starts fresh.
+        self.assertFalse(bot._whitelist_decided)
+
+    def test_whitelist_enabled_parsed(self):
+        bot = self._begin(_values(**{'-WHITELIST-': True}))
+        self.assertTrue(bot.whitelist_enabled)
+
     def test_state_reset_to_zero(self):
         bot = self._begin(_values())
         self.assertEqual(bot.state, 0)
 
 
 class TestGoldenTunaGeometry(unittest.TestCase):
-    """The three stacked golden-tuna dialog buttons (evenly DY-spaced)."""
+    """The three stacked golden-tuna dialog buttons (evenly DY-spaced).
+
+    Coordinates were re-measured on real 802x632 screenshots (no offset):
+    X=400, Y = {Release:268, Slice:300, Bait:332} (DY=32), plus a confirm-OK
+    at (400, 277) that dismisses the follow-up dialog.
+    """
 
     def test_x_and_dy_constants(self):
-        self.assertEqual(fishingbot.FishingBot.GOLDEN_TUNA_X, 350)
-        self.assertEqual(fishingbot.FishingBot.GOLDEN_TUNA_DY, 38)
+        self.assertEqual(fishingbot.FishingBot.GOLDEN_TUNA_X, 400)
+        self.assertEqual(fishingbot.FishingBot.GOLDEN_TUNA_DY, 32)
 
-    def test_y_table_is_stacked_around_280(self):
+    def test_y_table_is_stacked_around_300(self):
         y = fishingbot.FishingBot.GOLDEN_TUNA_Y
-        self.assertEqual(y[1], 242)   # top   (280 - 38)
-        self.assertEqual(y[2], 280)   # middle (original click)
-        self.assertEqual(y[3], 318)   # bottom (280 + 38)
+        self.assertEqual(y[1], 268)   # top    (300 - 32)  Freilassen
+        self.assertEqual(y[2], 300)   # middle (300)       Aufschneiden
+        self.assertEqual(y[3], 332)   # bottom (300 + 32)  Als Koeder benutzen
 
     def test_fields_are_evenly_spaced(self):
         y = fishingbot.FishingBot.GOLDEN_TUNA_Y
         self.assertEqual(y[2] - y[1], fishingbot.FishingBot.GOLDEN_TUNA_DY)
         self.assertEqual(y[3] - y[2], fishingbot.FishingBot.GOLDEN_TUNA_DY)
+
+    def test_confirm_ok_position(self):
+        self.assertEqual(fishingbot.FishingBot.GOLDEN_TUNA_CONFIRM, (400, 277))
 
 
 class TestMatchTemplateMax(unittest.TestCase):
@@ -229,6 +248,126 @@ class TestCycleEndStreak(unittest.TestCase):
         # Both per-cycle markers are reset for the next round.
         self.assertFalse(bot._bite_seen_this_cycle)
         self.assertEqual(bot._best_minigame_conf, 0.0)
+
+
+class TestWhitelistDecision(unittest.TestCase):
+    """``_apply_whitelist`` aborts unwanted catches / nibbles and keeps the rest.
+
+    ``fishing_chat.read_hook`` is patched so we control exactly WHAT hangs on the
+    hook; ``_abort_minigame`` is checked end-to-end (window-close click + state
+    reset). The decision logic itself lives in ``fishing_whitelist`` (pure).
+    """
+
+    def _bot(self, enabled=True, states=None):
+        bot = _bare_bot()
+        bot.whitelist_enabled = enabled
+        bot.whitelist_states = states or {}
+        bot._whitelist_decided = False
+        bot._bite_seen_this_cycle = False
+        bot._casts_without_bite = 0
+        bot._best_minigame_conf = 0.0
+        bot.state = 3
+        bot.wincap = _StubCapture()
+        bot.FISH_WINDOW_CLOSE = fishingbot.FishingBot.FISH_WINDOW_CLOSE
+        return bot
+
+    def _hook(self, **kw):
+        import fishing_chat as fc
+        defaults = dict(kind=fc.FISH, name='Lachs', confident=True)
+        defaults.update(kw)
+        return fc.HookResult(**defaults)
+
+    def _run(self, bot, hook):
+        clicks = []
+        fake = mock.Mock()
+        fake.click.side_effect = lambda **k: clicks.append(k)
+        with mock.patch.object(fishingbot, 'pydirectinput', fake), \
+                mock.patch('fishing_chat.read_hook', return_value=hook):
+            aborted = bot._apply_whitelist(object())   # screenshot ignored (patched)
+        return aborted, clicks
+
+    def test_unwanted_fish_aborts_and_resets_state(self):
+        import fishing_chat as fc
+        from interface import inventory_manage as im
+        bot = self._bot(states={'Lachs': im.REMOVE})
+        aborted, clicks = self._run(bot, self._hook(kind=fc.FISH, name='Lachs'))
+        self.assertTrue(aborted)
+        self.assertEqual(bot.state, 0)              # back to recast
+        self.assertGreaterEqual(len(clicks), 1)     # window-close click(s) fired
+        # The abort ENDS the cycle (_on_cycle_end), which clears the per-cycle
+        # decision flag so the NEXT cast re-evaluates from scratch.
+        self.assertFalse(bot._whitelist_decided)
+
+    def test_wanted_keep_fish_keeps_playing(self):
+        import fishing_chat as fc
+        from interface import inventory_manage as im
+        bot = self._bot(states={'Lachs': im.KEEP})
+        aborted, clicks = self._run(bot, self._hook(kind=fc.FISH, name='Lachs'))
+        self.assertFalse(aborted)
+        self.assertEqual(bot.state, 3)              # still in the minigame
+        self.assertEqual(clicks, [])
+
+    def test_campfire_fish_keeps_playing(self):
+        import fishing_chat as fc
+        from interface import inventory_manage as im
+        bot = self._bot(states={'Lachs': im.CAMPFIRE})
+        aborted, _ = self._run(bot, self._hook(kind=fc.FISH, name='Lachs'))
+        self.assertFalse(aborted)
+
+    def test_niete_aborts(self):
+        import fishing_chat as fc
+        bot = self._bot(states={})
+        aborted, clicks = self._run(bot, self._hook(kind=fc.NIETE, name=None,
+                                                    confident=False))
+        self.assertTrue(aborted)
+        self.assertEqual(bot.state, 0)
+
+    def test_unknown_name_never_aborts(self):
+        import fishing_chat as fc
+        from interface import inventory_manage as im
+        # Bite recognised but name unsure -> NEVER abort a possibly-wanted fish,
+        # even if every known fish were marked REMOVE.
+        bot = self._bot(states={'Lachs': im.REMOVE, 'Zander': im.REMOVE})
+        aborted, _ = self._run(bot, self._hook(kind=fc.FISH, name=fc.UNKNOWN,
+                                               confident=False))
+        self.assertFalse(aborted)
+
+    def test_unmapped_fish_defaults_to_keep(self):
+        import fishing_chat as fc
+        # A confident fish not present in the states map = KEEP (fish on).
+        bot = self._bot(states={'Zander': 1})
+        aborted, _ = self._run(bot, self._hook(kind=fc.FISH, name='Lachs'))
+        self.assertFalse(aborted)
+
+    def test_disabled_whitelist_is_noop(self):
+        import fishing_chat as fc
+        from interface import inventory_manage as im
+        bot = self._bot(enabled=False, states={'Lachs': im.REMOVE})
+        aborted, clicks = self._run(bot, self._hook(kind=fc.FISH, name='Lachs'))
+        self.assertFalse(aborted)
+        self.assertEqual(clicks, [])
+
+    def test_none_kind_does_not_decide(self):
+        import fishing_chat as fc
+        # Nothing solid on the hook yet -> keep reading (do NOT lock the round).
+        bot = self._bot(states={})
+        aborted, _ = self._run(bot, self._hook(kind=fc.NONE, name=None,
+                                               confident=False))
+        self.assertFalse(aborted)
+        self.assertFalse(bot._whitelist_decided)
+
+    def test_decides_only_once_per_cycle(self):
+        import fishing_chat as fc
+        from interface import inventory_manage as im
+        bot = self._bot(states={'Lachs': im.KEEP})
+        # First read: wanted -> keep, marks decided.
+        self._run(bot, self._hook(kind=fc.FISH, name='Lachs'))
+        self.assertTrue(bot._whitelist_decided)
+        # Second read in the SAME cycle is short-circuited (returns False, no work)
+        # even if it were unwanted -- the round is already decided.
+        aborted, clicks = self._run(bot, self._hook(kind=fc.FISH, name='Lachs'))
+        self.assertFalse(aborted)
+        self.assertEqual(clicks, [])
 
 
 class TestFireOnCatch(unittest.TestCase):

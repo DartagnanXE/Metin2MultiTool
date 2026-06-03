@@ -96,6 +96,10 @@ def to_values(cfg):
         # uebrigen frozen keys gelesen (Default AUS/'3' -> byte-stabil).
         '-MOUNT-': bool(fishing['mount_enabled']),
         '-MOUNTKEY-': str(fishing['mount_key']),
+        # Angel-Whitelist an/aus (Default AUS -> byte-stabil). Die konkreten
+        # Fisch-Entscheidungen (whitelist_states) injiziert der RunLoop separat
+        # auf die Bot-Instanz -- hier nur der Master-Schalter.
+        '-WHITELIST-': bool(fishing['whitelist_enabled']),
     }
 
 

@@ -137,7 +137,15 @@ dmypy.json
 # ===================================================================
 # Build-/Installer-Ausgaben (regenerierbar -> NICHT ins Repo):
 dist_onefile/
+dist_check/
 installer_output/
+# OCR-/Lagerfeuer-Test-Screenshots: lokale Ground-Truth-Fixtures fuer
+# test_fishing_chat / test_inventory_campfire (skippen ohne sie sauber).
+# Bewusst NICHT ins OEFFENTLICHE Repo: voller Spiel-Screenshot inkl.
+# Charaktername. Die DARAUS abgeleiteten Glyph-Templates (fishing_chat_templates/,
+# campfire_templates/, klein, ohne Namen) sind committed + werden gebundelt.
+FischOCR/
+config.json.bak*
 # Laufzeit-erzeugte Dateien (Strategie-Cache / Einstellungen / Diagnose):
 trained_V.npy
 config.json

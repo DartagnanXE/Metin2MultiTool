@@ -389,8 +389,8 @@ class PuzzleBot(PuzzleDetectMixin):
         log.event(self.state, t('puzzle.deluxe_placed'),
                   piece_type=deluxe.DELUXE_PIECE_TYPE, pos=anchor)
         px, py = geometry.cell_point(ax, ay, self.board_size)
-        mouse_x = px + self.puzzle_offset[0] + self.wincap.offset_x
-        mouse_y = py + self.puzzle_offset[1] + self.wincap.offset_y
+        mouse_x = int(px + self.puzzle_offset[0] + self.wincap.offset_x)
+        mouse_y = int(py + self.puzzle_offset[1] + self.wincap.offset_y)
         pydirectinput.click(mouse_x, mouse_y)
         return True
 
@@ -449,8 +449,8 @@ class PuzzleBot(PuzzleDetectMixin):
             if self.tetris.verify_end():
                 self.end = True
             px, py = geometry.cell_point(a[0], a[1], self.board_size)
-            mouse_x = px + self.puzzle_offset[0] + self.wincap.offset_x
-            mouse_y = py + self.puzzle_offset[1] + self.wincap.offset_y
+            mouse_x = int(px + self.puzzle_offset[0] + self.wincap.offset_x)
+            mouse_y = int(py + self.puzzle_offset[1] + self.wincap.offset_y)
             pydirectinput.click(mouse_x, mouse_y)
 
             return True
@@ -464,8 +464,8 @@ class PuzzleBot(PuzzleDetectMixin):
             if self.tetris.verify_end():
                 self.end = True
             px, py = geometry.cell_point(pos[0], pos[1], self.board_size)
-            mouse_x = px + self.puzzle_offset[0] + self.wincap.offset_x
-            mouse_y = py + self.puzzle_offset[1] + self.wincap.offset_y
+            mouse_x = int(px + self.puzzle_offset[0] + self.wincap.offset_x)
+            mouse_y = int(py + self.puzzle_offset[1] + self.wincap.offset_y)
             pydirectinput.click(mouse_x, mouse_y)
 
             return None
@@ -502,8 +502,8 @@ class PuzzleBot(PuzzleDetectMixin):
             if self.tetris.verify_end():
                 self.end = True
             px, py = geometry.cell_point(a[0], a[1], self.board_size)
-            mouse_x = px + self.puzzle_offset[0] + self.wincap.offset_x
-            mouse_y = py + self.puzzle_offset[1] + self.wincap.offset_y
+            mouse_x = int(px + self.puzzle_offset[0] + self.wincap.offset_x)
+            mouse_y = int(py + self.puzzle_offset[1] + self.wincap.offset_y)
             pydirectinput.click(mouse_x, mouse_y)
 
             return True

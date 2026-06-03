@@ -43,6 +43,15 @@ class SettingsEffectsMixin:
         self._cfg = self.controller.update_config(
             'fishing', 'mount_enabled', bool(self._mount_var.get()))
 
+    def _on_whitelist_toggle(self):
+        """Persistiert den Angel-Whitelist-an/aus-Schalter (fishing).
+
+        Reines bool (Default AUS -> es wird alles geangelt). Die konkreten
+        Fisch-Entscheidungen injiziert der RunLoop beim Start separat aus dem
+        Inventar-Tab; dieser Schalter ist nur der Master-an/aus."""
+        self._cfg = self.controller.update_config(
+            'fishing', 'whitelist_enabled', bool(self._whitelist_var.get()))
+
     def _on_event_weekday_change(self, index, weekday):
         """Wochentag eines Event-Fensters geaendert -> 'events' aktualisieren."""
         self._save_event_windows()

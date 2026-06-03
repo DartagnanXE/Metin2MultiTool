@@ -192,9 +192,18 @@ class InventoryViewMixin:
         return (TEAL, '#6b7280', AMBER)[state]
 
     def _on_inv_manage_apply(self):
-        """'Inventar managen': wendet die per-Item-Entscheidungen an. PLATZHALTER
-        -- loggt nur den Plan in die Console; die echten Move/Delete/Lagerfeuer-
-        Handler schreibt der Nutzer noch (Roadmap). Wirft nie."""
+        """'Inventar managen': wendet die per-Item-Entscheidungen an.
+
+        Loggt zuerst den Plan in die Console (behalten / entfernen / Lagerfeuer).
+        Die LAGERFEUER-Entscheidungen sind jetzt live: stehen Fische auf
+        'Lagerfeuer', startet ein Hintergrund-Thread das Braten (Lagerfeuer
+        platzieren -> Feuer per "Lagerfeuer"-Label finden -> jeden markierten
+        Fisch per Drag aufs Feuer ziehen). Das REMOVE bleibt vorerst nur geloggt
+        (Move/Delete schreibt der Nutzer noch -- Roadmap).
+
+        IDLE-ONLY (wie der Inventar-Scan): das Braten presst Tasten, klickt Reiter
+        und zieht mit der Maus -- liefe der Bot, kaempften beide um den Cursor.
+        Darum nur ein Hinweis, wenn der Bot laeuft. Wirft nie."""
         from interface import inventory_manage as im
         st = getattr(self, '_inv_manage_states', {})
         remove = sorted(n for n, s in st.items() if s == im.REMOVE)
@@ -213,6 +222,88 @@ class InventoryViewMixin:
             pass
         try:
             self.flash_saved()
+        except Exception:
+            pass
+        # Lagerfeuer-Braten anstossen (nur wenn Fische dafuer markiert sind).
+        if campfire:
+            self._start_campfire_grill(dict(st))
+
+    def _start_campfire_grill(self, states):
+        """Startet das Lagerfeuer-Braten auf einem Daemon-Thread (UI nie blocken).
+
+        Spiegelt exakt das _on_scan_inventory-Muster: Idle-Guard (laeuft der Bot,
+        nur ein Hinweis), Fenster-Praefix binden, Worker startet den Live-Runner,
+        Ergebnis via after(0, ...) zurueck auf den GUI-Thread. Eine Re-Entrancy-
+        Sperre verhindert ueberlappende Grills. Wirft nie."""
+        if getattr(self, '_campfire_running', False):
+            return
+        if self.controller.running:
+            try:
+                log.event('-', t('campfire.blocked_running'))
+            except Exception:
+                pass
+            try:
+                self._set_inv_status(t('ui.inventory_blocked_running'), AMBER)
+            except Exception:
+                pass
+            return
+        present, _hwnd, gw, gh, healthy = _probe_game()
+        if not present:
+            try:
+                log.event('-', t('campfire.no_window', detail=''))
+            except Exception:
+                pass
+            return
+        self._campfire_running = True
+        try:
+            self._apply_preferred_hwnd()
+        except Exception:
+            pass
+        cfg = self.controller.current_config()
+
+        def _worker():
+            try:
+                from interface import inventory_campfire_runner as cr
+                res = cr.run_campfire_grill(cfg, states)
+                self.after(0, lambda r=res: self._campfire_grill_done(r))
+            except Exception as exc:
+                self.after(0, lambda e=exc: self._campfire_grill_failed(e))
+
+        threading.Thread(target=_worker, name='campfire-grill',
+                         daemon=True).start()
+
+    def _campfire_grill_done(self, res):
+        """Braten fertig (GUI-Thread): Praeferenz freigeben, Status setzen."""
+        self._campfire_running = False
+        try:
+            self._clear_preferred_hwnd()
+        except Exception:
+            pass
+        try:
+            grilled = len(getattr(res, 'grilled', []) or [])
+            status = getattr(res, 'status', 'error')
+            if status == 'done':
+                self._set_inv_status(
+                    t('campfire.status_done', count=grilled), TEAL)
+            else:
+                self._set_inv_status(
+                    t('campfire.status_' + status), AMBER)
+        except Exception:
+            pass
+
+    def _campfire_grill_failed(self, exc):
+        """Braten fehlgeschlagen (GUI-Thread): Praeferenz freigeben, loggen."""
+        self._campfire_running = False
+        try:
+            self._clear_preferred_hwnd()
+        except Exception:
+            pass
+        try:
+            log.error(t('campfire.error', detail=str(exc)[:120]), exc=exc)
+        except Exception:
+            pass
+        try:
+            self._set_inv_status(t('campfire.status_error'), AMBER)
         except Exception:
             pass
 

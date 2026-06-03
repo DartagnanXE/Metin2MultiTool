@@ -365,7 +365,8 @@ class TestToValues(unittest.TestCase):
         v = config.to_values(config.DEFAULTS)
         self.assertEqual(set(v), {'-ENDTIMEP-', '-ENDTIME-',
                                   '-BAITTIME-', '-THROWTIME-', '-STARTGAME-',
-                                  '-GOLDENTUNA-', '-MOUNT-', '-MOUNTKEY-'})
+                                  '-GOLDENTUNA-', '-MOUNT-', '-MOUNTKEY-',
+                                  '-WHITELIST-'})
         self.assertIsInstance(v['-ENDTIMEP-'], bool)
         self.assertIsInstance(v['-ENDTIME-'], str)
         self.assertIsInstance(v['-BAITTIME-'], float)
@@ -374,6 +375,7 @@ class TestToValues(unittest.TestCase):
         self.assertIsInstance(v['-GOLDENTUNA-'], int)
         self.assertIsInstance(v['-MOUNT-'], bool)
         self.assertIsInstance(v['-MOUNTKEY-'], str)
+        self.assertIsInstance(v['-WHITELIST-'], bool)
 
     def test_golden_tuna_carried_as_int(self):
         v = config.to_values({'fishing': {'golden_tuna_action': 1}})

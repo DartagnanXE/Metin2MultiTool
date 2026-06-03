@@ -373,6 +373,35 @@ class RunLoop:
             log.error(t('run.board_override_injection_failed'),
                       exc=exc)
 
+    def _collect_whitelist_states(self):
+        """Baut die Angel-Whitelist-Abbildung ``{DE-Name: KEEP|REMOVE|CAMPFIRE}``
+        aus der Inventar-Verwaltung der App.
+
+        Quelle ist das in der GUI gehaltene ``_inv_manage_states``
+        ({Item-Schluessel -> Zustand}); jeder Schluessel wird ueber
+        ``inventory_manage.ITEM_NAMES`` auf den offiziellen DE-Namen abgebildet
+        (das, was ``fishing_chat.read_hook`` als Name liefert). Fehlt das Grid
+        (Inventar-Tab nie geoeffnet) oder das interface-Paket, kommt ``{}`` zurueck
+        -> die Whitelist behandelt dann jeden Fang als KEEP (es wird alles
+        geangelt). Wirft NIE.
+        """
+        try:
+            from interface import inventory_manage as im
+        except Exception:
+            return {}
+        raw = getattr(self.app, '_inv_manage_states', None)
+        if not raw:
+            return {}
+        out = {}
+        for key, state in raw.items():
+            try:
+                _en, de = im.ITEM_NAMES.get(key, (None, None))
+                if de:
+                    out[de] = int(state)
+            except Exception:
+                continue
+        return out
+
     def on_start(self):
         """Startet den aktuell gewaehlten Modus (vom BotController-Button gerufen).
 
@@ -393,6 +422,13 @@ class RunLoop:
             # Mount-Taste fuer Symmetrie auf die Instanz spiegeln (set_to_begin
             # liest zusaetzlich -MOUNT-/-MOUNTKEY- aus values -> beides konsistent).
             self.fishbot.mount_key = fish_cfg['mount_key']
+            # Angel-Whitelist: den an/aus-Schalter spiegeln (set_to_begin liest
+            # zusaetzlich -WHITELIST- aus values) und die konkreten Fisch-
+            # Entscheidungen (DE-Name -> KEEP/REMOVE/CAMPFIRE) aus der Inventar-
+            # Verwaltung auf die Instanz injizieren. Default AUS/leer -> es wird
+            # alles geangelt (byte-stabil). Wirft nie.
+            self.fishbot.whitelist_enabled = bool(fish_cfg['whitelist_enabled'])
+            self.fishbot.whitelist_states = self._collect_whitelist_states()
             self.fishbot.set_to_begin(values)   # erzeugt wincap, liest frozen keys
             self.fishbot.botting = True
             self.puzzlebot.botting = False

@@ -14,7 +14,7 @@
 #                            werden besonders gern geflaggt.
 #   * console=False       -> kein stoerendes leeres CMD-Fenster.
 #
-# Assets (images/, pieces_second.json, fishs.txt) bleiben eingebettet; respath
+# Assets (images/, pieces_second.json) bleiben eingebettet; respath
 # loest die Pfade in beiden Welten (Quellcode + gepackt) korrekt auf.
 #
 # Build:  pyinstaller --clean --noconfirm Metin2FishBot.spec
@@ -107,18 +107,21 @@ a = Analysis(
         ('images', 'images'),               # alle Template-Bilder
         ('inventory_icons', 'inventory_icons'),  # Item-Erkennungs-DB (inventory/)
         ('inventory_digits', 'inventory_digits'),  # Stack-Zahlen-OCR-Templates (inventory.digits)
+        ('campfire_templates', 'campfire_templates'),  # Lagerfeuer-Label-Vorlage (inventory_campfire)
+        ('fishing_chat_templates', 'fishing_chat_templates'),  # Chat-OCR-Vorlagen (fishing_chat: Biss/Name-Whitelist)
         ('pieces_second.json', '.'),        # Eroeffnungsbuch
-        ('fishs.txt', '.'),                 # Fischnamen-Liste (Angeln)
     ] + ctk_datas + tz_datas + ([(APP_ICON, '.')] if APP_ICON else []),  # Icon als Laufzeit-Datei (Fenster-Icon)
     hiddenimports=[
         'win32gui', 'win32ui', 'win32con',  # pywin32 (windowcapture)
         'pydirectinput',
-        'pytesseract',
         'version', 'updater',   # lazy importiert zur Laufzeit (app.py)
         'pystray', 'PIL', 'PIL.Image', 'PIL._tkinter_finder',   # Tray + Bilder
         # Lazy in app.py-Methoden importiert (statische Analyse uebersieht sie):
         'overlay_preview', 'interface.testwindow',
         'overlay_mark', 'overlay_geometry', 'interface.tray',
+        # Lagerfeuer-Braten: lazy im Apply-Worker importiert (statische Analyse
+        # uebersieht sie); campfire_templates/ ist als data oben gebundelt.
+        'inventory_campfire', 'interface.inventory_campfire_runner',
         # Run 1: Ranking/Events/Mount -- z.T. lazy in app.py/hack.py importiert.
         'stats', 'event_window', 'mount',
         'telemetry', 'telemetry.hwid', 'telemetry.payload', 'telemetry.client',

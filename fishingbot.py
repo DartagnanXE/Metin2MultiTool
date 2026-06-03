@@ -3,7 +3,6 @@ import cv2 as cv
 from time import time, sleep
 from windowcapture import WindowCapture
 from hsvfilter import HsvFilter
-from fishfilter import Filter
 from i18n import t
 from respath import resource_path
 import constants
@@ -16,6 +15,16 @@ import mount
 from fishing_match import _flog, _match_template_max  # noqa: F401  (re-export)
 from fishing_detect import FishingDetectMixin
 
+# Chat-OCR-Kern + reine Whitelist-Entscheidung. Defensiv (soft) importiert -- die
+# Whitelist ist opt-in (Default AUS), und ein fehlender Import darf das Angeln NIE
+# brechen: dann bleibt die Whitelist einfach wirkungslos (es wird alles geangelt).
+try:
+    import fishing_chat as _fc
+    import fishing_whitelist as _wl
+except Exception:                       # pragma: no cover - defensiver Import
+    _fc = None
+    _wl = None
+
 
 class FishingBot(FishingDetectMixin):
 
@@ -23,7 +32,6 @@ class FishingBot(FishingDetectMixin):
     fish_pos_x = None
     fish_pos_y = None
     fish_last_time = None
-    detect_text_enable = False
     botting = False
 
     FISH_RANGE = 74
@@ -37,14 +45,22 @@ class FishingBot(FishingDetectMixin):
     FISH_WINDOW_CLOSE = (430, 115)
 
     # Golden-Tuna-Dialog: 3 senkrecht gestapelte Knoepfe (Spielkoordinaten,
-    # relativ zum Fenster-Offset). Feld 2 (y=280) ist der urspruengliche Klick
-    # auf den mittleren Knopf. 1 = Freilassen, 2 = Aufschneiden,
+    # relativ zum Fenster-Offset). 1 = Freilassen, 2 = Aufschneiden,
     # 3 = Als Koeder benutzen. Knoepfe sind gleichmaessig (DY) gestapelt.
-    GOLDEN_TUNA_X = 350
-    GOLDEN_TUNA_DY = 38
-    GOLDEN_TUNA_Y = {1: 280 - GOLDEN_TUNA_DY,   # 242 (Feld 1, oben)
-                     2: 280,                    # 280 (Feld 2, urspruengl. Klick)
-                     3: 280 + GOLDEN_TUNA_DY}   # 318 (Feld 3, unten)
+    # GEMESSEN an echten 802x632-Screenshots (FischOCR/GoldenerThunfisch*.png,
+    # KEIN Versatz -- Screenshot-Pixel == Spielkoordinaten): X=400,
+    # Y = {Freilassen:268, Aufschneiden:300, Koeder:332} (DY=32). Der frueher
+    # zu hohe/zu linke Wert (X=350, Y={242,280,318}) traf die Knoepfe nicht.
+    GOLDEN_TUNA_X = 400
+    GOLDEN_TUNA_DY = 32
+    GOLDEN_TUNA_Y = {1: 300 - GOLDEN_TUNA_DY,   # 268 (Feld 1, oben:  Freilassen)
+                     2: 300,                    # 300 (Feld 2, mitte: Aufschneiden)
+                     3: 300 + GOLDEN_TUNA_DY}   # 332 (Feld 3, unten: Koeder)
+
+    # Nach dem Options-Klick erscheint ein Bestaetigungs-Dialog mit EINEM
+    # OK-Knopf. Den frueher fehlenden Klick darauf ergaenzen, sonst stockte der
+    # Dialog. GEMESSEN (FischOCR/GoldenerThunfischAuswahlbestaetigen.png): (400,277).
+    GOLDEN_TUNA_CONFIRM = (400, 277)
 
     # set position of the fish windows
     # this value can be diferent by the sizes of the game window
@@ -53,8 +69,6 @@ class FishingBot(FishingDetectMixin):
     FISH_WINDOW_POSITION = (95, 80)
 
     wincap = None
-
-    fishfilter = Filter() if detect_text_enable else None
 
     # Load the needle image
 
@@ -65,10 +79,6 @@ class FishingBot(FishingDetectMixin):
     # der EXE -- wie es das Puzzle (fish_jigsaw_chest) schon richtig macht.
     needle_img = cv.imread(resource_path('images/fiss.jpg'), cv.IMREAD_UNCHANGED)
     needle_img_clock = cv.imread(resource_path('images/clock.jpg'), cv.IMREAD_UNCHANGED)
-
-    # Some time cooldowns
-
-    detect_text = True
 
     # Limit time
 
@@ -114,6 +124,21 @@ class FishingBot(FishingDetectMixin):
     # Golden-Tuna: welches der 3 Dialogfelder geklickt wird (Default 3 = Koeder).
     golden_tuna_action = 3
 
+    # Angel-Whitelist (opt-in). Default AUS -> angelt ALLES -> byte-stabil.
+    #   * whitelist_enabled: nur True schaltet die Pruefung scharf.
+    #   * whitelist_states: {DE-Name: KEEP|REMOVE|CAMPFIRE} aus der Inventar-
+    #     Verwaltung (vom RunLoop injiziert). Fehlt ein Name -> gilt als KEEP.
+    # Bei einem Biss wird NUR der kleine Chat-Streifen via fishing_chat.read_hook
+    # gelesen; ist der Fang als REMOVE markiert (oder eine Niete), wird das
+    # Minispiel SOFORT abgebrochen + neu ausgeworfen. UNGEWOLLT/unsicher ->
+    # weiterangeln (nie versehentlich einen gewollten Fisch abbrechen).
+    whitelist_enabled = False
+    whitelist_states = None
+
+    # Zuletzt fuer die Whitelist gelesener Biss -- verhindert mehrfaches
+    # Auswerten/Loggen desselben Bisses pro Minispiel-Runde (Reset bei Zyklusende).
+    _whitelist_decided = False
+
     # This is the filter parameters, this help to find the right image
     hsv_filter = HsvFilter(*FILTER_CONFIG)
 
@@ -153,6 +178,9 @@ class FishingBot(FishingDetectMixin):
                              n=self._casts_without_bite))
         self._bite_seen_this_cycle = False
         self._best_minigame_conf = 0.0
+        # Whitelist pro Runde frisch auswerten (der naechste Auswurf bringt einen
+        # neuen Biss).
+        self._whitelist_decided = False
 
     def _fire_on_catch(self):
         """Ruft den (optionalen) Counter-Hook genau einmal pro Fang. Wirft nie --
@@ -164,6 +192,83 @@ class FishingBot(FishingDetectMixin):
             callback()
         except Exception:
             pass
+
+    # -- Angel-Whitelist ---------------------------------------------------
+
+    def _whitelist_active(self):
+        """True nur, wenn die Whitelist scharf ist UND die Bausteine importiert
+        werden konnten. Wirft nie."""
+        return bool(self.whitelist_enabled) and _fc is not None and _wl is not None
+
+    def _read_hook(self, screenshot):
+        """Liest NUR den kleinen Chat-Streifen (schnell) -> HookResult oder None.
+        Defensiv: jeder Fehler -> None (Whitelist greift dann nicht)."""
+        try:
+            return _fc.read_hook(screenshot)
+        except Exception:
+            return None
+
+    def _abort_minigame(self):
+        """Bricht das laufende Minispiel SOFORT ab und stellt auf "neu auswerfen"
+        (State 0) -- der robusteste Weg per Default: das Fenster schliessen
+        (FISH_WINDOW_CLOSE). Gibt den genutzten Weg als String zurueck (fuers
+        Logging). Wirft nie."""
+        how = 'window_close'
+        try:
+            mouse_x = int(self.wincap.offset_x + self.FISH_WINDOW_CLOSE[0])
+            mouse_y = int(self.wincap.offset_y + self.FISH_WINDOW_CLOSE[1])
+            pydirectinput.click(x=mouse_x, y=mouse_y, button='left')
+            pydirectinput.click(x=mouse_x, y=mouse_y, button='left')
+        except Exception:
+            # Fallback: wenn der Klick nicht geht, reicht der State-Reset unten --
+            # der naechste Zyklus wirft ohnehin neu aus.
+            how = 'recast_only'
+        # In jedem Fall auf "neu auswerfen" zuruecksetzen.
+        self.state = 0
+        self.timer_action = time()
+        self._on_cycle_end()
+        return how
+
+    def _apply_whitelist(self, screenshot):
+        """Wertet beim Biss den Chat-Streifen aus und bricht ab, falls der Fang
+        unerwuenscht (REMOVE) oder eine Niete ist. Gibt True zurueck, wenn das
+        Minispiel abgebrochen wurde (Aufrufer soll diese Runde nicht weiterspielen).
+
+        Streng defensiv: ohne aktive Whitelist / bei jedem Fehler -> False.
+        UNGEWOLLT/unsicher -> NIE abbrechen.
+        """
+        if not self._whitelist_active() or self._whitelist_decided:
+            return False
+        try:
+            result = self._read_hook(screenshot)
+            if result is None:
+                return False
+
+            kind = getattr(result, 'kind', _fc.NONE)
+            if kind == _fc.NONE:
+                # Noch nichts Sicheres am Haken -> naechsten Frame abwarten.
+                return False
+
+            decision = _wl.decide(result, states=self.whitelist_states,
+                                  enabled=True)
+            self._whitelist_decided = True
+
+            if decision == _wl.ABORT:
+                how = self._abort_minigame()
+                name = str(getattr(result, 'name', '?'))
+                if kind == _fc.NIETE:
+                    _flog(0, t('fishing.whitelist_abort_niete', how=how))
+                else:
+                    _flog(0, t('fishing.whitelist_abort', name=name, how=how))
+                return True
+
+            # Gewollt -> nur bei sicherem Namen einmal vermerken (UNKNOWN still).
+            if getattr(result, 'confident', False):
+                _flog(3, t('fishing.whitelist_keep',
+                           name=str(getattr(result, 'name', '?'))))
+            return False
+        except Exception:
+            return False
 
     def _do_mount_cancel(self, steps):
         """Fuehrt die PURE Mount-Sequenz (mount.mount_cancel_steps) als
@@ -213,6 +318,14 @@ class FishingBot(FishingDetectMixin):
         mkey = values.get('-MOUNTKEY-', '3')
         self.mount_key = str(mkey) if mkey else '3'
 
+        # Angel-Whitelist defensiv lesen (Default AUS -> byte-stabil). Der
+        # konkrete Fisch-Zustands-Dict (whitelist_states) wird separat vom
+        # RunLoop auf die Instanz injiziert (wie bait_key/cast_key); ein
+        # fehlender Schluessel laesst die Whitelist einfach aus.
+        self.whitelist_enabled = bool(values.get('-WHITELIST-',
+                                                  self.whitelist_enabled))
+        self._whitelist_decided = False
+
         # FRUEH loggen -- noch VOR dem Fenster-Capture, damit der Start auch dann
         # in der Console steht, wenn das Spielfenster (noch) nicht gefunden wird
         # (sonst wuerde diese Zeile bei einem Capture-Fehler nie erreicht).
@@ -249,15 +362,13 @@ class FishingBot(FishingDetectMixin):
     def runHack(self):
         screenshot = self.wincap.get_screenshot()
 
-        # crop and aply hsv filter
-        # detect_end_img ist der ROHE Crop (View), crop_img wird gefiltert. Beide
-        # gehen vom IDENTISCHEN Ausschnitt aus -> einmal schneiden statt zweimal.
-        # apply_hsv_filter liefert ein NEUES Array (mutiert die Eingabe nicht), der
-        # rohe Crop bleibt also unveraendert -- byte-stabil zum frueheren Verhalten.
-        crop_img = screenshot[self.FISH_WINDOW_POSITION[1]:self.FISH_WINDOW_POSITION[1]+self.FISH_WINDOW_SIZE[1],
-                            self.FISH_WINDOW_POSITION[0]:self.FISH_WINDOW_POSITION[0]+self.FISH_WINDOW_SIZE[0]]
-        detect_end_img = crop_img
-        crop_img = self.hsv_filter.apply_hsv_filter(crop_img)
+        # Einmal schneiden: roher Crop (fuer detect_end) + HSV-gefilterter Crop.
+        x0 = self.FISH_WINDOW_POSITION[0]
+        y0 = self.FISH_WINDOW_POSITION[1]
+        x1 = x0 + self.FISH_WINDOW_SIZE[0]
+        y1 = y0 + self.FISH_WINDOW_SIZE[1]
+        detect_end_img = screenshot[y0:y1, x0:x1]
+        crop_img = self.hsv_filter.apply_hsv_filter(detect_end_img)
 
         cv.putText(crop_img, 'FPS: ' + str(1/(time() - self.loop_time))[:2],
                 (10, 200), cv.FONT_HERSHEY_SIMPLEX,  0.5, (0, 255, 0), 2)
@@ -268,18 +379,20 @@ class FishingBot(FishingDetectMixin):
         daily = self.detect_daily_reward(screenshot)
 
         if daily:
-            # Konfigurierbares Feld klicken (1/2/3, Default 3 = Koeder). Das
-            # gewaehlte Feld + die Koordinaten werden geloggt, damit der Nutzer
-            # im Spiel pruefen/feinjustieren kann. (Ersetzt das alte feste
-            # y=280-Verhalten und den 'fishing.daily_reward_confirmed'-Log.)
             field = self.golden_tuna_action
-            mouse_x = int(self.wincap.offset_x + self.GOLDEN_TUNA_X)
-            mouse_y = int(self.wincap.offset_y + self.GOLDEN_TUNA_Y[field])
+            ox, oy = self.wincap.offset_x, self.wincap.offset_y
+            mouse_x = int(ox + self.GOLDEN_TUNA_X)
+            mouse_y = int(oy + self.GOLDEN_TUNA_Y[field])
             pydirectinput.click(x=mouse_x, y=mouse_y)
+            ok_x = int(ox + self.GOLDEN_TUNA_CONFIRM[0])
+            ok_y = int(oy + self.GOLDEN_TUNA_CONFIRM[1])
+            pydirectinput.click(x=ok_x, y=ok_y)
             if time() - getattr(self, '_last_daily_log', 0) > 3:
                 self._last_daily_log = time()
                 _flog(self.state, t('fishing.golden_tuna_clicked'),
                       field=field, x=mouse_x, y=mouse_y)
+                _flog(self.state, t('fishing.golden_tuna_confirmed',
+                                    x=ok_x, y=ok_y))
 
         # Verify total time
 
@@ -293,7 +406,6 @@ class FishingBot(FishingDetectMixin):
         if self.state == 0:
 
             if time() - self.timer_action > self.bait_time:
-                self.detect_text = True
                 pydirectinput.keyDown(self.bait_key)
                 pydirectinput.keyUp(self.bait_key)
                 self.state = 1
@@ -329,6 +441,14 @@ class FishingBot(FishingDetectMixin):
             if detected_end:
                 self._bite_seen_this_cycle = True
 
+            # ANGEL-WHITELIST: sobald ein Biss laeuft (Minispiel sichtbar), NUR
+            # den kleinen Chat-Streifen lesen und bei unerwuenschtem Fang/Niete
+            # SOFORT abbrechen + neu auswerfen. Strikt opt-in + defensiv: ist die
+            # Whitelist aus, passiert hier nichts (byte-stabil). Bricht sie ab,
+            # ist die Runde vorbei -> dieses runHack hier beenden.
+            if detected_end and self._apply_whitelist(screenshot):
+                return crop_img
+
             if time() - self.timer_action > 15:
                 self.timer_action = time()
                 self.state = 0
@@ -350,17 +470,6 @@ class FishingBot(FishingDetectMixin):
                 else:
                     _flog(0, t('fishing.no_bite'))
                 self._on_cycle_end()
-
-            if self.detect_text_enable and time() - self.timer_action > 1.5:
-                if self.detect_text:
-                    if self.fishfilter.match_with_text(screenshot) is False:
-                        mouse_x = int(self.wincap.offset_x + self.FISH_WINDOW_CLOSE[0])
-                        mouse_y = int(self.wincap.offset_y + self.FISH_WINDOW_CLOSE[1])
-                        pydirectinput.click(x=mouse_x, y=mouse_y, button='left')
-                        pydirectinput.click(x=mouse_x, y=mouse_y, button='left')
-
-                self.detect_text = False
-
 
         # make the click
 

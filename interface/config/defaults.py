@@ -105,6 +105,13 @@ DEFAULTS = {
         # Default AUS + Taste '3' -> Verhalten byte-stabil.
         'mount_enabled': False,
         'mount_key': '3',
+        # Angel-Whitelist (opt-in): liest beim Biss den Chat-Streifen und bricht
+        # das Minispiel ab, wenn der Fang im Inventar als "entfernen" markiert ist
+        # (oder eine Niete). Default AUS -> angelt ALLES -> byte-stabil. Welche
+        # Fische gewollt sind, kommt aus den Inventar-3-Zustaenden (KEEP/CAMPFIRE
+        # = angeln, REMOVE = abbrechen), die der RunLoop auf die Bot-Instanz
+        # injiziert (kein eigener Config-Block noetig).
+        'whitelist_enabled': False,
     },
     'puzzle': {
         'detection_mode': 'default',

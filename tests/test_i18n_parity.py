@@ -74,6 +74,8 @@ _REQUIRED_KEYS = (
     'ui.test_window_failed',
     # CS6 footer / language toggle / detection note
     'ui.language_changed', 'ui.detect_searching', 'ui.window_title',
+    # Fishing whitelist toggle (label + ?-help) in the Fishing view
+    'ui.whitelist_enabled', 'ui.whitelist_help',
 )
 
 

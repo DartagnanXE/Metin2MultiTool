@@ -98,6 +98,23 @@ class FishingPuzzleConsoleViewsMixin:
         InfoBadge(mount_row, text=t('ui.mount_help')).grid(
             row=0, column=1, sticky='e', padx=(4, 4))
 
+        # Angel-Whitelist: an/aus direkt als Fishing-OPTION (Checkbox + ?-Hilfe),
+        # Stil wie die Mount-/Stop-after-Zeile. Default AUS -> es wird alles
+        # geangelt (byte-stabil). Die konkreten Fisch-Entscheidungen kommen aus
+        # dem Inventar-Tab; dieser Schalter ist nur der Master-an/aus.
+        whitelist_row = ctk.CTkFrame(view, fg_color='transparent')
+        whitelist_row.grid(row=6, column=0, sticky='ew', pady=(0, 4))
+        whitelist_row.grid_columnconfigure(0, weight=1)
+        self._whitelist_var = ctk.BooleanVar(
+            value=self._cfg['fishing']['whitelist_enabled'])
+        self.whitelist_chk = ctk.CTkCheckBox(
+            whitelist_row, text=t('ui.whitelist_enabled'),
+            variable=self._whitelist_var, text_color=TEXT, fg_color=TEAL,
+            hover_color=TEAL_HOVER, command=self._on_whitelist_toggle)
+        self.whitelist_chk.grid(row=0, column=0, sticky='w')
+        InfoBadge(whitelist_row, text=t('ui.whitelist_help')).grid(
+            row=0, column=1, sticky='e', padx=(4, 4))
+
     def _build_puzzle_view(self, _parent):
         view = self._new_view('puzzle')
         # Inhalt OBEN gruppiert: KEIN verteilender Zwischenraum (row 3 bleibt leer ->
