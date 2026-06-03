@@ -80,6 +80,8 @@ TRANSLATIONS = {
     'puzzle.confirm_discard': {'en': 'Confirm discard', 'de': 'Verwerfen bestätigen'},
     'puzzle.confirm_move': {'en': 'Confirm move', 'de': 'Zug bestätigen'},
     'puzzle.confirm_selection_get_piece': {'en': 'Confirm selection (get piece)', 'de': 'Auswahl bestätigen (Stein holen)'},
+    'puzzle.deluxe_no_2x3_slot': {'en': 'Deluxe piece (type {piece_type}): no free 2x3 slot on the board -> discard', 'de': 'Deluxe-Stein (Typ {piece_type}): kein freies 2x3-Feld auf dem Brett -> verwerfen'},
+    'puzzle.deluxe_placed': {'en': 'Deluxe piece (type {piece_type}) placed as full 2x3 at {pos}', 'de': 'Deluxe-Stein (Typ {piece_type}) als volles 2x3 bei {pos} gesetzt'},
     'puzzle.discard_piece_no_placement': {'en': 'Discard piece (no placement)', 'de': 'Stein wegwerfen (keine Platzierung)'},
     'puzzle.invalid_piece_discarded': {'en': 'Invalid piece (new_piece={new_piece}) -> discarded, no solver run', 'de': 'Ungültiger Stein (new_piece={new_piece}) -> wird verworfen, kein Solver-Lauf'},
     'puzzle.move_mouse_to_color_sample': {'en': 'Move mouse to piece color sample', 'de': 'Maus auf Stein-Farb-Sample bewegen'},

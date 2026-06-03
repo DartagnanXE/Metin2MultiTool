@@ -7,6 +7,7 @@ from piece import Piece
 import json
 import constants
 import calibration
+import deluxe
 import geometry
 import trained_solver
 from debuglog import log
@@ -41,6 +42,15 @@ class PuzzleBot(PuzzleDetectMixin):
     PUZZLE_GET_NEW_PIECE = (230, 85)
     PUZZLE_COMFIRM = (100, 90)
     PUZZLE_GET_NEW_PIECE_COLOR = (110, 150)
+
+    # Box-Klickpunkte im 800x600-Client (volle Fenster-Inhalts-Koordinaten, NICHT
+    # board-relativ): die STANDARD-Puzzlebox liegt im unteren Slot ~ (503, 328),
+    # die DELUXE-Box im Slot DARUEBER ~ (503, 271). Geliefert wird nur die
+    # Konstante (+ _deluxe_box_screen_point/_standard_box_screen_point fuer den
+    # Bildschirm-Punkt inkl. wincap-Rand); die Box-OEFFNUNGS-/Strategie-Logik
+    # ist bewusst NICHT Teil dieses Moduls.
+    PUZZLE_BOX = (503, 328)
+    PUZZLE_DELUXE_BOX = (503, 271)
 
     # Aktiv genutzter Board-Offset (oben-links der 260x170-Region im
     # Fensterinhalt). Default = feste Standardposition; die Integration
@@ -190,6 +200,27 @@ class PuzzleBot(PuzzleDetectMixin):
         mouse_y = int(cy + self.puzzle_offset[1] + self.wincap.offset_y)
         pydirectinput.click(x=mouse_x, y=mouse_y, button=button)
 
+    def _box_screen_point(self, box_point):
+        """Rechnet einen Box-Slot (Fenster-INHALT-Koordinate, z.B. PUZZLE_BOX /
+        PUZZLE_DELUXE_BOX) in einen Bildschirm-Klickpunkt um.
+
+        Die Box-Slots sind feste Client-Positionen (kein board-relativer
+        ``puzzle_offset``) -> es wird NUR der Fenster-Rand ``wincap.offset_*``
+        addiert, identisch zur Truhen-Logik in ``try_to_put_chest``. Defensiv:
+        ohne ``wincap`` (vor ``set_to_begin``) faellt der Offset auf 0 zurueck,
+        statt zu crashen. Rueckgabe: ``(mouse_x, mouse_y)`` als Ints."""
+        off_x = getattr(self.wincap, 'offset_x', 0) or 0
+        off_y = getattr(self.wincap, 'offset_y', 0) or 0
+        return (int(box_point[0] + off_x), int(box_point[1] + off_y))
+
+    def deluxe_box_screen_point(self):
+        """Bildschirm-Klickpunkt der DELUXE-Box (Slot ueber der Standard-Box)."""
+        return self._box_screen_point(self.PUZZLE_DELUXE_BOX)
+
+    def standard_box_screen_point(self):
+        """Bildschirm-Klickpunkt der STANDARD-Puzzlebox (unterer Slot)."""
+        return self._box_screen_point(self.PUZZLE_BOX)
+
     def press_comfirm(self):
         self._click_board_point(geometry.confirm_point, 'confirm', 'left')
 
@@ -234,7 +265,47 @@ class PuzzleBot(PuzzleDetectMixin):
                      extra='keine der 6 BGR-Ranges getroffen -> new_piece=None')
         return None
 
+    def _place_deluxe(self):
+        """Setzt den DELUXE-Stein (volles 2x3-Magenta) DETERMINISTISCH.
+
+        Der Deluxe-Stein hat eine feste Form und gehoert NICHT in den MDP
+        (trained_solver) oder den Greedy-/Eroeffnungsbuch-Pfad: er wird GREEDY in
+        das erste freie 2x3-Loch gesetzt (deluxe.find_free_2x3). Passt keiner ->
+        ``None`` (Stein wird in State 7 weggeworfen). Bei Erfolg werden die 6
+        Zellen auf dem Brett belegt, ``self.end`` ggf. gesetzt und die Anker-
+        Zelle geklickt; Rueckgabe ``True``. Wirft nie."""
+        anchor = deluxe.find_free_2x3(self.tetris.board)
+        if anchor is None:
+            log.event(self.state, t('puzzle.deluxe_no_2x3_slot'),
+                      piece_type=deluxe.DELUXE_PIECE_TYPE)
+            return None
+
+        ax, ay = anchor
+        # Die 6 Zellen des 2x3-Rechtecks im internen Brett belegen (der Solver
+        # nutzt Tetris.insert_piece nur fuer die echten Typen 1..6; hier setzen
+        # wir direkt, da Piece(7) bewusst leer/ungueltig ist).
+        for (dr, dc) in deluxe.DELUXE_FORM:
+            self.tetris.board[ax + dr][ay + dc] = 1
+        if self.tetris.verify_end():
+            self.end = True
+
+        log.event(self.state, t('puzzle.deluxe_placed'),
+                  piece_type=deluxe.DELUXE_PIECE_TYPE, pos=anchor)
+        px, py = geometry.cell_point(ax, ay, self.board_size)
+        mouse_x = px + self.puzzle_offset[0] + self.wincap.offset_x
+        mouse_y = py + self.puzzle_offset[1] + self.wincap.offset_y
+        pydirectinput.click(mouse_x, mouse_y)
+        return True
+
     def play_game(self):
+
+        # -- DELUXE-Stein (Typ 7, Magenta) ------------------------------------
+        # Deterministisch ein volles 2x3-Rechteck: NICHT durch trained_solver
+        # (MDP kennt nur Typ 1..6) und NICHT durch den Greedy-/Buch-Pfad routen.
+        # Vor der 1..6-Pruefung abfangen, sonst wuerde Typ 7 unten als
+        # 'ungueltig' weggeworfen.
+        if self.new_piece == deluxe.DELUXE_PIECE_TYPE:
+            return self._place_deluxe()
 
         # Ungueltiger Stein (None / ausserhalb 1..6) -> NICHT an den Solver
         # geben. Frueher fuehrte Piece(None) zu TypeError/KeyError und einem

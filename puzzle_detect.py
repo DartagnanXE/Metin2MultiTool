@@ -16,6 +16,7 @@ saemtlicher Zustand (``PIECE_REF_BGR``, ``color_mode``, ``board_size``,
 ``self.``-Zugriff bleiben damit byte-identisch zur fruheren Single-Class.
 """
 
+import deluxe
 import geometry
 
 
@@ -60,16 +61,25 @@ class PuzzleDetectMixin:
         return (int(mean[0]), int(mean[1]), int(mean[2]))
 
     def _classify_piece(self, bgr):
-        """Ordnet eine ``(b, g, r)``-Farbe einem Steintyp 1..6 zu (oder None).
+        """Ordnet eine ``(b, g, r)``-Farbe einem Steintyp 1..6 (oder 7) zu, sonst None.
 
         'single' (Default): die sechs bestehenden engen BGR-Fenster, bit-
-        identisch zu get_new_piece_color (kein Treffer -> None).
+        identisch zu get_new_piece_color, PLUS das disjunkte Magenta-Fenster
+        fuer den DELUXE-Stein (Typ 7) -- kein Treffer -> None.
         'multi' : naechste Referenzfarbe (kleinste quadratische euklidische
-        Distanz zu den PIECE_REF_BGR-Zentroiden) -- nie None bei gueltiger
-        Farbe, ausser das Brett-/Garbage-Schwarz (alle Kanaele < 50) wird vom
-        Aufrufer separat behandelt.
+        Distanz zu den PIECE_REF_BGR-Zentroiden), das Magenta hat dort einen
+        eigenen Zentroid (DELUXE_PIECE_TYPE). Nie None bei gueltiger Farbe,
+        ausser das Brett-/Garbage-Schwarz (alle Kanaele < 50) wird vom Aufrufer
+        separat behandelt.
         """
         b, g, r = bgr
+
+        # DELUXE-Magenta zuerst pruefen (eigenes, von den 6 echten Steinfarben
+        # disjunktes Fenster): hoher B/R, sehr niedriger G. Mode-unabhaengig --
+        # so wird der Deluxe-Stein auch im 'multi'-Modus nicht der naechsten der
+        # SECHS Farben zugeschlagen, sondern sauber als Typ 7 erkannt.
+        if deluxe.is_magenta(b, g, r):
+            return deluxe.DELUXE_PIECE_TYPE
 
         if self.color_mode != 'multi':
             # Exakt die Verzweigung aus get_new_piece_color (Reihenfolge und
@@ -102,11 +112,17 @@ class PuzzleDetectMixin:
         return best_type
 
     def _is_valid_piece_color(self, b, g, r, tol=45):
-        """True, wenn (b,g,r) nahe einer der 6 ECHTEN Steinfarben liegt.
+        """True, wenn (b,g,r) nahe einer der 6 ECHTEN Steinfarben ODER dem
+        DELUXE-Magenta liegt.
 
-        Mode-unabhaengig (PIECE_REF_BGR + Toleranz) -- fuer die Board-Diagnose:
-        belegte Zelle MIT gueltiger Steinfarbe vs. Garbage (belegt, aber keine
-        echte Steinfarbe = kein echtes Puzzle)."""
+        Mode-unabhaengig (PIECE_REF_BGR + Toleranz, plus das Deluxe-Magenta-
+        Fenster) -- fuer die Board-Diagnose: belegte Zelle MIT gueltiger
+        Steinfarbe vs. Garbage (belegt, aber keine echte Steinfarbe = kein
+        echtes Puzzle). Ein platzierter Deluxe-Stein faerbt 6 Zellen magenta;
+        ohne diese Zeile zaehlte _diagnose_board sie als 'garbage' und meldete
+        faelschlich 'Board nicht erkannt'."""
+        if deluxe.is_magenta(b, g, r):
+            return True
         for ref in self.PIECE_REF_BGR.values():
             if (abs(b - ref[0]) <= tol and abs(g - ref[1]) <= tol
                     and abs(r - ref[2]) <= tol):
