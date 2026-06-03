@@ -20,6 +20,12 @@ from puzzle_detect import PuzzleDetectMixin
 # Brett fertig wird statt Boxen endlos zu verwerfen.
 FINISH_AFTER_DISCARDS = 3
 
+# Wartezeit (Sekunden) zwischen den Puzzle-State-Schritten (Maus bewegen, klicken,
+# Spiel rendern lassen). War fest 0.2s -> ~6 Schritte/Stein = ~1.2s/Stein. 0.1s
+# halbiert das (~2x schneller) und bleibt fuer das Client-Rendering robust; bei
+# Bedarf hier feinjustieren.
+PUZZLE_STEP_DELAY = 0.1
+
 
 fish_jigsaw_chest = cv.imread(resource_path("images/fish_jigsaw_chest.png"))
 
@@ -368,7 +374,7 @@ class PuzzleBot(PuzzleDetectMixin):
 
         crop_image = self.get_image()
 
-        timep = 0.2
+        timep = PUZZLE_STEP_DELAY
 
         # Selbstdiagnose VOR dem Auslesen von Board/Stein: zeigt der Ausschnitt
         # ueberhaupt plausibel das Puzzle? Bei verschobenem Fenster / falscher
