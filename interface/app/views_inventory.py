@@ -378,12 +378,13 @@ class InventoryViewMixin:
         cfg = self.controller.current_config()
         prev = self._inv_last_map
 
-        def _on_progress(page, index, total):
-            # Worker-Thread: per-Seite-Fortschritt auf den GUI-Thread spiegeln
-            # (Tk single-threaded), damit die Status-Zeile WAEHREND des Scans
-            # mitlaeuft statt erst am Ende. Rein kosmetisch + defensiv.
-            self.after(0, lambda p=page, i=index, n=total:
-                       self._inv_scan_progress(p, i, n))
+        def _on_progress(done, total):
+            # Worker-THREADS (parallel recognise): slot-granularen Fortschritt
+            # (done von total ueber die 180 Slots) auf den GUI-Thread spiegeln
+            # (Tk single-threaded), damit die Status-Zeile 0-100% mitlaeuft statt
+            # erst am Ende. Rein kosmetisch + defensiv.
+            self.after(0, lambda d=done, n=total:
+                       self._inv_scan_progress(d, n))
 
         def _worker():
             try:
@@ -403,18 +404,22 @@ class InventoryViewMixin:
 
         threading.Thread(target=_worker, name='inv-scan', daemon=True).start()
 
-    def _inv_scan_progress(self, page, index, total):
-        """Per-Seite-Fortschritt (GUI-Thread): aktualisiert die Status-Zeile auf
-        'Scanne Seite X von N', damit der laufende Scan sichtbares Feedback gibt
-        statt erst am Ende. Rein kosmetisch + defensiv -- wirft nie, faesst nur die
-        Status-Zeile an (der Knopf bleibt deaktiviert wie in _on_scan_inventory
-        gesetzt). Kommt der Callback verspaetet erst nach _inv_scan_done an (Scan
-        schon fertig), wird er ignoriert, um die Endmeldung nicht zu ueberschreiben."""
+    def _inv_scan_progress(self, done, total):
+        """Slot-Fortschritt (GUI-Thread): aktualisiert die Status-Zeile auf
+        'Erkenne Items ... P%' (P = done/total ueber die 180 Slots), damit der
+        laufende Scan ein fluessiges 0-100% zeigt statt erst am Ende ein Ergebnis.
+        Rein kosmetisch + defensiv -- wirft nie, faesst nur die Status-Zeile an
+        (der Knopf bleibt deaktiviert wie in _on_scan_inventory gesetzt). Kommt
+        der Callback verspaetet erst nach _inv_scan_done an (Scan schon fertig),
+        wird er ignoriert, um die Endmeldung nicht zu ueberschreiben. Der
+        Fortschritt ist MONOTON (done steigt 1..total), daher springt die Anzeige
+        nie zurueck."""
         if not getattr(self, '_inv_scanning', False):
             return
         try:
+            pct = int(done * 100 / total) if total else 100
             self._set_inv_status(
-                t('inventory.scan_page_progress', page=page, total=total), TEAL)
+                t('inventory.scan_progress_pct', pct=pct), TEAL)
         except Exception:
             pass
 

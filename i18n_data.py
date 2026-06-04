@@ -53,6 +53,10 @@ TRANSLATIONS = {
     'fishing.whitelist_abort': {'en': 'Whitelist: unwanted catch ({name}) -> aborting minigame ({how}) and recasting', 'de': 'Whitelist: unerwünschter Fang ({name}) -> Minispiel abgebrochen ({how}) und neu auswerfen'},
     'fishing.whitelist_abort_niete': {'en': 'Whitelist: nibble / no catch -> aborting minigame ({how}) and recasting', 'de': 'Whitelist: Niete / kein Fang -> Minispiel abgebrochen ({how}) und neu auswerfen'},
     'fishing.whitelist_keep': {'en': 'Whitelist: wanted catch ({name}) -> fishing on', 'de': 'Whitelist: gewünschter Fang ({name}) -> weiter angeln'},
+    'fishing.bait_refill_empty_slot': {'en': 'Bait quick-slot empty -> refilling one bait from the inventory', 'de': 'Köder-Quickslot leer -> lege einen Köder aus dem Inventar nach'},
+    'fishing.bait_refill_done': {'en': 'Bait refilled into the quick-slot', 'de': 'Köder in den Quickslot nachgelegt'},
+    'fishing.bait_refill_none_left': {'en': 'No bait left in the inventory -> stopping the bot. Restock bait, then start again.', 'de': 'Kein Köder mehr im Inventar -> Bot wird gestoppt. Köder nachkaufen, dann erneut starten.'},
+    'fishing.bait_refill_failed': {'en': 'Bait refill failed (inventory scan/drag error) -> fishing on without refill this time', 'de': 'Köder-Nachlegen fehlgeschlagen (Inventar-Scan-/Zieh-Fehler) -> diesmal ohne Nachlegen weiter angeln'},
     'fishing.minigame_finished': {'en': 'Minigame finished -> back to bait', 'de': 'Minispiel beendet -> zurück zu Köder'},
     'fishing.minigame_phase_start': {'en': 'Minigame phase starting', 'de': 'Minispiel-Phase startet'},
     'fishing.minigame_timeout': {'en': 'Minigame timeout (15s) -> back to bait', 'de': 'Minispiel-Timeout (15s) -> zurück zu Köder'},
@@ -319,6 +323,8 @@ TRANSLATIONS = {
     # -- live runner + differential scan (user-facing) ----------------------
     'inventory.scan_started': {'en': 'Inventory scan started...', 'de': 'Inventar-Scan gestartet ...'},
     'inventory.scan_page_progress': {'en': 'Scanning page {page} of {total}...', 'de': 'Scanne Seite {page} von {total} ...'},
+    'inventory.scan_capturing': {'en': 'Capturing inventory pages...', 'de': 'Nehme Inventar-Seiten auf ...'},
+    'inventory.scan_progress_pct': {'en': 'Recognising items... {pct}%', 'de': 'Erkenne Items ... {pct}%'},
     'inventory.scan_no_window': {'en': 'Metin2 window not found / not open - scan aborted. Open the game first.', 'de': 'Metin2-Fenster nicht gefunden / nicht offen - Scan abgebrochen. Öffne zuerst das Spiel.'},
     'inventory.scan_not_open': {'en': 'Inventory does not appear to be open (the hotkey may have toggled it shut) - nothing recognised. Open the inventory and scan again.', 'de': 'Das Inventar scheint nicht offen zu sein (der Hotkey hat es evtl. wieder geschlossen) - nichts erkannt. Öffne das Inventar und scanne erneut.'},
     'inventory.new_unknown_item': {'en': 'New unrecognised item on page {page}, slot {slot} -- possibly a new item (icon missing from the DB)', 'de': 'Neues, nicht erkanntes Item in Seite {page}, Slot {slot} -- evtl. neues Item (Icon fehlt in der DB)'},
@@ -394,6 +400,10 @@ TRANSLATIONS = {
     # -- Whitelist (only fish what you want) --------------------------------
     'ui.whitelist_enabled': {'en': 'Only fish whitelisted catches', 'de': 'Nur Whitelist-Fänge angeln'},
     'ui.whitelist_help': {'en': 'When the chat shows what bit, the bot checks the catch against your inventory list: catches you keep (active or campfire) are reeled in normally, while catches you marked "remove" -- and any nibble / empty bite -- abort the minigame so the rod re-casts at once. Anything not recognised for sure is always kept (never aborts a wanted catch). Uses the items from the Inventory tab; if you never opened it, everything is kept. Off by default.', 'de': 'Sobald der Chat zeigt, was angebissen hat, prüft der Bot den Fang gegen deine Inventarliste: Fänge, die du behältst (aktiv oder Lagerfeuer), werden normal eingeholt; Fänge, die du auf "entfernen" gesetzt hast -- sowie jede Niete / jeder Leerbiss -- brechen das Minispiel ab, sodass die Angel sofort neu auswirft. Was nicht sicher erkannt wird, wird immer behalten (bricht nie einen gewünschten Fang ab). Nutzt die Items aus dem Inventar-Tab; hast du ihn nie geöffnet, wird alles behalten. Standardmäßig aus.'},
+
+    # -- Bait refill (auto-refill bait when the quick-slot is empty) --------
+    'ui.bait_refill_enabled': {'en': 'Refill bait when empty', 'de': 'Köder nachlegen, wenn leer'},
+    'ui.bait_refill_help': {'en': 'While fishing, the bot watches your bait quick-slot (the bait key). When it runs empty, it opens the inventory and drags one fresh bait into the slot, then fishes on. If no bait is left in the inventory, the bot stops with a clear note. Needs the bait on a quick-slot key (1-4 / F1-F4). The check is throttled (only every few seconds, before baiting), so it costs almost nothing. Off by default.', 'de': 'Während des Angelns überwacht der Bot deinen Köder-Quickslot (die Köder-Taste). Läuft er leer, öffnet er das Inventar, zieht einen frischen Köder in den Slot und angelt weiter. Ist kein Köder mehr im Inventar, stoppt der Bot mit klarem Hinweis. Setzt den Köder auf einer Quickslot-Taste (1-4 / F1-F4) voraus. Die Prüfung ist gedrosselt (nur alle paar Sekunden, vor dem Ködern) und kostet daher fast nichts. Standardmäßig aus.'},
 
     # -- Fish events card ---------------------------------------------------
     'ui.group_events': {'en': 'Fish events', 'de': 'Fisch-Events'},

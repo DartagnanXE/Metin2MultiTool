@@ -145,6 +145,10 @@ class _Runner:
         # The page currently being hovered/recaptured; set by hover_clear so the
         # very next capture is filed against the correct page.
         self._cur_page = None
+        # PHASE-1 capture buffer (page label -> raw frame); set by the two-phase
+        # runner so PHASE-2's align_fn can map a frame back to its page for the
+        # per-page unknown crop. Empty until capture_pages has run.
+        self._capture_buffer = {}
 
     # -- live primitives --------------------------------------------------
 
@@ -279,6 +283,34 @@ class _Runner:
         lattice = existing[1] if existing else self._last_lattice
         self._page_frames[page] = (image, lattice)
 
+    def note_recognised_page(self, image, lattice):
+        """File a page's ``(image, lattice)`` as it is auto-aligned in PHASE 2.
+
+        The two-phase fast path classifies the buffered raw frames after capture,
+        so the per-page crop source is recorded HERE (from the recognise-phase
+        ``align_fn`` wrapper). The aligner gets only the image + lattice, so we
+        map the frame back to its page label by OBJECT IDENTITY against the
+        capture buffer (the same ndarray is passed straight through). Also keeps
+        ``_last_lattice`` as the crop fallback. Pure bookkeeping; never raises.
+        """
+        self._last_lattice = lattice
+        page = self._page_of_image(image)
+        if page is not None:
+            self._page_frames[page] = (image, lattice)
+
+    def _page_of_image(self, image):
+        """Map a buffered frame back to its page label by object identity.
+
+        :meth:`note_recognised_page` gets only the image + lattice; the page
+        label lives in the capture buffer the runner stashed. Identity match is
+        exact (the same ndarray object is passed straight through), so there is
+        no ambiguity even if two pages happened to be pixel-equal.
+        """
+        for label, img in self._capture_buffer.items():
+            if img is image:
+                return label
+        return None
+
     # -- unknown-crop save (best-effort) ----------------------------------
 
     def save_unknown_crop(self, change):
@@ -319,13 +351,24 @@ def run_inventory_scan(cfg, previous_map=None, *, log_fn=None, db=None,
                        tracked=KEY_ITEMS, progress_fn=None):
     """Run ONE live I->IV inventory scan; render + diff it; return the new map.
 
-    Steps: build/reuse the DB -> open the capture window -> press the configured
-    hotkey -> drive the four callbacks through
-    :func:`inventory.scanner.scan_inventory` (tab click + active-page verify +
-    hover-clear + auto-align + classify) -> push ``format_full`` lines to the
-    Console -> diff vs ``previous_map`` -> emit exactly one warning per newly
+    TWO-PHASE (fast): build/reuse the DB -> open the capture window -> press the
+    configured hotkey -> PHASE 1 click I->II->III->IV and buffer one raw frame
+    per tab (:func:`inventory.scanner.capture_pages`; just switch + settle +
+    capture, NO recognition between tabs, so the cursor is released quickly) ->
+    PHASE 2 auto-align + classify the 4 buffered frames OFF the input device with
+    the 180 slots fanned across a thread pool
+    (:func:`inventory.scanner.recognize_pages`) -> push the found-items list to
+    the Console -> diff vs ``previous_map`` -> emit exactly one warning per newly
     appeared unknown (+ best-effort crop save) -> return the new
     :class:`InventoryMap` (the caller stores it as the next ``previous_map``).
+
+    The cursor-sweep HOVER glow-clear of the old interleaved path is dropped here
+    (it needed a per-page auto-align mid-capture, which is exactly the recognition
+    work Phase 1 defers): freshly-caught lavender glow on the few just-caught
+    slots is covered by the matcher's margin-primary safety net, and the win is
+    that the input device is busy only for the four tab settles instead of for the
+    whole 4x45-slot recognise. Each buffered raw frame doubles as that page's crop
+    source, so a flagged unknown is still cropped from its OWN page.
 
     :param cfg: the current config dict (reads ``cfg['inventory']['hotkey']``).
     :param previous_map: the last scan's map (``None`` on the first scan of a
@@ -336,25 +379,24 @@ def run_inventory_scan(cfg, previous_map=None, *, log_fn=None, db=None,
         DB, built once).
     :param tracked: tracked-item names for the report summary (default
         KEY_ITEMS); the seam a future handler narrows.
-    :param progress_fn: optional ``(page, index, total) -> None`` for LIVE
-        per-page UI feedback (the worker thread calls it before each page, so a
-        Tk caller must marshal via ``after``). It is purely cosmetic and wrapped
-        defensively; a per-page line is ALSO pushed to the Console regardless, so
-        the scan no longer feels silent until the final summary.
+    :param progress_fn: optional ``(done, total) -> None`` for LIVE slot-granular
+        UI feedback over the 180 slots (the worker threads call it as each slot
+        completes, so a Tk caller must marshal via ``after``). ``done`` rises
+        monotonically 1..total. Purely cosmetic and wrapped defensively.
     :return: the new :class:`InventoryMap`.
     """
     sink = log_fn or _default_log_fn
-    db = db if db is not None else _get_db()
+    db = db or _get_db()
     runner = _Runner(cfg, db, calib=DEFAULT_CALIBRATION)
 
     _emit_line(sink, t('inventory.scan_started'))
 
     # CS3 (anti-hang): prompt window-presence guard BEFORE any pydirectinput
-    # tab-click / 45-slot hover loop (those accumulate time.sleep settles). With
-    # no Metin2 window open the old path could spin forever on "scanning...".
-    # Here we abort cleanly, emit a clear not-open line, warn the Console and
-    # return an EMPTY map -- the engine itself never hangs, even when called
-    # directly (tests monkeypatch _window_present). Tests assert ZERO clicks/moves.
+    # tab-click loop (those accumulate time.sleep settles). With no Metin2 window
+    # open the old path could spin forever on "scanning...". Here we abort
+    # cleanly, emit a clear not-open line, warn the Console and return an EMPTY
+    # map -- the engine never hangs, even when called directly (tests monkeypatch
+    # _window_present). Tests assert ZERO clicks/moves.
     if not _window_present():
         _warn('inventory.scan_no_window')
         _emit_line(sink, t('inventory.scan_no_window'))
@@ -365,41 +407,60 @@ def run_inventory_scan(cfg, previous_map=None, *, log_fn=None, db=None,
     hotkey = (cfg or {}).get('inventory', {}).get('hotkey', 'i')
     runner.open_inventory(hotkey)
 
-    # Keep the LAST de-glowed page image (fallback) AND file each page's de-glowed
-    # re-capture against its own page label, so a flagged unknown is cropped from
-    # the page it actually lives on (not whatever page was captured last). The
-    # capture right after a hover sweep carries _cur_page set by hover_clear.
+    # PHASE 1 (fast capture): buffer each page's raw frame; remember the last as
+    # the crop fallback. No hover, no recognition -- just switch + capture.
+    _emit_line(sink, t('inventory.scan_capturing'))
+
     def capture_fn():
         img = runner.capture()
         runner._last_image = img
-        runner.note_page_frame(img)
         return img
 
-    # Live per-page feedback so the scan does not feel silent until the end:
-    # push a "Scanning page X of N" line to the Console for EVERY scan, and also
-    # forward to the optional UI callback (which marshals onto the GUI thread).
-    # Both are best-effort -- a raising sink/callback must never abort the scan.
-    def _progress(page, index, total):
-        try:
-            _emit_line(sink, t('inventory.scan_page_progress',
-                               page=page, total=total))
-        except Exception:
-            pass
-        if progress_fn is not None:
-            try:
-                progress_fn(page, index, total)
-            except Exception:
-                pass
-
-    inv = scanner.scan_inventory(
+    captured = scanner.capture_pages(
         capture_fn,
         runner.switch_page,
-        db,
-        calib=DEFAULT_CALIBRATION,
         pages=PAGES,
-        hover_fn=runner.hover_clear,
         verify_page_fn=runner.verify,
+    )
+    # Hand the buffer to the runner so PHASE-2 can map an aligned frame back to
+    # its page label for the per-page unknown crop.
+    runner._capture_buffer = captured
+
+    # PHASE 2 (parallel recognise): record each page's locked lattice + frame as
+    # it is aligned (so a flagged unknown crops from its OWN page), then classify
+    # all 180 slots across the thread pool. Progress is slot-granular: push a
+    # coarse per-quarter line to the Console + forward the (done,total) tick to
+    # the optional UI callback (which marshals onto the GUI thread). Both are
+    # best-effort -- a raising sink/callback must never abort the scan.
+    def _align_and_record(image, db_, calib):
+        lattice = scanner.auto_align(image, db_, calib)
+        runner.note_recognised_page(image, lattice)
+        return lattice
+
+    last_console_step = [0]   # tracks last 'done' at which a Console line fired
+
+    def _progress(done, total):
+        if progress_fn is not None:
+            try:
+                progress_fn(done, total)
+            except Exception:
+                pass
+        # Coarse Console line: one update per ~quarter so the Console is not
+        # flooded with 180 lines (the UI status shows the smooth percentage).
+        try:
+            step = max(1, total // 4)
+            if done >= last_console_step[0] + step or done == total:
+                last_console_step[0] = done
+                pct = int(done * 100 / total) if total else 100
+                _emit_line(sink, t('inventory.scan_progress_pct', pct=pct))
+        except Exception:
+            pass
+
+    inv = scanner.recognize_pages(
+        captured, db,
+        calib=DEFAULT_CALIBRATION,
         progress_fn=_progress,
+        align_fn=_align_and_record,
     )
 
     # Toggled-shut detection: a hotkey that CLOSED the inventory yields no items

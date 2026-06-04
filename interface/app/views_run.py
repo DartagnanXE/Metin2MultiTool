@@ -115,6 +115,23 @@ class FishingPuzzleConsoleViewsMixin:
         InfoBadge(whitelist_row, text=t('ui.whitelist_help')).grid(
             row=0, column=1, sticky='e', padx=(4, 4))
 
+        # Koeder-Nachlegen: an/aus direkt als Fishing-OPTION (Checkbox + ?-Hilfe),
+        # Stil wie die Whitelist-/Mount-Zeile. Default AUS -> der Bot prueft den
+        # Koeder-Slot nie (byte-stabil). Erkennt der Bot den Koeder-Quickslot leer,
+        # legt er einen Koeder aus dem Inventar nach; ist keiner mehr da, stoppt er.
+        bait_refill_row = ctk.CTkFrame(view, fg_color='transparent')
+        bait_refill_row.grid(row=7, column=0, sticky='ew', pady=(0, 4))
+        bait_refill_row.grid_columnconfigure(0, weight=1)
+        self._bait_refill_var = ctk.BooleanVar(
+            value=self._cfg['fishing']['bait_refill_enabled'])
+        self.bait_refill_chk = ctk.CTkCheckBox(
+            bait_refill_row, text=t('ui.bait_refill_enabled'),
+            variable=self._bait_refill_var, text_color=TEXT, fg_color=TEAL,
+            hover_color=TEAL_HOVER, command=self._on_bait_refill_toggle)
+        self.bait_refill_chk.grid(row=0, column=0, sticky='w')
+        InfoBadge(bait_refill_row, text=t('ui.bait_refill_help')).grid(
+            row=0, column=1, sticky='e', padx=(4, 4))
+
     def _build_puzzle_view(self, _parent):
         view = self._new_view('puzzle')
         # Inhalt OBEN gruppiert: KEIN verteilender Zwischenraum (row 3 bleibt leer ->

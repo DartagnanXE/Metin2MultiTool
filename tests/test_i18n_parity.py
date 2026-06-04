@@ -76,6 +76,10 @@ _REQUIRED_KEYS = (
     'ui.language_changed', 'ui.detect_searching', 'ui.window_title',
     # Fishing whitelist toggle (label + ?-help) in the Fishing view
     'ui.whitelist_enabled', 'ui.whitelist_help',
+    # Fishing bait-refill toggle (label + ?-help) + runtime log lines
+    'ui.bait_refill_enabled', 'ui.bait_refill_help',
+    'fishing.bait_refill_empty_slot', 'fishing.bait_refill_done',
+    'fishing.bait_refill_none_left', 'fishing.bait_refill_failed',
 )
 
 

@@ -10,14 +10,20 @@ Defaults" -> Onboarding-Dialog kam erneut, ``install_id`` wurde neu gewuerfelt
 (zersplitterte Leaderboard-Eintraege -- "zwei FishLover"), das GitHub-Rating-
 Popup erschien erneut.
 
-FIX: Im gepackten Zustand (``sys.frozen``) liegt die Config NEBEN der EXE
-(Portable -- sie wandert mit dem Ordner und ueberlebt Neustarts), exakt wie es
-der ``io.py``-Docstring immer behauptet hat und wie ``trained_solver._cache_path``
-es nebenan bereits korrekt macht. Ist der EXE-Ordner ausnahmsweise nicht
-schreibbar (z.B. Program Files ohne Admin, read-only-Mount), faellt der Pfad auf
-``%APPDATA%/Metin2FishBot`` zurueck (immer schreibbar). Im Dev-/Testbetrieb
-(nicht frozen) bleibt es das bisherige ``'config.json'`` im CWD -> Tests und
-Entwicklungslauf sind byte-stabil.
+FIX v1 (zu kurz gedacht): Pfad an die EXE gebunden (NEBEN der EXE). Das loeste
+das CWD-Problem, war aber NICHT versions-/rebuild-stabil -- "neben der EXE" haengt
+am EXE-ORDNER: eine neue Version, ein neuer Download oder ein Rebuild (anderer
+bzw. geleerter Ordner) findet die alte Config NICHT -> Onboarding + neue
+``install_id`` kamen ERNEUT.
+
+FIX v2 (jetzt, bombenfest): Im gepackten Zustand (``sys.frozen``) liegt die Config
+in ``%APPDATA%/Metin2FishBot/config.json`` -- ein PRO-NUTZER-Pfad, der sich NIE
+aendert (kein Versionsname, kein EXE-Ordner darin). Damit ueberlebt die Identitaet
+(``install_id``, gewaehlter Name, ``consented``, ``rating_prompted``) JEDE Version,
+jeden Rebuild und jedes Verschieben der EXE -> das Onboarding erscheint pro Windows-
+Nutzer HOECHSTENS EINMAL. Alte Speicherorte (neben der EXE = v1; CWD = vor-v1)
+werden beim Laden EINMAL migriert (s. :func:`legacy_config_paths` + ``io.load``).
+Im Dev-/Testbetrieb (nicht frozen) bleibt es ``'config.json'`` im CWD -> byte-stabil.
 
 Bewusst NUR Standardbibliothek (os, sys). Wirft NIE -- jeder Fehlerpfad faellt
 auf den (immer funktionierenden) Dev-Default zurueck.
@@ -67,28 +73,59 @@ def _appdata_path(appdata=None):
 
 
 def config_path(frozen=None, executable=None, appdata=None):
-    """Liefert den aufzuloesenden ``config.json``-Pfad (s. Modul-Docstring).
-
-    Parameter sind nur fuer Tests da -- in Produktion alle ``None`` -> es zaehlen
-    ``sys.frozen`` / ``sys.executable`` / ``%APPDATA%``. Wirft NIE: jeder Fehler
-    faellt auf den reinen Dateinamen (CWD) zurueck.
+    """Versions-/ordner-/rebuild-STABILER ``config.json``-Pfad (s. Modul-Docstring).
 
     * nicht frozen (Dev/Test) -> ``'config.json'`` (CWD, unveraendert)
-    * frozen + EXE-Ordner schreibbar -> ``<exe-dir>/config.json`` (Portable)
-    * frozen + EXE-Ordner read-only -> ``%APPDATA%/Metin2FishBot/config.json``
+    * frozen (Portable-EXE)   -> ``%APPDATA%/Metin2FishBot/config.json``
+
+    ``executable`` wird nicht mehr gebraucht (nur fuer Rueckwaerts-Kompat der
+    Test-Signatur belassen). Wirft NIE -> jeder Fehler faellt auf den reinen
+    Dateinamen (CWD) zurueck.
     """
     try:
         if frozen is None:
             frozen = bool(getattr(sys, 'frozen', False))
         if not frozen:
             return FILENAME
-        exe = executable if executable is not None else sys.executable
-        exe_dir = os.path.dirname(os.path.abspath(exe or FILENAME))
-        if _dir_writable(exe_dir):
-            return os.path.join(exe_dir, FILENAME)
         return _appdata_path(appdata)
     except Exception:
         return FILENAME
 
 
-__all__ = ['config_path', 'FILENAME', 'APP_DIR']
+def sibling_path(filename, appdata=None):
+    """Pfad einer Datei im GLEICHEN stabilen Ordner wie die ``config.json`` --
+    z.B. ``stats.json`` (Fang-/Puzzle-Zaehler). Dev/Test: ``filename`` im CWD;
+    frozen: ``%APPDATA%/Metin2FishBot/<filename>``. So ueberlebt eine config-
+    Geschwisterdatei Versionen/Rebuilds genauso wie die config. Wirft nie."""
+    try:
+        directory = os.path.dirname(config_path(appdata=appdata))
+        return os.path.join(directory, filename) if directory else filename
+    except Exception:
+        return filename
+
+
+def legacy_sibling_paths(filename, executable=None):
+    """Frueheres Speicherorte einer config-Geschwisterdatei (``config.json`` /
+    ``stats.json``) fuer die EINMALIGE Migration nach ``%APPDATA%`` -- in
+    Praeferenz: (1) NEBEN der EXE (FIX v1) und (2) im CWD (vor-v1 / Dev). Wirft nie.
+    """
+    out = []
+    try:
+        exe = executable if executable is not None else sys.executable
+        exe_dir = os.path.dirname(os.path.abspath(exe or FILENAME))
+        out.append(os.path.join(exe_dir, filename))
+    except Exception:
+        pass
+    out.append(filename)
+    return out
+
+
+def legacy_config_paths(executable=None):
+    """Alte ``config.json``-Speicherorte (= :func:`legacy_sibling_paths` fuer
+    ``config.json``). :func:`io.load` liest sie, wenn am %APPDATA%-Pfad noch nichts
+    liegt -> ein Upgrader behaelt Identitaet + Einstellungen. Wirft nie."""
+    return legacy_sibling_paths(FILENAME, executable=executable)
+
+
+__all__ = ['config_path', 'legacy_config_paths', 'sibling_path',
+           'legacy_sibling_paths', 'FILENAME', 'APP_DIR']

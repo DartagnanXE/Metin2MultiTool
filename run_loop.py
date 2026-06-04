@@ -402,6 +402,29 @@ class RunLoop:
                 continue
         return out
 
+    def _bait_refill_db(self):
+        """Liefert die gebuendelte Inventar-Item-DB fuers Koeder-Nachlegen (oder
+        ``None``). Soft importiert -- fehlt das interface-Inventarpaket oder
+        numpy/PIL, kommt ``None`` zurueck; die Refill-Engine baut/nutzt dann den
+        Bundle-Default selbst (und meldet leise, falls auch das fehlschlaegt).
+        Wirft NIE."""
+        try:
+            from interface.inventory_io import _get_db
+            return _get_db()
+        except Exception:
+            return None
+
+    def _on_bait_empty(self):
+        """Popup-Hook fuers Koeder-Nachlegen: zeigt prominent in der Detection-
+        Note, dass der Bot mangels Koeder gestoppt hat. Wird vom FishingBot genau
+        dann gerufen, wenn kein Koeder mehr im Inventar ist. Tk nur auf dem GUI-
+        Thread -> via ``after`` planen. Wirft NIE."""
+        try:
+            self.app.after(
+                0, lambda: self.app.notify_stop(t('fishing.bait_refill_none_left')))
+        except Exception:
+            pass
+
     def on_start(self):
         """Startet den aktuell gewaehlten Modus (vom BotController-Button gerufen).
 
@@ -429,6 +452,19 @@ class RunLoop:
             # alles geangelt (byte-stabil). Wirft nie.
             self.fishbot.whitelist_enabled = bool(fish_cfg['whitelist_enabled'])
             self.fishbot.whitelist_states = self._collect_whitelist_states()
+            # Koeder-Nachlegen: den an/aus-Schalter spiegeln (set_to_begin liest
+            # zusaetzlich -BAITREFILL- aus values) und die Live-Infrastruktur
+            # injizieren -- Inventar-DB (gebuendelt), Kalibrierung (Default), die
+            # Inventar-Hotkey und den Popup-Hook. Default AUS/leer -> der Bot
+            # prueft den Koeder-Slot nie (byte-stabil). Wirft nie.
+            self.fishbot.bait_refill_enabled = bool(
+                fish_cfg['bait_refill_enabled'])
+            self.fishbot.bait_refill_db = self._bait_refill_db()
+            self.fishbot.bait_refill_calib = None   # Engine-Default (DEFAULT_CALIBRATION)
+            self.fishbot.inventory_hotkey = (
+                self.controller.current_config()
+                .get('inventory', {}).get('hotkey', 'i'))
+            self.fishbot.on_bait_empty = self._on_bait_empty
             self.fishbot.set_to_begin(values)   # erzeugt wincap, liest frozen keys
             self.fishbot.botting = True
             self.puzzlebot.botting = False

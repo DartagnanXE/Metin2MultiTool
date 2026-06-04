@@ -230,17 +230,17 @@ class TestRunInventoryScan(unittest.TestCase):
         self.assertIsInstance(inv, InventoryMap)
         # Hotkey pressed exactly once (down+up of 'i').
         self.assertEqual(pdi.keys, [('i', 'down'), ('i', 'up')])
-        # All four tabs clicked, in order.
-        self.assertEqual(len(pdi.clicks), 4)
-        # Per page: 1 post-tab-click park move (off the tab/grid before the page
-        # capture) + 45 slot-centre hover moves + 1 post-sweep off-grid park move
-        # = 47 moves, x 4 pages. Both parks keep the cursor off any slot/tab for
-        # the captured frame.
-        self.assertEqual(len(pdi.moves), 47 * len(PAGES))
-        # And NO clicks happened during the sweep/parks (only the 4 tab clicks
-        # total) -- every move is strictly MOVE-only (can never grab an item).
-        self.assertEqual(len(pdi.clicks), 4)
-        # Full map assembled.
+        # TWO-PHASE fast path: PHASE 1 clicks all four tabs I->IV (buffering one
+        # raw frame each), then returns to tab I at the end -> 4 + 1 = 5 clicks.
+        # The first four are I,II,III,IV in order; the fifth is back to I.
+        self.assertEqual(len(pdi.clicks), 5)
+        # Each switch_page parks the cursor once after its click (off the
+        # tab/grid before the frame), and the fast path does NO 45-slot hover
+        # sweep -> exactly ONE move per click = 5 moves total (vs the old
+        # 47/page hover path). This is the whole point: the input device is held
+        # only for the tab switches, recognition runs off it.
+        self.assertEqual(len(pdi.moves), 5)
+        # Full map assembled (all four pages recognised from the buffer).
         self.assertEqual(set(inv.pages), set(PAGES))
         # Console readout emitted: the simple found-items list + the tracked
         # summary (the verbose per-page grids were dropped for the plain list).

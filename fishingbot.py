@@ -25,6 +25,16 @@ except Exception:                       # pragma: no cover - defensiver Import
     _fc = None
     _wl = None
 
+# Koeder-Nachlegen-Engine (opt-in, Default AUS). Soft importiert -- ein fehlender
+# Import (z. B. fehlendes numpy headless) darf das Angeln NIE brechen: dann bleibt
+# das Nachlegen einfach wirkungslos. Die gesamte Logik (Quickslot-Leer-Erkennung,
+# Inventar-Scan + Drag) liegt fertig in interface/refill.py -- HIER nur der
+# gedrosselte Trigger im Angel-Lauf.
+try:
+    from interface import refill as _refill
+except Exception:                       # pragma: no cover - defensiver Import
+    _refill = None
+
 
 class FishingBot(FishingDetectMixin):
 
@@ -136,8 +146,32 @@ class FishingBot(FishingDetectMixin):
     whitelist_states = None
 
     # Zuletzt fuer die Whitelist gelesener Biss -- verhindert mehrfaches
-    # Auswerten/Loggen desselben Bisses pro Minispiel-Runde (Reset bei Zyklusende).
+    # Auswerten/Loggen desselben Bisses pro Wurf (Reset bei jedem neuen Auswerfen).
     _whitelist_decided = False
+    # Letzte geloggte Chat-Erkennung (kind, name, conf) -- Dedup fuers Diagnose-Log.
+    _whitelist_last_sig = None
+
+    # Koeder-Nachlegen (opt-in). Default AUS -> der Bot prueft den Koeder-Slot
+    # NIE -> byte-stabil. Erkennt der Bot den Koeder-Quickslot (= der bait_key-
+    # Slot) leer, legt er EINEN Koeder aus dem Inventar nach; ist keiner mehr da,
+    # stoppt er. Die Live-Infrastruktur (Inventar-DB + Kalibrierung) injiziert der
+    # RunLoop separat auf die Instanz (analog whitelist_states):
+    #   * bait_refill_db:    inventory.itemdb.ItemDB (None -> Engine baut/nutzt
+    #     den Bundle-Default selbst defensiv);
+    #   * bait_refill_calib: Kalibrierungs-Dict (None -> DEFAULT_CALIBRATION);
+    #   * inventory_hotkey:  Spiel-Taste, die das Inventar oeffnet (Default 'i').
+    # Der optionale on_bait_empty-Hook (vom RunLoop gesetzt) zeigt ein Popup
+    # "Koeder leer", wenn gestoppt wird -- entkoppelt (None -> nur Log).
+    bait_refill_enabled = False
+    bait_refill_db = None
+    bait_refill_calib = None
+    inventory_hotkey = 'i'
+    on_bait_empty = None
+    # Drossel: nicht jeden Frame pruefen -- nur, wenn seit der letzten Pruefung
+    # mind. _BAIT_REFILL_INTERVAL s vergangen sind (und ohnehin nur kurz vorm
+    # Baiten in State 0). 0.0 = "noch nie geprueft" -> erste Pruefung sofort.
+    _last_bait_check = 0.0
+    _BAIT_REFILL_INTERVAL = 5.0
 
     # This is the filter parameters, this help to find the right image
     hsv_filter = HsvFilter(*FILTER_CONFIG)
@@ -245,6 +279,15 @@ class FishingBot(FishingDetectMixin):
                 return False
 
             kind = getattr(result, 'kind', _fc.NONE)
+            # DIAGNOSE (temporaer): jede NEUE Chat-Erkennung loggen -> zeigt im
+            # Live-Test, ob read_hook den Chat-Streifen ueberhaupt trifft
+            # (Region/OCR korrekt). Dedup ueber die Signatur, kein Spam.
+            sig = (kind, str(getattr(result, 'name', '')),
+                   bool(getattr(result, 'confident', False)))
+            if sig != self._whitelist_last_sig:
+                self._whitelist_last_sig = sig
+                _flog(self.state, 'WL-DBG kind=%s name=%r conf=%s'
+                      % (kind, sig[1], sig[2]))
             if kind == _fc.NONE:
                 # Noch nichts Sicheres am Haken -> naechsten Frame abwarten.
                 return False
@@ -269,6 +312,105 @@ class FishingBot(FishingDetectMixin):
             return False
         except Exception:
             return False
+
+    # -- Koeder-Nachlegen --------------------------------------------------
+
+    def _bait_refill_active(self):
+        """True nur, wenn das Nachlegen scharf ist UND die Engine importiert
+        werden konnte UND ein Fenster-Capture existiert. Wirft nie."""
+        return (bool(self.bait_refill_enabled) and _refill is not None
+                and self.wincap is not None)
+
+    def _bait_slot(self):
+        """Quick-slot (1..8) des Koeders aus ``bait_key`` oder ``None``.
+
+        Der Koeder liegt laut Spec in einem Quickslot; ``bait_key`` ist die Taste,
+        die ihn wirft -- also genau der zu pruefende Slot. Eine Taste, die kein
+        Quickslot ist (sollte die Validierung verhindern), liefert ``None`` ->
+        kein Nachlegen. Wirft nie."""
+        try:
+            return _refill.quickslot_index(self.bait_key)
+        except Exception:
+            return None
+
+    def _open_inventory(self):
+        """Druckt die Inventar-Hotkey (oeffnet/schliesst das Inventar). Wirft nie."""
+        try:
+            key = str(self.inventory_hotkey or 'i')
+            pydirectinput.keyDown(key)
+            pydirectinput.keyUp(key)
+            sleep(0.25)
+        except Exception:
+            pass
+
+    def _maybe_refill_bait(self, screenshot):
+        """Gedrosselt: ist der Koeder-Quickslot leer, EINEN Koeder nachlegen.
+
+        Streng defensiv + opt-in (Default AUS -> sofort raus -> byte-stabil).
+        Prueft hoechstens alle ``_BAIT_REFILL_INTERVAL`` s (Aufruf nur kurz vorm
+        Baiten in State 0) auf dem ohnehin geholten ``screenshot`` -- kein Extra-
+        Capture, keine Last. Bei leerem Slot:
+          * Inventar oeffnen, ``refill.refill_from_inventory`` einen Koeder ziehen,
+            Inventar wieder schliessen;
+          * Ergebnis ``'dragged'`` -> Log "nachgelegt";
+          * ``'empty'`` (kein Koeder mehr im Inventar) -> Bot stoppen
+            (``botting=False``) + klares Log und optionalen Popup-Hook
+            (``on_bait_empty``);
+          * ``'error'`` -> Log + diesmal ohne Nachlegen weiter (kein Stop).
+        Wirft nie -- ein Vision-/Input-Fehler darf den Angel-Loop nie kippen.
+        """
+        if not self._bait_refill_active():
+            return
+        now = time()
+        too_soon = (self._last_bait_check > 0
+                    and now - self._last_bait_check < self._BAIT_REFILL_INTERVAL)
+        if too_soon:
+            return
+        self._last_bait_check = now
+        try:
+            slot = self._bait_slot()
+            if slot is None:
+                return
+            if not _refill.quickslot_is_empty(screenshot, slot):
+                return   # Koeder noch da -> nichts tun (haeufigster Fall)
+
+            _flog(self.state, t('fishing.bait_refill_empty_slot'))
+            ox = int(getattr(self.wincap, 'offset_x', 0) or 0)
+            oy = int(getattr(self.wincap, 'offset_y', 0) or 0)
+            target = _refill.quickslot_screen(slot, ox, oy)
+            calib = self.bait_refill_calib or _refill.DEFAULT_CALIBRATION
+
+            self._open_inventory()
+            try:
+                result = _refill.refill_from_inventory(
+                    _refill.BAIT_NAMES, target, inp=pydirectinput,
+                    wincap=self.wincap, db=self.bait_refill_db, calib=calib)
+            finally:
+                self._open_inventory()   # Inventar wieder schliessen (Toggle)
+
+            if result == 'dragged':
+                _flog(self.state, t('fishing.bait_refill_done'))
+            elif result == 'empty':
+                _flog(self.state, t('fishing.bait_refill_none_left'))
+                self.botting = False
+                self._notify_bait_empty()
+            else:   # 'error' -> diesmal ohne Nachlegen weiter (kein Stop)
+                _flog(self.state, t('fishing.bait_refill_failed'))
+        except Exception:
+            # Niemals den Angel-Loop kippen.
+            pass
+
+    def _notify_bait_empty(self):
+        """Ruft den optionalen Popup-Hook (vom RunLoop gesetzt) genau dann, wenn
+        wegen leeren Koeders gestoppt wird. None -> nur Log (Entkopplung). Wirft
+        nie."""
+        callback = self.on_bait_empty
+        if callback is None:
+            return
+        try:
+            callback()
+        except Exception:
+            pass
 
     def _do_mount_cancel(self, steps):
         """Fuehrt die PURE Mount-Sequenz (mount.mount_cancel_steps) als
@@ -326,6 +468,15 @@ class FishingBot(FishingDetectMixin):
                                                   self.whitelist_enabled))
         self._whitelist_decided = False
 
+        # Koeder-Nachlegen defensiv aus den frozen keys lesen (Default AUS ->
+        # byte-stabil). Die konkrete Live-Infrastruktur (bait_refill_db/_calib,
+        # inventory_hotkey, on_bait_empty) injiziert der RunLoop separat auf die
+        # Instanz -- ein fehlender Schluessel laesst das Nachlegen einfach aus.
+        self.bait_refill_enabled = bool(values.get('-BAITREFILL-',
+                                                    self.bait_refill_enabled))
+        # Drossel pro Lauf zuruecksetzen -> direkt beim ersten Baiten geprueft.
+        self._last_bait_check = 0.0
+
         # FRUEH loggen -- noch VOR dem Fenster-Capture, damit der Start auch dann
         # in der Console steht, wenn das Spielfenster (noch) nicht gefunden wird
         # (sonst wuerde diese Zeile bei einem Capture-Fehler nie erreicht).
@@ -376,6 +527,17 @@ class FishingBot(FishingDetectMixin):
                 (10, 160), cv.FONT_HERSHEY_SIMPLEX,  0.5, (0, 255, 0), 2)
         self.loop_time = time()
 
+        # ANGEL-WHITELIST -- ENTKOPPELT vom Minispiel: ab dem Auswerfen wird JEDEN
+        # Frame der kleine Chat-Streifen ausgewertet. Wiederverwendung des oben
+        # ohnehin geholten ``screenshot`` (KEIN Extra-Capture) + winzige OCR auf
+        # ~290x17px -> guenstig, also volle Loop-Frequenz statt Throttle = maximaler
+        # Speed ohne Delay. So wird "am Haken"/Niete erkannt, SOBALD es im Chat
+        # steht (oft vor dem Minispiel), und unerwuenscht sofort abgebrochen ->
+        # diese Runde hier beenden. Erst ab State 2 (nach dem Auswurf); _apply_
+        # whitelist prueft "aktiv" + "schon entschieden" selbst (aus = byte-stabil).
+        if self.state >= 2 and self._apply_whitelist(screenshot):
+            return crop_img
+
         daily = self.detect_daily_reward(screenshot)
 
         if daily:
@@ -405,11 +567,20 @@ class FishingBot(FishingDetectMixin):
 
         if self.state == 0:
 
+            # KOEDER-NACHLEGEN (opt-in, Default AUS -> no-op): vor dem Baiten den
+            # Koeder-Quickslot pruefen und ggf. EINEN Koeder aus dem Inventar
+            # nachlegen (gedrosselt; reuse des ohnehin geholten screenshot). Ist
+            # kein Koeder mehr da, stoppt _maybe_refill_bait den Bot selbst.
+            self._maybe_refill_bait(screenshot)
+
             if time() - self.timer_action > self.bait_time:
                 pydirectinput.keyDown(self.bait_key)
                 pydirectinput.keyUp(self.bait_key)
                 self.state = 1
                 self.timer_action = time()
+                # Neuer Wurf -> Whitelist darf diesen Fang frisch bewerten.
+                self._whitelist_decided = False
+                self._whitelist_last_sig = None
                 _flog(1, t('fishing.bait_set'))
 
         # State to throw the bait
@@ -441,13 +612,8 @@ class FishingBot(FishingDetectMixin):
             if detected_end:
                 self._bite_seen_this_cycle = True
 
-            # ANGEL-WHITELIST: sobald ein Biss laeuft (Minispiel sichtbar), NUR
-            # den kleinen Chat-Streifen lesen und bei unerwuenschtem Fang/Niete
-            # SOFORT abbrechen + neu auswerfen. Strikt opt-in + defensiv: ist die
-            # Whitelist aus, passiert hier nichts (byte-stabil). Bricht sie ab,
-            # ist die Runde vorbei -> dieses runHack hier beenden.
-            if detected_end and self._apply_whitelist(screenshot):
-                return crop_img
+            # (Whitelist-Auswertung laeuft jetzt ENTKOPPELT am Anfang von runHack,
+            # jeden Frame ab State 2 -- nicht mehr hier ans Minispiel gekoppelt.)
 
             if time() - self.timer_action > 15:
                 self.timer_action = time()

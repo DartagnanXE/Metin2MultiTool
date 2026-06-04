@@ -242,6 +242,11 @@ def validate(cfg):
         fishing['whitelist_enabled'] = bool(
             fishing.get('whitelist_enabled',
                         DEFAULTS['fishing']['whitelist_enabled']))
+        # Koeder-Nachlegen: reines bool (fehlend/kaputt -> False). Strikt additiv,
+        # default aus -> byte-stabiler Pfad (Bot prueft den Koeder-Slot nie).
+        fishing['bait_refill_enabled'] = bool(
+            fishing.get('bait_refill_enabled',
+                        DEFAULTS['fishing']['bait_refill_enabled']))
 
         # Bot-Stop-Hotkey (frei waehlbare Taste, Default F6).
         controls = merged.setdefault('controls', {})

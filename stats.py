@@ -24,7 +24,17 @@ import os
 import threading
 import time
 
-DEFAULT_STATS_PATH = 'stats.json'
+# stats.json liegt im GLEICHEN stabilen Ordner wie die config.json -- frozen also
+# %APPDATA%/Metin2FishBot/stats.json (versions-/rebuild-stabil), sonst 'stats.json'
+# im CWD. Soft importiert: fehlt das config-Paket (exotische Test-Kontexte), bleibt
+# es das bisherige CWD-'stats.json' -> nie ein Import-Crash.
+try:
+    from interface.config.paths import (sibling_path as _sibling,
+                                        legacy_sibling_paths as _legacy_sib)
+    DEFAULT_STATS_PATH = _sibling('stats.json')
+except Exception:                       # pragma: no cover - defensiver Import
+    _legacy_sib = None
+    DEFAULT_STATS_PATH = 'stats.json'
 
 # Schema version (bump if the shape ever changes -> validate can migrate).
 STATS_VERSION = 1
@@ -118,14 +128,33 @@ def add_puzzler_runtime(stats, seconds):
     return base
 
 
-def load(path=DEFAULT_STATS_PATH):
-    """Load + validate stats. Never raises -> validated defaults on any error."""
+def _read_stats(path):
+    """Read + parse stats JSON or ``None`` (missing/corrupt/error). Never raises."""
     try:
         with open(path, 'r', encoding='utf-8') as handle:
-            raw = json.loads(handle.read())
-    except (OSError, ValueError):
-        return validate(DEFAULTS)
+            return json.loads(handle.read())
     except Exception:
+        return None
+
+
+def load(path=None):
+    """Load + validate stats. Never raises -> validated defaults on any error.
+
+    MIGRATION (implicit default load only): if the %APPDATA% stats.json is absent,
+    the former locations (next to the EXE = FIX v1, CWD = pre-v1) are read ONCE so
+    the catch/puzzle counters survive a version bump / rebuild. An EXPLICIT path
+    never migrates (a missing explicit path -> clean defaults)."""
+    explicit = path is not None
+    if path is None:
+        path = DEFAULT_STATS_PATH
+    raw = _read_stats(path)
+    if raw is None and not explicit and _legacy_sib is not None:
+        for legacy in _legacy_sib('stats.json'):
+            if legacy != path:
+                raw = _read_stats(legacy)
+                if raw is not None:
+                    break
+    if raw is None:
         return validate(DEFAULTS)
     return validate(raw)
 

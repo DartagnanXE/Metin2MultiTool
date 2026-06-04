@@ -24,25 +24,25 @@ class TestConfigPath(unittest.TestCase):
         # Dev/Test: byte-stabil das bisherige Verhalten.
         self.assertEqual(paths.config_path(frozen=False), 'config.json')
 
-    def test_frozen_writable_is_next_to_exe(self):
-        with tempfile.TemporaryDirectory() as d:
-            exe = os.path.join(d, 'Metin2FishBot.exe')
-            self.assertEqual(
-                paths.config_path(frozen=True, executable=exe),
-                os.path.join(d, 'config.json'))
-
-    def test_frozen_unwritable_exe_falls_back_to_appdata(self):
+    def test_frozen_is_appdata(self):
+        # FIX v2: frozen -> IMMER %APPDATA%/Metin2FishBot/config.json (versions-,
+        # ordner- und rebuild-STABIL), NICHT mehr neben der EXE.
         with tempfile.TemporaryDirectory() as appd:
-            # EXE in einem nicht existierenden Ordner -> dort nicht schreibbar.
-            exe = os.path.join(os.sep, 'nonexistent_ro_dir_xyz123', 'app.exe')
-            p = paths.config_path(frozen=True, executable=exe, appdata=appd)
+            p = paths.config_path(frozen=True, appdata=appd)
             self.assertEqual(p, os.path.join(appd, paths.APP_DIR, 'config.json'))
             self.assertTrue(os.path.isdir(os.path.join(appd, paths.APP_DIR)))
 
+    def test_frozen_ignores_executable_always_appdata(self):
+        # Der Pfad haengt NICHT mehr am EXE-Ordner (das war der Re-Onboarding-Bug):
+        # egal welche executable -> immer derselbe %APPDATA%-Pfad.
+        with tempfile.TemporaryDirectory() as appd:
+            for exe in (None, '/irgend/ein/ordner/app.exe', '', 123):
+                self.assertEqual(
+                    paths.config_path(frozen=True, executable=exe, appdata=appd),
+                    os.path.join(appd, paths.APP_DIR, 'config.json'))
+
     def test_never_raises_on_garbage(self):
-        for kw in ({'frozen': True, 'executable': None},
-                   {'frozen': True, 'executable': ''},
-                   {'frozen': 'yes', 'executable': 123}):
+        for kw in ({'frozen': True}, {'frozen': 'yes', 'executable': 123}):
             self.assertIsInstance(paths.config_path(**kw), str)
 
     def test_dir_writable_true_for_tmp(self):
@@ -53,6 +53,22 @@ class TestConfigPath(unittest.TestCase):
         self.assertFalse(paths._dir_writable('/no/such/dir/xyz123'))
         self.assertFalse(paths._dir_writable(''))
         self.assertFalse(paths._dir_writable(None))
+
+
+class TestLegacyConfigPaths(unittest.TestCase):
+    def test_returns_exe_dir_then_cwd(self):
+        # Erstes = config.json IM EXE-Ordner, letztes = CWD-Datei. Struktur statt
+        # exaktem String pruefen (os.path.abspath haengt auf Windows ein Laufwerk
+        # an -> der Code ist korrekt, ein harter String waere plattformabhaengig).
+        lst = paths.legacy_config_paths(
+            executable=os.path.join('any', 'exe', 'dir', 'app.exe'))
+        self.assertEqual(os.path.basename(lst[0]), 'config.json')
+        self.assertEqual(os.path.basename(os.path.dirname(lst[0])), 'dir')
+        self.assertEqual(lst[-1], 'config.json')
+
+    def test_never_raises(self):
+        self.assertIsInstance(paths.legacy_config_paths(executable=None), list)
+        self.assertIn('config.json', paths.legacy_config_paths(executable=123))
 
 
 class TestLegacyMigration(unittest.TestCase):

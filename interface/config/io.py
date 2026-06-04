@@ -4,8 +4,9 @@ Bewusst NUR Python-Standardbibliothek (``json``), damit dieses Modul auch ohne
 GUI-Toolkit ueberall importier- und testbar bleibt und aus der gepackten ``.exe``
 heraus funktioniert.
 
-Die ``config.json`` liegt neben der EXE. Sie haelt ALLE UI-Optionen
-(Modus, Fishing-Timings, Puzzle-Detection/Color/Solver, Log-Sichtbarkeit).
+Die ``config.json`` liegt im gepackten Lauf in ``%APPDATA%/Metin2FishBot/``
+(versions-/rebuild-stabil, s. paths.py) bzw. ``'config.json'`` im CWD (Dev). Sie
+haelt ALLE UI-Optionen (Modus, Fishing-Timings, Puzzle, Log) + die Identitaet.
 
 Grundregeln:
   * Laden wirft NIE -- fehlende/kaputte Datei -> Defaults.
@@ -16,7 +17,7 @@ Grundregeln:
 import json
 
 from .defaults import DEFAULT_CONFIG_PATH, DEFAULTS
-from .paths import FILENAME as _LEGACY_FILENAME
+from .paths import legacy_config_paths
 from .validate import validate
 
 
@@ -37,13 +38,11 @@ def load(path=None):
     Fehlende/fehlerhafte Datei -> validierte Defaults (es wird nichts geschrieben;
     das uebernimmt erst :func:`save`).
 
-    MIGRATION (nur impliziter Default-Load im frozen-Lauf): Seit der Pfad an die
-    EXE gebunden ist (s. paths.py), kann eine alte ``config.json`` aus dem
-    frueheren CWD-Pfad herumliegen. Fehlt die Datei am (neuen) Default-Pfad UND
-    unterscheidet der sich vom nackten ``'config.json'`` (also: frozen), wird der
-    CWD-Pfad EINMAL als Fallback gelesen -> ein Upgrader verliert seine
-    Einstellungen nicht. Geschrieben wird beim naechsten :func:`save` an den
-    neuen Pfad.
+    MIGRATION (nur impliziter Default-Load): Fehlt am (neuen) %APPDATA%-Pfad noch
+    eine Config, werden EINMAL die frueheren Speicherorte gelesen (neben der EXE =
+    FIX v1, CWD = vor-v1; s. :func:`legacy_config_paths`) -> Identitaet (install_id,
+    Name, consented) + Einstellungen ueberleben Version/Rebuild/Verschieben.
+    Geschrieben wird beim naechsten :func:`save` an den neuen %APPDATA%-Pfad.
 
     Wichtig: bei EXPLIZIT uebergebenem ``path`` (Tests, Spezialaufrufe) gibt es
     KEINE CWD-Migration -- ein fehlender expliziter Pfad liefert sauber Defaults
@@ -54,8 +53,16 @@ def load(path=None):
     if path is None:
         path = DEFAULT_CONFIG_PATH
     raw = _read_json(path)
-    if raw is None and not explicit and path != _LEGACY_FILENAME:
-        raw = _read_json(_LEGACY_FILENAME)
+    if raw is None and not explicit:
+        # %APPDATA%-Config fehlt -> EINMALIG aus einem alten Speicherort
+        # uebernehmen (neben der EXE = FIX v1, CWD = vor-v1). So behaelt ein
+        # Upgrader/Rebuild seine Identitaet (install_id, Name, consented) +
+        # Einstellungen. Geschrieben wird beim naechsten save an den neuen Pfad.
+        for legacy in legacy_config_paths():
+            if legacy != path:
+                raw = _read_json(legacy)
+                if raw is not None:
+                    break
     if raw is None:
         return validate(DEFAULTS)
     return validate(raw)
@@ -100,6 +107,10 @@ def to_values(cfg):
         # Fisch-Entscheidungen (whitelist_states) injiziert der RunLoop separat
         # auf die Bot-Instanz -- hier nur der Master-Schalter.
         '-WHITELIST-': bool(fishing['whitelist_enabled']),
+        # Koeder-Nachlegen an/aus (Default AUS -> byte-stabil). Die noetige
+        # Live-Infrastruktur (Inventar-DB/Kalibrierung) injiziert der RunLoop
+        # separat auf die Bot-Instanz -- hier nur der Master-Schalter.
+        '-BAITREFILL-': bool(fishing['bait_refill_enabled']),
     }
 
 

@@ -25,7 +25,10 @@ from .itemdb import ItemDB
 from .reference import ItemReference
 from .types import SlotResult, InventoryMap
 from .grid import GridLattice
-from .scanner import scan_inventory, recognize_page, classify_slot
+from .scanner import (
+    scan_inventory, recognize_page, classify_slot,
+    capture_pages, recognize_pages,
+)
 from .diff import diff_maps, InventoryDiff, Change
 from .report import format_full, format_page_grid, format_tracked, short_token
 from .hover import slot_centres, to_screen
@@ -39,6 +42,8 @@ __all__ = [
     'scan_inventory',
     'recognize_page',
     'classify_slot',
+    'capture_pages',
+    'recognize_pages',
     # change-aware diff
     'diff_maps',
     'InventoryDiff',

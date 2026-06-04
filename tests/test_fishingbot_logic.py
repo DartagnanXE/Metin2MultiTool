@@ -42,7 +42,7 @@ def _values(**over):
         '-ENDTIMEP-': False, '-ENDTIME-': '0',
         '-BAITTIME-': 2.0, '-THROWTIME-': 2.0, '-STARTGAME-': 2.0,
         '-GOLDENTUNA-': 3, '-MOUNT-': False, '-MOUNTKEY-': '3',
-        '-WHITELIST-': False,
+        '-WHITELIST-': False, '-BAITREFILL-': False,
     }
     base.update(over)
     return base
@@ -129,6 +129,16 @@ class TestSetToBeginParsing(unittest.TestCase):
     def test_whitelist_enabled_parsed(self):
         bot = self._begin(_values(**{'-WHITELIST-': True}))
         self.assertTrue(bot.whitelist_enabled)
+
+    def test_bait_refill_default_off(self):
+        bot = self._begin(_values())
+        self.assertFalse(bot.bait_refill_enabled)
+        # Drossel startet frisch (erste Pruefung sofort).
+        self.assertEqual(bot._last_bait_check, 0.0)
+
+    def test_bait_refill_enabled_parsed(self):
+        bot = self._begin(_values(**{'-BAITREFILL-': True}))
+        self.assertTrue(bot.bait_refill_enabled)
 
     def test_state_reset_to_zero(self):
         bot = self._begin(_values())
@@ -368,6 +378,158 @@ class TestWhitelistDecision(unittest.TestCase):
         aborted, clicks = self._run(bot, self._hook(kind=fc.FISH, name='Lachs'))
         self.assertFalse(aborted)
         self.assertEqual(clicks, [])
+
+
+class _FakeRefill:
+    """Stand-in for ``interface.refill`` with just the surface the trigger uses.
+
+    ``refill_from_inventory`` returns a scripted result (or raises if asked), and
+    records that it was called so a test can assert the inventory path ran.
+    """
+
+    BAIT_NAMES = ('Worm',)
+    DEFAULT_CALIBRATION = {'sentinel': True}
+
+    def __init__(self, empty, result='dragged', raise_on_refill=False):
+        self._empty = empty
+        self._result = result
+        self._raise = raise_on_refill
+        self.refill_calls = []
+
+    def quickslot_index(self, key):
+        # Mirror the real mapping enough for the bait key '2' -> slot 2.
+        keys = ('1', '2', '3', '4', 'f1', 'f2', 'f3', 'f4')
+        try:
+            return keys.index(str(key).strip().lower()) + 1
+        except ValueError:
+            return None
+
+    def quickslot_is_empty(self, screenshot, slot, **_kw):
+        return self._empty
+
+    def quickslot_screen(self, slot, ox=0, oy=0):
+        return (300 + ox, 580 + oy)
+
+    def refill_from_inventory(self, names, target, **kw):
+        self.refill_calls.append((names, target, kw))
+        if self._raise:
+            raise RuntimeError('boom')
+        return self._result
+
+
+class TestBaitRefillTrigger(unittest.TestCase):
+    """``_maybe_refill_bait`` -- throttled, opt-in, strictly defensive.
+
+    The whole refill engine (``interface.refill``) is swapped for a fake so we
+    drive exactly what the bait quick-slot 'looks like' and what the inventory
+    refill returns; ``pydirectinput`` is mocked so no key/click fires for real.
+    """
+
+    def _bot(self, enabled=True):
+        bot = _bare_bot()
+        bot.bait_refill_enabled = enabled
+        bot.bait_key = '2'
+        bot.inventory_hotkey = 'i'
+        bot.bait_refill_db = object()
+        bot.bait_refill_calib = None
+        bot.on_bait_empty = None
+        bot._last_bait_check = 0.0
+        bot.botting = True
+        bot.state = 0
+        bot.wincap = _StubCapture()
+        return bot
+
+    def _run(self, bot, fake):
+        with mock.patch.object(fishingbot, '_refill', fake), \
+                mock.patch.object(fishingbot, 'pydirectinput', mock.Mock()), \
+                mock.patch.object(fishingbot, 'sleep', lambda *_a, **_k: None):
+            bot._maybe_refill_bait(object())
+
+    def test_disabled_is_noop(self):
+        bot = self._bot(enabled=False)
+        fake = _FakeRefill(empty=True)
+        self._run(bot, fake)
+        self.assertEqual(fake.refill_calls, [])   # never scanned
+        self.assertTrue(bot.botting)
+
+    def test_no_module_is_noop(self):
+        bot = self._bot(enabled=True)
+        with mock.patch.object(fishingbot, '_refill', None), \
+                mock.patch.object(fishingbot, 'pydirectinput', mock.Mock()):
+            bot._maybe_refill_bait(object())   # must not raise
+        self.assertTrue(bot.botting)
+
+    def test_no_wincap_is_noop(self):
+        bot = self._bot(enabled=True)
+        bot.wincap = None
+        fake = _FakeRefill(empty=True)
+        self._run(bot, fake)
+        self.assertEqual(fake.refill_calls, [])
+
+    def test_slot_not_empty_does_nothing(self):
+        bot = self._bot()
+        fake = _FakeRefill(empty=False)
+        self._run(bot, fake)
+        self.assertEqual(fake.refill_calls, [])   # no inventory work
+        self.assertTrue(bot.botting)
+
+    def test_empty_slot_refills_and_keeps_fishing(self):
+        bot = self._bot()
+        fake = _FakeRefill(empty=True, result='dragged')
+        self._run(bot, fake)
+        self.assertEqual(len(fake.refill_calls), 1)
+        # Engine called with the BAIT names + the quick-slot screen target.
+        names, target, kw = fake.refill_calls[0]
+        self.assertEqual(names, _FakeRefill.BAIT_NAMES)
+        self.assertEqual(target, (300, 580))      # offset 0 in the stub
+        self.assertIs(kw['wincap'], bot.wincap)
+        self.assertIs(kw['db'], bot.bait_refill_db)
+        self.assertTrue(bot.botting)              # still fishing
+
+    def test_calib_falls_back_to_engine_default(self):
+        bot = self._bot()
+        bot.bait_refill_calib = None
+        fake = _FakeRefill(empty=True)
+        self._run(bot, fake)
+        _names, _target, kw = fake.refill_calls[0]
+        # None on the instance -> the engine's DEFAULT_CALIBRATION is passed.
+        self.assertEqual(kw['calib'], _FakeRefill.DEFAULT_CALIBRATION)
+
+    def test_empty_inventory_stops_bot_and_fires_hook(self):
+        bot = self._bot()
+        fired = []
+        bot.on_bait_empty = lambda: fired.append(1)
+        fake = _FakeRefill(empty=True, result='empty')
+        self._run(bot, fake)
+        self.assertFalse(bot.botting)             # stopped: no bait left
+        self.assertEqual(fired, [1])              # popup hook fired once
+
+    def test_refill_error_does_not_stop(self):
+        bot = self._bot()
+        fake = _FakeRefill(empty=True, result='error')
+        self._run(bot, fake)
+        self.assertTrue(bot.botting)              # error != empty -> keep fishing
+
+    def test_engine_exception_swallowed(self):
+        bot = self._bot()
+        fake = _FakeRefill(empty=True, raise_on_refill=True)
+        self._run(bot, fake)                      # must not propagate
+        self.assertTrue(bot.botting)              # a crash must not stop the bot
+
+    def test_throttled_within_interval(self):
+        bot = self._bot()
+        fake = _FakeRefill(empty=True, result='dragged')
+        self._run(bot, fake)                      # first check: runs
+        self.assertEqual(len(fake.refill_calls), 1)
+        self._run(bot, fake)                      # immediate second: throttled
+        self.assertEqual(len(fake.refill_calls), 1)
+
+    def test_bad_bait_key_no_refill(self):
+        bot = self._bot()
+        bot.bait_key = 'q'                        # not a quick-slot key
+        fake = _FakeRefill(empty=True)
+        self._run(bot, fake)
+        self.assertEqual(fake.refill_calls, [])
 
 
 class TestFireOnCatch(unittest.TestCase):

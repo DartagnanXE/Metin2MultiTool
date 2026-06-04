@@ -67,6 +67,34 @@ class ConfigWidgetsMixin:
         except Exception:
             pass
 
+        # Angel-Whitelist: Schalter spiegeln (defensiv -- das Widget existiert
+        # erst nach dem Bau der Fishing-View). Sonst zeigt die Checkbox nach
+        # Reset/Sprachwechsel den alten Wert (die Var wird beim _rebuild_ui neu
+        # angelegt und sonst nie auf den gespeicherten Stand gesetzt).
+        try:
+            self._whitelist_var.set(
+                bool(fishing.get('whitelist_enabled', False)))
+        except Exception:
+            pass
+
+        # Koeder-Nachlegen: Schalter spiegeln (defensiv -- das Widget existiert
+        # erst nach dem Bau der Fishing-View).
+        try:
+            self._bait_refill_var.set(
+                bool(fishing.get('bait_refill_enabled', False)))
+        except Exception:
+            pass
+
+        # Bot-Stop-Hotkey: den Knopf-Text auf den gespeicherten Hotkey spiegeln
+        # (analog bait_key/cast_key/mount_key). Sonst zeigt der Knopf nach
+        # Reset/Sprachwechsel weiter den alten Hotkey.
+        try:
+            self.stop_key_btn.configure(
+                text=str(self._cfg.get('controls', {})
+                         .get('stop_hotkey', 'f6')).upper())
+        except Exception:
+            pass
+
         # Fish-Events: zwei Fenster (Wochentag + Start/Ende) + Warn-Minuten.
         try:
             events = self._cfg.get('events', {})

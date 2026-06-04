@@ -296,6 +296,24 @@ class TestNewSettings(unittest.TestCase):
         self.assertIn('window', cfg)
         self.assertEqual(cfg['fishing']['cast_key'], '1')
 
+    def test_bait_refill_default_off(self):
+        cfg = config.validate(config.DEFAULTS)
+        self.assertIs(cfg['fishing']['bait_refill_enabled'], False)
+
+    def test_bait_refill_bool_coerced(self):
+        cfg = config.validate({'fishing': {'bait_refill_enabled': 1}})
+        self.assertIs(cfg['fishing']['bait_refill_enabled'], True)
+        cfg = config.validate({'fishing': {'bait_refill_enabled': 0}})
+        self.assertIs(cfg['fishing']['bait_refill_enabled'], False)
+
+    def test_bait_refill_garbage_falls_back_false(self):
+        # A non-bool junk value must not raise and defaults to False.
+        cfg = config.validate({'fishing': {'bait_refill_enabled': object()}})
+        self.assertIs(cfg['fishing']['bait_refill_enabled'], True)
+        # (object() is truthy -> True; an explicitly missing key stays False.)
+        cfg = config.validate({'fishing': {}})
+        self.assertIs(cfg['fishing']['bait_refill_enabled'], False)
+
 
 class TestInventorySettings(unittest.TestCase):
     """Inventory config section: hotkey + (stubbed) auto-scan toggle."""
@@ -366,7 +384,7 @@ class TestToValues(unittest.TestCase):
         self.assertEqual(set(v), {'-ENDTIMEP-', '-ENDTIME-',
                                   '-BAITTIME-', '-THROWTIME-', '-STARTGAME-',
                                   '-GOLDENTUNA-', '-MOUNT-', '-MOUNTKEY-',
-                                  '-WHITELIST-'})
+                                  '-WHITELIST-', '-BAITREFILL-'})
         self.assertIsInstance(v['-ENDTIMEP-'], bool)
         self.assertIsInstance(v['-ENDTIME-'], str)
         self.assertIsInstance(v['-BAITTIME-'], float)
@@ -376,6 +394,15 @@ class TestToValues(unittest.TestCase):
         self.assertIsInstance(v['-MOUNT-'], bool)
         self.assertIsInstance(v['-MOUNTKEY-'], str)
         self.assertIsInstance(v['-WHITELIST-'], bool)
+        self.assertIsInstance(v['-BAITREFILL-'], bool)
+
+    def test_bait_refill_default_off_in_values(self):
+        v = config.to_values(config.DEFAULTS)
+        self.assertIs(v['-BAITREFILL-'], False)
+
+    def test_bait_refill_carried_through(self):
+        v = config.to_values({'fishing': {'bait_refill_enabled': True}})
+        self.assertIs(v['-BAITREFILL-'], True)
 
     def test_golden_tuna_carried_as_int(self):
         v = config.to_values({'fishing': {'golden_tuna_action': 1}})

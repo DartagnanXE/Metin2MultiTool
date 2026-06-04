@@ -190,12 +190,29 @@ def refill_from_inventory(item_names, target_xy, *, inp, wincap, db,
         sleep = time.sleep
     try:
         from inventory.scanner import scan_inventory
+        # Vertrag (vgl. fishingbot.bait_refill_db / run_loop._bait_refill_db):
+        # db=None -> Engine baut/nutzt den gebuendelten Default selbst. Der
+        # serielle scan_inventory-Pfad ruft classify_slot -> db.best_slot_result
+        # ungeschuetzt auf; mit db=None wuerde das jeden Slot mit AttributeError
+        # abbrechen (vom aeusseren except als 'error' verschluckt -> Nachlegen
+        # stumm tot). Hier EINMAL defensiv die Bundle-DB nachladen; klappt auch
+        # das nicht (z. B. numpy/PIL fehlt), sauber 'error' melden.
+        if db is None:
+            try:
+                from interface.inventory_io import _get_db
+                db = _get_db()
+            except Exception:
+                return 'error'
         ox = int(getattr(wincap, 'offset_x', 0) or 0)
         oy = int(getattr(wincap, 'offset_y', 0) or 0)
+
+        def _switch_page(page):
+            tab_click(inp, calib, ox, oy, page)
+            sleep(0.2)
+
         inv = scan_inventory(
             capture_fn=wincap.get_screenshot,
-            switch_page_fn=lambda p: (tab_click(inp, calib, ox, oy, p),
-                                      sleep(0.2)),
+            switch_page_fn=_switch_page,
             db=db, calib=calib)
         loc = find_first(inv, item_names)
         if loc is None:

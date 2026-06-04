@@ -52,6 +52,17 @@ class SettingsEffectsMixin:
         self._cfg = self.controller.update_config(
             'fishing', 'whitelist_enabled', bool(self._whitelist_var.get()))
 
+    def _on_bait_refill_toggle(self):
+        """Persistiert den Koeder-Nachlegen-an/aus-Schalter (fishing).
+
+        Reines bool (Default AUS -> der Bot prueft den Koeder-Slot nie). Die
+        noetige Live-Infrastruktur (Inventar-DB/Kalibrierung) injiziert der RunLoop
+        beim Start separat auf die Bot-Instanz; dieser Schalter ist nur der
+        Master-an/aus."""
+        self._cfg = self.controller.update_config(
+            'fishing', 'bait_refill_enabled',
+            bool(self._bait_refill_var.get()))
+
     def _on_event_weekday_change(self, index, weekday):
         """Wochentag eines Event-Fensters geaendert -> 'events' aktualisieren."""
         self._save_event_windows()

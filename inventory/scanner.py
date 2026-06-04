@@ -11,17 +11,42 @@ and ``switch_page_fn(page) -> None``. In production these wrap
 the calibration ``tabs`` + ``wincap.offset_x/y``, exactly like
 :mod:`fishingbot` builds click coords). In tests they are trivial fakes -- so
 the whole scanner is testable on static images.
+
+TWO-PHASE FAST PATH (:func:`capture_pages` + :func:`recognize_pages`):
+:func:`scan_inventory` does capture and recognition INTERLEAVED per page (it
+auto-aligns + classifies 45 slots before switching to the next tab), so the
+game window is held for the full sequential CPU time. The fast path SPLITS that:
+
+  * PHASE 1 -- :func:`capture_pages` only clicks I->II->III->IV and buffers ONE
+    raw screenshot per tab (just switch + minimal settle + capture, NO
+    recognition between tabs), then returns to tab I. The input device is busy
+    for the few tab-settle pauses only.
+  * PHASE 2 -- :func:`recognize_pages` then auto-aligns + classifies the 4
+    buffered frames OFF the input device, running the 4x45 = 180 slot
+    classifications in PARALLEL over a thread pool. The matcher is pure
+    numpy/cv2 (releases the GIL), so threads give real parallelism with NO
+    pickling overhead. A slot-granular ``progress_fn(done, total)`` fires as
+    each slot completes (the caller marshals it onto its UI thread).
+
+Both new functions REUSE the same recognition engine (:func:`classify_slot` /
+the per-slot read in :func:`recognize_page`) -- only capture is separated from
+recognition and the recognition is parallelised. They are defensive (never
+raise) and importable headless; the parallel path degrades to a serial loop if
+:mod:`concurrent.futures` is unavailable or one worker is requested.
 """
+
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .constants import (
     DEFAULT_CALIBRATION,
     DEFAULT_TOLERANCE,
     PAGES,
+    SLOTS_PER_PAGE,
     slot_indices,
 )
 from dataclasses import replace
 
-from .grid import extract_slot, auto_align, upper_region_is_empty
+from .grid import extract_slot, auto_align, upper_region_is_empty, lattice_from_calibration
 from .types import SlotResult, InventoryMap, STATE_UNKNOWN, STATE_ITEM
 from .digits import read_count
 from i18n import t
@@ -68,27 +93,261 @@ def recognize_page(image_bgr, db, calib=DEFAULT_CALIBRATION, lattice=None,
 
     results = []
     for row, col in slot_indices():
-        slot = extract_slot(image_bgr, lattice.slot_box(row, col))
-        if slot is None:
-            # No image data for this slot -> unknown (defensive, never raise).
-            results.append(SlotResult(state=STATE_UNKNOWN, name=None,
-                                      distance=float('inf'), margin=0.0,
-                                      signature=None, page=page,
-                                      row=row, col=col))
-            continue
-        res = classify_slot(slot, db, row=row, col=col, page=page, tol=tol)
-        # Read the printed STACK NUMBER on every recognised item (font-
-        # independent OCR) so stackables (baits, boxes, dyes, bleach, keys) sum
-        # by quantity, not by slot. Never raises -> degrades to count=None.
-        if res.state == STATE_ITEM:
-            try:
-                cr = read_count(slot)
-                res = replace(res, count=cr.value,
-                              count_confident=cr.confident)
-            except Exception:
-                pass
-        results.append(res)
+        results.append(_classify_one_slot(image_bgr, db, lattice, page,
+                                           row, col, tol))
     return results
+
+
+def _classify_one_slot(image_bgr, db, lattice, page, row, col, tol):
+    """Recognise ONE slot of a captured page -> :class:`SlotResult`.
+
+    The single per-slot unit shared by the serial :func:`recognize_page` loop
+    and the PARALLEL :func:`recognize_pages` workers, so both go through the
+    EXACT same recognition path: extract the slot from ``lattice.slot_box`` ->
+    :func:`classify_slot` -> read the printed stack number on a recognised item.
+    Pure (only reads ``image_bgr`` / ``db`` -- never mutates either) so it is
+    thread-safe to call concurrently for different ``(row, col)``. Never raises:
+    an unextractable slot degrades to UNKNOWN, a failed digit read to
+    ``count=None``.
+    """
+    slot = extract_slot(image_bgr, lattice.slot_box(row, col))
+    if slot is None:
+        # No image data for this slot -> unknown (defensive, never raise).
+        return SlotResult(state=STATE_UNKNOWN, name=None,
+                          distance=float('inf'), margin=0.0,
+                          signature=None, page=page, row=row, col=col)
+    res = classify_slot(slot, db, row=row, col=col, page=page, tol=tol)
+    # Read the printed STACK NUMBER on every recognised item (font-independent
+    # OCR) so stackables (baits, boxes, dyes, bleach, keys) sum by quantity, not
+    # by slot. Never raises -> degrades to count=None.
+    if res.state == STATE_ITEM:
+        try:
+            cr = read_count(slot)
+            res = replace(res, count=cr.value, count_confident=cr.confident)
+        except Exception:
+            pass
+    return res
+
+
+# -- TWO-PHASE FAST PATH: capture (fast) then parallel recognise -------------
+
+def capture_pages(capture_fn, switch_page_fn, pages=PAGES,
+                  verify_page_fn=None, settle_fn=None, return_to_first=True):
+    """PHASE 1 -- click each tab and BUFFER one raw screenshot per page (fast).
+
+    Switches I->II->III->IV (``switch_page_fn(page)``), grabs ONE frame per tab
+    (``capture_fn()``) and buffers it -- with NO recognition / auto-align /
+    hover between tabs, so the input device is held only for the tab-switch
+    settles. Returns an ORDERED ``{page: bgr_image}`` dict of the pages that
+    yielded a usable frame (a page whose switch/capture failed is simply
+    omitted, logged -- one bad tab never aborts the rest).
+
+    ``switch_page_fn`` itself owns its post-click settle in the live runner (it
+    sleeps ``TAB_SETTLE_S`` after the click); the optional ``settle_fn(page)``
+    is an extra hook for callers that want to settle separately (tests pass it
+    to assert ordering; the live runner leaves it ``None``). ``verify_page_fn``
+    (optional) confirms the expected tab actually opened and retries the switch
+    once, exactly like :func:`_scan_one_page`, so a missed click does not buffer
+    the wrong page. With ``return_to_first`` the cursor/tab is returned to the
+    first page at the end (cosmetic: leaves the inventory as the user expects).
+
+    Defensive: never raises. ``capture_fn``/``switch_page_fn`` may be ``None``
+    (then nothing is captured / switched). Pure of recognition, so it is fully
+    testable with fake capture/switch callbacks.
+    """
+    captured = {}
+    for page in pages:
+        try:
+            if switch_page_fn is not None:
+                switch_page_fn(page)
+            if settle_fn is not None:
+                settle_fn(page)
+            image = capture_fn() if capture_fn is not None else None
+        except Exception as exc:
+            _log('inventory.scan_page_failed', page=page, detail=str(exc)[:120])
+            continue
+        if image is None:
+            _log('inventory.scan_page_no_image', page=page)
+            continue
+        # Confirm the right tab opened; retry the switch once (do not buffer the
+        # wrong page). Verification failure is non-fatal -> keep the frame.
+        if verify_page_fn is not None:
+            image = _verified_capture(page, image, capture_fn, switch_page_fn,
+                                      verify_page_fn)
+            if image is None:
+                continue
+        captured[page] = image
+    # Leave the panel on the first tab (the click loop ended on the last one).
+    if return_to_first and switch_page_fn is not None and pages:
+        try:
+            switch_page_fn(pages[0])
+        except Exception:
+            pass
+    return captured
+
+
+def _verified_capture(page, image, capture_fn, switch_page_fn, verify_page_fn):
+    """Confirm ``image`` shows ``page``; retry the switch once; else drop it.
+
+    Returns the (possibly re-captured) image of the correct page, or ``None`` if
+    after one retry the wrong tab is still open (caller skips the page). Mirrors
+    the verify/retry branch of :func:`_scan_one_page`; never raises.
+    """
+    try:
+        opened = verify_page_fn(image)
+    except Exception:
+        return image  # never let verification drop a page
+    if opened == page:
+        return image
+    _log('inventory.scan_page_wrong_tab', page=page, got=opened)
+    try:
+        if switch_page_fn is not None:
+            switch_page_fn(page)
+        retry = capture_fn() if capture_fn is not None else None
+        if retry is not None and verify_page_fn(retry) == page:
+            return retry
+    except Exception as exc:
+        _log('inventory.scan_page_failed', page=page, detail=str(exc)[:120])
+        return None
+    return None
+
+
+def recognize_pages(captured, db, calib=DEFAULT_CALIBRATION,
+                    progress_fn=None, max_workers=None,
+                    align_fn=None):
+    """PHASE 2 -- auto-align + classify the buffered pages, slots in PARALLEL.
+
+    Takes the ``{page: bgr_image}`` buffer from :func:`capture_pages`, locks
+    each page's grid (``auto_align``; overridable via ``align_fn`` for tests),
+    then classifies all of that page's slots. The 45-per-page slot
+    classifications across ALL buffered pages are run on a
+    :class:`~concurrent.futures.ThreadPoolExecutor`: each task is one
+    :func:`_classify_one_slot` call, which is pure numpy/cv2 (the heavy matcher
+    releases the GIL) so the threads run in genuine parallel with NO pickling
+    overhead. Returns an assembled :class:`InventoryMap`.
+
+    Progress: ``progress_fn(done, total)`` (best-effort, wrapped) fires after
+    each slot completes, with ``total = len(captured) * 45`` and ``done``
+    MONOTONICALLY increasing 1..total -- the caller marshals it onto its UI
+    thread for a smooth 0..100%. ``max_workers`` defaults to a small CPU-bound
+    pool; ``max_workers <= 1`` (or a missing pool) runs a serial fallback that
+    fires the same progress sequence.
+
+    Defensive: never raises. A page whose auto-align fails still classifies
+    against the calibration lattice; a slot whose worker raises degrades to an
+    UNKNOWN result rather than aborting the scan.
+    """
+    if not captured:
+        _log('inventory.scan_done', pages=0)
+        return InventoryMap(pages={})
+
+    tol = int((calib or {}).get('tolerance', DEFAULT_TOLERANCE))
+    aligner = align_fn if align_fn is not None else auto_align
+
+    # Lock each page's grid ONCE (cheap relative to the 45-slot classify), then
+    # fan the slots out. Pre-size each page's result list so workers can drop
+    # their SlotResult into a fixed row-major index with no shared mutation race
+    # (each (page, row, col) writes a distinct cell).
+    lattices = {}
+    page_results = {}
+    jobs = []  # (page, row, col, flat_index)
+    for page, image in captured.items():
+        try:
+            lattice = aligner(image, db, calib)
+        except Exception as exc:
+            _log('inventory.scan_page_failed', page=page, detail=str(exc)[:120])
+            lattice = lattice_from_calibration(calib)
+        lattices[page] = lattice
+        page_results[page] = [None] * SLOTS_PER_PAGE
+        for flat, (row, col) in enumerate(slot_indices()):
+            jobs.append((page, row, col, flat))
+
+    total = len(jobs)
+
+    def _emit_progress(done):
+        if progress_fn is None:
+            return
+        try:
+            progress_fn(done, total)
+        except Exception:
+            pass  # progress is cosmetic; never let it abort the scan
+
+    def _work(job):
+        page, row, col, flat = job
+        try:
+            res = _classify_one_slot(captured[page], db, lattices[page],
+                                     page, row, col, tol)
+        except Exception:
+            res = SlotResult(state=STATE_UNKNOWN, name=None,
+                             distance=float('inf'), margin=0.0,
+                             signature=None, page=page, row=row, col=col)
+        return page, flat, res
+
+    workers = _resolve_workers(max_workers, total)
+    done = 0
+    if workers <= 1:
+        # Serial fallback (single worker / no pool) -- same progress sequence.
+        for job in jobs:
+            page, flat, res = _work(job)
+            page_results[page][flat] = res
+            done += 1
+            _emit_progress(done)
+    else:
+        try:
+            with ThreadPoolExecutor(max_workers=workers,
+                                    thread_name_prefix='inv-recognize') as ex:
+                # as_completed (NICHT ex.map): map liefert in EINREICH-Reihenfolge,
+                # d. h. ein langsamer fruehrer Slot blockiert den Fortschritt, bis
+                # er fertig ist (Anzeige klebt, springt dann) -- as_completed feuert
+                # _emit_progress genau dann, wenn IRGENDEIN Slot fertig ist, also
+                # echt slot-granular + monoton (s. Docstring: "after each slot").
+                futs = [ex.submit(_work, job) for job in jobs]
+                for fut in as_completed(futs):
+                    page, flat, res = fut.result()
+                    page_results[page][flat] = res
+                    done += 1
+                    _emit_progress(done)
+        except Exception as exc:
+            # Pool blew up (extremely unlikely) -> finish serially so the scan
+            # still returns a full map rather than raising.
+            _log('inventory.scan_page_failed', page='recognize',
+                 detail=str(exc)[:120])
+            for job in jobs:
+                page, flat, res = _work(job)
+                if page_results[page][flat] is None:
+                    page_results[page][flat] = res
+                    done += 1
+                    _emit_progress(done)
+
+    pages_out = {page: tuple(slots) for page, slots in page_results.items()}
+    _log('inventory.scan_done', pages=len(pages_out))
+    return InventoryMap(pages=pages_out)
+
+
+def _resolve_workers(max_workers, total):
+    """Clamp the worker count to a sane CPU-bound pool size.
+
+    ``None`` -> a small pool sized to the CPU count but capped (the work is
+    short and the matcher already vectorises across references, so a huge pool
+    only adds scheduling overhead). Never exceeds the number of jobs, and is at
+    least 1. A caller can force serial with ``max_workers=1``.
+    """
+    if total <= 1:
+        return 1
+    if max_workers is not None:
+        try:
+            return max(1, min(int(max_workers), total))
+        except Exception:
+            return 1
+    try:
+        import os
+        cpu = os.cpu_count() or 1
+    except Exception:
+        cpu = 1
+    # Cap at 8: beyond that the per-slot tasks (already numpy-vectorised) gain
+    # little and thread scheduling/contention starts to cost. Floor at 2 so a
+    # single-core box still overlaps the matcher's GIL-free numpy with Python.
+    return max(2, min(cpu, 8, total))
 
 
 def _scan_one_page(page, capture_fn, switch_page_fn, hover_fn, verify_page_fn,

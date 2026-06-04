@@ -444,6 +444,35 @@ class TestGuiLaunchSmoke(unittest.TestCase):
             self.app.controller.current_config()['fishing']['whitelist_enabled'],
             False)
 
+    def test_fishing_bait_refill_toggle_wired_to_config(self):
+        # The Fishing view builds the bait-refill checkbox; it reflects the config
+        # default (OFF) on build, and toggling it through the REAL handler
+        # persists fishing.bait_refill_enabled via the controller (and clears
+        # again). Guards the UI<->config seam for the bait-refill master switch.
+        self.app._show_view('fishing')
+        self.app.update_idletasks()
+        chk = getattr(self.app, 'bait_refill_chk', None)
+        var = getattr(self.app, '_bait_refill_var', None)
+        self.assertIsNotNone(chk, 'bait-refill checkbox not built')
+        self.assertIsNotNone(var, 'bait-refill BooleanVar not built')
+        self.assertTrue(chk.winfo_exists())
+        # Default OFF -> byte-stable "never check the bait slot".
+        self.assertFalse(bool(var.get()))
+        self.assertFalse(
+            self.app.controller.current_config()['fishing']['bait_refill_enabled'])
+        # Flip ON via the real handler -> persisted as a real bool.
+        var.set(True)
+        self.app._on_bait_refill_toggle()
+        self.assertIs(
+            self.app.controller.current_config()['fishing']['bait_refill_enabled'],
+            True)
+        # Flip OFF again -> persisted False (restores the byte-stable default).
+        var.set(False)
+        self.app._on_bait_refill_toggle()
+        self.assertIs(
+            self.app.controller.current_config()['fishing']['bait_refill_enabled'],
+            False)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -112,6 +112,13 @@ DEFAULTS = {
         # = angeln, REMOVE = abbrechen), die der RunLoop auf die Bot-Instanz
         # injiziert (kein eigener Config-Block noetig).
         'whitelist_enabled': False,
+        # Koeder-Nachlegen (opt-in): erkennt der Bot waehrend des Angelns den
+        # Koeder-Quickslot (= der bait_key-Slot) leer, legt er EINEN Koeder aus
+        # dem Inventar nach (refill.refill_from_inventory). Ist kein Koeder mehr
+        # da, stoppt der Bot mit klarem Hinweis. Default AUS -> byte-stabil (der
+        # Bot prueft den Slot dann nie). Reuse der fertigen Engine interface/
+        # refill.py; der RunLoop injiziert wincap/db/calib analog zur Whitelist.
+        'bait_refill_enabled': False,
     },
     'puzzle': {
         'detection_mode': 'default',

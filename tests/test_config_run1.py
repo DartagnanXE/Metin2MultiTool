@@ -49,9 +49,12 @@ class TestToValuesMount(unittest.TestCase):
     def test_golden_tuna_untouched(self):
         v = config.to_values(config.DEFAULTS)
         self.assertEqual(v['-GOLDENTUNA-'], 3)
-        # And the frozen fishing keys still all present.
+        # And the frozen fishing keys still all present (byte-stable contract:
+        # a key accidentally dropped from to_values must fail a test). Includes
+        # the mount + whitelist + bait-refill master switches.
         for k in ('-ENDTIMEP-', '-ENDTIME-', '-BAITTIME-', '-THROWTIME-',
-                  '-STARTGAME-', '-GOLDENTUNA-'):
+                  '-STARTGAME-', '-GOLDENTUNA-', '-MOUNT-', '-MOUNTKEY-',
+                  '-WHITELIST-', '-BAITREFILL-'):
             self.assertIn(k, v)
 
 
