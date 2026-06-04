@@ -198,8 +198,10 @@ class InventoryViewMixin:
         Die LAGERFEUER-Entscheidungen sind jetzt live: stehen Fische auf
         'Lagerfeuer', startet ein Hintergrund-Thread das Braten (Lagerfeuer
         platzieren -> Feuer per "Lagerfeuer"-Label finden -> jeden markierten
-        Fisch per Drag aufs Feuer ziehen). Das REMOVE bleibt vorerst nur geloggt
-        (Move/Delete schreibt der Nutzer noch -- Roadmap).
+        Fisch per Drag aufs Feuer ziehen). Die REMOVE-Entscheidungen sind jetzt
+        ebenfalls live: stehen Items auf 'Entfernen', werden sie -- NACH dem
+        Braten -- per Drag aus dem Beutel in die Welt links neben dem Panel
+        gezogen und der "fallen lassen?"-Dialog mit "Ja" bestaetigt.
 
         IDLE-ONLY (wie der Inventar-Scan): das Braten presst Tasten, klickt Reiter
         und zieht mit der Maus -- liefe der Bot, kaempften beide um den Cursor.
@@ -227,6 +229,12 @@ class InventoryViewMixin:
         # Lagerfeuer-Braten anstossen (nur wenn Fische dafuer markiert sind).
         if campfire:
             self._start_campfire_grill(dict(st))
+        # Wegwerfen anstossen (nur wenn Items dafuer markiert sind). REIHENFOLGE:
+        # erst grillen, dann wegwerfen -- der Discard-Worker wartet, bis das
+        # Braten fertig ist (beide nutzen denselben Cursor), sonst startet er
+        # sofort. Beide idle-gated + defensiv.
+        if remove:
+            self._start_item_discard(dict(st))
 
     def _start_campfire_grill(self, states):
         """Startet das Lagerfeuer-Braten auf einem Daemon-Thread (UI nie blocken).
@@ -304,6 +312,95 @@ class InventoryViewMixin:
             pass
         try:
             self._set_inv_status(t('campfire.status_error'), AMBER)
+        except Exception:
+            pass
+
+    # -- Wegwerfen / fallen lassen (Discard) -----------------------------
+
+    def _start_item_discard(self, states):
+        """Startet das Wegwerfen auf einem Daemon-Thread (UI nie blocken).
+
+        Spiegelt exakt das _start_campfire_grill-Muster: Idle-Guard (laeuft der
+        Bot, nur ein Hinweis), Fenster-Praefix binden, Worker startet den Live-
+        Runner, Ergebnis via after(0, ...) zurueck auf den GUI-Thread. Eine
+        eigene Re-Entrancy-Sperre verhindert ueberlappende Wegwerf-Laeufe.
+
+        REIHENFOLGE: laeuft gerade das Braten (``_campfire_running``), wartet der
+        Worker, bis es fertig ist, BEVOR er den Cursor uebernimmt -- so greifen
+        Grill und Wegwerfen nie gleichzeitig zur Maus. Wirft nie."""
+        if getattr(self, '_discard_running', False):
+            return
+        if self.controller.running:
+            try:
+                log.event('-', t('discard.blocked_running'))
+            except Exception:
+                pass
+            try:
+                self._set_inv_status(t('ui.inventory_blocked_running'), AMBER)
+            except Exception:
+                pass
+            return
+        present, _hwnd, gw, gh, healthy = _probe_game()
+        if not present:
+            try:
+                log.event('-', t('discard.no_window', detail=''))
+            except Exception:
+                pass
+            return
+        self._discard_running = True
+        try:
+            self._apply_preferred_hwnd()
+        except Exception:
+            pass
+        cfg = self.controller.current_config()
+
+        def _worker():
+            try:
+                # Erst grillen, dann wegwerfen: warte, bis ein evtl. laufendes
+                # Braten den Cursor freigibt (beide nutzen dieselbe Maus).
+                while getattr(self, '_campfire_running', False):
+                    time.sleep(0.1)
+                from interface import inventory_discard_runner as dr
+                res = dr.run_discard_items(cfg, states)
+                self.after(0, lambda r=res: self._item_discard_done(r))
+            except Exception as exc:
+                self.after(0, lambda e=exc: self._item_discard_failed(e))
+
+        threading.Thread(target=_worker, name='item-discard',
+                         daemon=True).start()
+
+    def _item_discard_done(self, res):
+        """Wegwerfen fertig (GUI-Thread): Praeferenz freigeben, Status setzen."""
+        self._discard_running = False
+        try:
+            self._clear_preferred_hwnd()
+        except Exception:
+            pass
+        try:
+            dropped = len(getattr(res, 'dropped', []) or [])
+            status = getattr(res, 'status', 'error')
+            if status == 'done':
+                self._set_inv_status(
+                    t('discard.status_done', count=dropped), TEAL)
+            else:
+                self._set_inv_status(
+                    t('discard.status_' + status), AMBER)
+        except Exception:
+            pass
+
+    def _item_discard_failed(self, exc):
+        """Wegwerfen fehlgeschlagen (GUI-Thread): Praeferenz freigeben, loggen."""
+        self._discard_running = False
+        try:
+            self._clear_preferred_hwnd()
+        except Exception:
+            pass
+        try:
+            log.error(t('discard.error', detail=str(exc)[:120]), exc=exc)
+        except Exception:
+            pass
+        try:
+            self._set_inv_status(t('discard.status_error'), AMBER)
         except Exception:
             pass
 

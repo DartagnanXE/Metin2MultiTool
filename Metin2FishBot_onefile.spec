@@ -90,6 +90,9 @@ a = Analysis(
         'overlay_mark', 'overlay_geometry', 'interface.tray',
         # Lagerfeuer-Braten: lazy im Apply-Worker importiert; Vorlage gebundelt.
         'inventory_campfire', 'interface.inventory_campfire_runner',
+        # Wegwerfen/fallen lassen: ebenso lazy im selben Apply-Worker importiert
+        # -> ohne Pin fehlt es in der EXE (ModuleNotFoundError zur Laufzeit).
+        'inventory_discard', 'interface.inventory_discard_runner',
         # Run 1: Ranking/Events/Mount -- z.T. lazy in app.py/hack.py importiert.
         'stats', 'event_window', 'mount',
         # Responsiveness-Kern: Stop-Signal + Hotkey-Daemon + Op-Zeitbudget. Statisch
