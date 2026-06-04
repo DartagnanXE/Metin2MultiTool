@@ -39,9 +39,12 @@ from i18n import t
 # Logging weich einbinden -- ein fehlender/kaputter Logger darf die Erkennung
 # nie stoppen (gleiche Disziplin wie windowcapture.py/debuglog.py).
 try:
-    from debuglog import log
+    from debuglog import log, log_event as _log_event_raw
 except Exception:  # pragma: no cover - reiner Fallback
     log = None
+    def _log_event_raw(state, message, **fields):
+        """No-op-Fallback, falls debuglog fehlt. Wirft nie."""
+        pass
 
 # cv2/numpy weich einbinden: nur der auto-Pfad braucht sie.
 try:
@@ -67,7 +70,6 @@ DEFAULT_OFFSET = (270, 227)
 MODE_DEFAULT = 'default'
 MODE_AUTO = 'auto'
 MODE_MARK = 'mark'
-VALID_MODES = (MODE_DEFAULT, MODE_AUTO, MODE_MARK)
 
 # Template-Matching-Schwelle -- gleiche Konvention wie die Truhen-Suche in
 # puzzle.try_to_put_chest (TM_CCOEFF_NORMED, Schwelle 0.7).
@@ -87,13 +89,9 @@ CONTENT_HEIGHT = 562
 # -- interne Helfer --------------------------------------------------------
 
 def _log_event(message, **fields):
-    """Strukturierte Log-Zeile (State 0), schluckt Logger-Fehler still."""
-    if log is None:
-        return
-    try:
-        log.event(0, message, **fields)
-    except Exception:
-        pass
+    """Strukturierte Log-Zeile (State 0). Delegiert die absturzsichere Emission
+    an :func:`debuglog.log_event` (eine Quelle der Wahrheit)."""
+    _log_event_raw(0, message, **fields)
 
 
 def _as_int_pair(value):

@@ -20,10 +20,15 @@ Pipeline (an echten Daten verifiziert)::
         "koeder" -> KEIN_BISS (nur Koeder befestigt -> warten)
     NAME-Bitmap gegen Vorlagen matchen -> sicherer Treffer ODER UNKNOWN.
 
-KALIBRIERUNG (verifiziert, NICHT neu herleiten): die Screenshots/Capture sind
-802x632 (Spielfenster inkl. Windows-Titelleiste); Screenshot-Pixel == Spiel-
-Koordinaten 1:1. Die unterste Chat-Zeile liegt in x[115,405], y[579,596];
-DARUEBER beginnt ab ~y597 die Hotbar (nicht reinrutschen).
+KALIBRIERUNG (verifiziert): es gibt ZWEI Frame-Groessen. Die gelabelten
+Referenz-Shots (FischOCR/*.png) sind 802x632 = VOLLBILD MIT ~31px Windows-
+Titelleiste + 1px-Rand; dort liegt die unterste Chat-Zeile in x[115,405],
+y[579,596] (darueber ab ~y597 die Hotbar -- nicht reinrutschen). Der LIVE-Capture
+von :class:`windowcapture.WindowCapture` ist dagegen der reine CLIENT-Bereich
+(800x601, OHNE Titelleiste) -- also ~31px kuerzer; die Chat-Zeile liegt dort bei
+y[548,565]. Damit DIESELBE Region beide trifft, wird die y-Region an den UNTEREN
+Frame-Rand verankert (``y = frame_height - Konstante``, siehe
+:func:`chat_region_for_frame`): bit-stabil auf 632, automatisch passend auf 601.
 
 ROBUSTHEIT (kritisch): Lieber UNKNOWN als ein falscher Name. Der Aufrufer angelt
 UNKNOWN ganz normal -- so wird NIE versehentlich ein gewollter Fisch abgebrochen.
@@ -63,8 +68,59 @@ UNKNOWN = 'UNKNOWN'
 
 # -- Kalibrierung / Algorithmus-Konstanten (verifiziert) -----------------
 
-# Unterste Chat-Zeile: x in [115,405], y in [579,596]. Exklusiv-Ende wie Slicing.
+# Unterste Chat-Zeile -- Referenz im 802x632-VOLLBILD (Fenster INKL. ~31px
+# Windows-Titelleiste + 1px-Rand): x in [115,405], y in [579,596]. Exklusiv-Ende
+# wie Slicing. Das ist die Geometrie der gelabelten FischOCR/*.png (alle 802x632)
+# und wird vom Template-Extraktor 1:1 so verwendet -> hier UNVERAENDERT lassen.
 CHAT_REGION = (115, 579, 405, 596)
+
+# AUTO-Anker an den UNTEREN Rand des Frames (Kalibrier-Fix). Der Live-Capture von
+# WindowCapture ist der CLIENT-Bereich (800x601, OHNE Titelleiste), die
+# Referenz-Shots dagegen 802x632 (VOLLBILD MIT ~31px Titelleiste + 1px-Rand).
+# Eine fixe y-Region (aus 632 gemessen) liegt im 601er-Client ~31px ZU TIEF und
+# verfehlt die Chat-Zeile komplett (read_hook -> NONE). Loesung: die y-Grenzen
+# RELATIV zum unteren Rand verankern (y = frame_height - Konstante). So passt
+# EINE Region automatisch auf BEIDE Frames:
+#   * H=632 (Referenz) -> y[579,596]  == CHAT_REGION (Templates bleiben gueltig)
+#   * H=601 (Live-Client) -> y[548,565] (trifft die Chat-Textzeile)
+# Die Konstanten sind die Abstaende der CHAT_REGION-y-Grenzen zum unteren Rand
+# des 632er-Referenzframes (632-579=53 oben, 632-596=36 unten) -> bit-stabil auf
+# dem Referenzframe, automatisch mitskaliert auf jeden anderen Frame.
+_CHAT_REF_FRAME_H = 632
+CHAT_X0 = CHAT_REGION[0]                              # 115 (linke Spalte, fix)
+CHAT_X1 = CHAT_REGION[2]                              # 405 (rechte Spalte, fix)
+CHAT_BOTTOM_OFFSET_TOP = _CHAT_REF_FRAME_H - CHAT_REGION[1]     # 53 -> obere y-Kante
+CHAT_BOTTOM_OFFSET_BOT = _CHAT_REF_FRAME_H - CHAT_REGION[3]     # 36 -> untere y-Kante
+
+
+def chat_region_for_frame(height, width=None):
+    """Liefert die an den UNTEREN Frame-Rand verankerte Chat-Region
+    ``(x0, y0, x1, y1)`` fuer ein Bild der gegebenen ``height`` (und optional
+    ``width``). Exklusiv-Ende wie Slicing.
+
+    Verankert die y-Grenzen relativ zum unteren Rand (``y = height -
+    Konstante``), damit DIESELBE Region sowohl die 802x632-Referenz-Shots
+    (y[579,596] == :data:`CHAT_REGION`) als auch den 800x601-Live-Client
+    (y[548,565]) trifft -- der Live-Capture hat keine Titelleiste und ist daher
+    ~31px kuerzer.
+
+    Wirft NIE: bei unbrauchbarer ``height`` faellt die Funktion auf die fixe
+    :data:`CHAT_REGION` zurueck (defensiver Bestandscode-Stil). Die y-Werte
+    werden zusaetzlich in ``[0, height]`` geklemmt; ``read_hook`` clampt die
+    Region ohnehin nochmals gegen die echte Bildgroesse.
+    """
+    try:
+        h = int(height)
+    except Exception:
+        return CHAT_REGION
+    if h <= 0:
+        return CHAT_REGION
+    y0 = h - CHAT_BOTTOM_OFFSET_TOP
+    y1 = h - CHAT_BOTTOM_OFFSET_BOT
+    # In den Frame klemmen (sehr kleine Frames degenerieren sonst zu negativ).
+    y0 = max(0, min(y0, h))
+    y1 = max(0, min(y1, h))
+    return (CHAT_X0, y0, CHAT_X1, y1)
 
 # Binarisierung: Pixel-Helligkeit > 135 zaehlt als Tinte (heller Chat-Text auf
 # dunklem Grund).
@@ -508,14 +564,18 @@ def _classify_words(binary, words, templates):
 
 # -- Oeffentliche API ----------------------------------------------------
 
-def read_hook(screenshot_bgr, region=CHAT_REGION, templates=None):
-    """Liest die unterste Chat-Zeile des ``screenshot_bgr`` (volles Fenster-
-    Capture, BGR) und liefert ein :class:`HookResult`.
+def read_hook(screenshot_bgr, region=None, templates=None):
+    """Liest die unterste Chat-Zeile des ``screenshot_bgr`` (Fenster-Capture,
+    BGR) und liefert ein :class:`HookResult`.
 
     ``screenshot_bgr`` ist das, was :class:`windowcapture.WindowCapture`
-    zurueckgibt -- BGR ``(h, w, 3)`` uint8, Pixel == Spielkoordinaten. ``region``
-    ueberschreibt den Crop (Tests/Kalibrierung). ``templates`` ueberschreibt die
-    Vorlagen (Tests). Wirft NIE: bei jedem Problem -> ``HookResult(NONE)``.
+    zurueckgibt -- BGR ``(h, w, 3)`` uint8 des CLIENT-Bereichs (800x601, OHNE
+    Titelleiste). ``region=None`` (Default) verankert den Crop AUTOMATISCH an den
+    unteren Frame-Rand (:func:`chat_region_for_frame`), sodass dieselbe Logik den
+    800x601-Live-Client UND die 802x632-Referenz-Shots trifft. Ein explizit
+    uebergebenes ``region`` (Tupel) wird unveraendert benutzt (Tests/Extraktor/
+    Kalibrierung). ``templates`` ueberschreibt die Vorlagen (Tests). Wirft NIE:
+    bei jedem Problem -> ``HookResult(NONE)``.
 
     Garantie (Aufrufer-Vertrag): ``kind == FISH``/``ITEM`` heisst "etwas haengt
     am Haken"; ``name`` ist dann ENTWEDER ein sicherer offizieller Name
@@ -528,9 +588,14 @@ def read_hook(screenshot_bgr, region=CHAT_REGION, templates=None):
         arr = np.asarray(screenshot_bgr)
         if arr.ndim < 2:
             return HookResult(NONE)
-        x0, y0, x1, y1 = region
         h = arr.shape[0]
         w = arr.shape[1]
+        # Default-Region an den UNTEREN Rand des konkreten Frames ankern (Fix
+        # fuer den ~31px-Titelleisten-Versatz Live-Client vs. Referenz-Shot).
+        # Ein explizit uebergebenes region wird respektiert.
+        if region is None:
+            region = chat_region_for_frame(h, w)
+        x0, y0, x1, y1 = region
         # Region defensiv in das Bild clampen (abweichende Capture-Groesse).
         x0 = max(0, min(int(x0), w))
         x1 = max(0, min(int(x1), w))
@@ -550,6 +615,7 @@ def read_hook(screenshot_bgr, region=CHAT_REGION, templates=None):
 __all__ = [
     'FISH', 'ITEM', 'NIETE', 'NONE', 'UNKNOWN',
     'CHAT_REGION', 'INK_THRESHOLD', 'WORD_GAP', 'DISC_WORD_INDEX',
+    'chat_region_for_frame',
     'HookResult', 'read_hook',
     'reset_template_cache', 'name_to_slug',
     # fuer den Extraktor / Tests:

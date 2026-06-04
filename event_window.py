@@ -38,9 +38,8 @@ DEFAULT_WINDOWS = (
     {'weekday': 2, 'start': '00:00', 'end': '12:00'},
 )
 
-# Warning before the end is OFF by default (0). Upper bound = 24h.
+# Warning before the end is OFF by default (0).
 WARN_MIN_DEFAULT = 0
-WARN_MIN_MAX = 1440
 
 
 def _berlin_zone():

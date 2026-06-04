@@ -153,6 +153,37 @@ class TestBatGeneration(unittest.TestCase):
         self.assertNotIn('%%', bat)
 
 
+class TestDownloadUrlWhitelist(unittest.TestCase):
+    """The download is pinned to trusted GitHub HTTPS hosts (a spoofed API
+    response must not be able to steer the EXE download elsewhere)."""
+
+    def test_accepts_github_release_url(self):
+        # github.com (browser_download_url) and the redirect targets are allowed.
+        updater._validate_download_url(
+            'https://github.com/o/r/releases/download/v1/Metin2FishBot.exe')
+        updater._validate_download_url(
+            'https://objects.githubusercontent.com/some/blob.exe')
+        updater._validate_download_url(
+            'https://release-assets.githubusercontent.com/x/y.exe')
+
+    def test_rejects_untrusted_host(self):
+        with self.assertRaises(updater.UpdateError) as ctx:
+            updater._validate_download_url('https://evil.example/payload.exe')
+        self.assertEqual(ctx.exception.args[0], 'untrusted_host')
+
+    def test_rejects_non_https(self):
+        with self.assertRaises(updater.UpdateError) as ctx:
+            updater._validate_download_url(
+                'http://github.com/o/r/releases/download/v1/x.exe')
+        self.assertEqual(ctx.exception.args[0], 'insecure_url')
+
+    def test_rejects_lookalike_subdomain(self):
+        # github.com.evil.example must not pass the exact-host whitelist.
+        with self.assertRaises(updater.UpdateError):
+            updater._validate_download_url(
+                'https://github.com.evil.example/x.exe')
+
+
 class TestApplyGuards(unittest.TestCase):
     def test_apply_rejects_when_not_onefile(self):
         # Im Quellcode (kein _MEIPASS) darf apply_update_onefile nie ersetzen.

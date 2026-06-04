@@ -39,6 +39,7 @@ from .constants import (
     DEFAULT_TOLERANCE,
     ALIGN_DOWNSCALE,
     EMPTY_FALLBACK_STD,
+    VECTOR_REF_CHUNK,
 )
 from .reference import build_reference, signature_of
 from . import assets
@@ -91,6 +92,9 @@ class ItemDB:
         self._ds_ref = None
         self._ds_mask = None
         self._ds_sum = None
+        # Flattened (N, 32*32*3) views for the page-vectorised matcher.
+        self._ref_flat = None
+        self._mask_flat = None
         if np is not None and self._refs:
             self._build_stacks()
 
@@ -103,6 +107,16 @@ class ItemDB:
         self._mask = mask[:, :, :, None]                       # (N,32,32,1)
         self._mask_sum3 = np.array(
             [r.mask_sum for r in self._refs], dtype=np.float32) * 3.0
+
+        # Flattened references + per-channel-broadcast mask for the page matcher.
+        # ``_ref_flat`` is (N, P) with P = 32*32*3; ``_mask_flat`` is the SAME
+        # mask broadcast to the 3 channels then flattened, so a flattened
+        # (slots, P) slot stack scores against all references in one reduction.
+        n = self._ref_rgb.shape[0]
+        self._ref_flat = np.ascontiguousarray(
+            self._ref_rgb.reshape(n, -1))                      # (N, P)
+        self._mask_flat = np.ascontiguousarray(
+            np.repeat(mask[:, :, :, None], 3, axis=3).reshape(n, -1))  # (N, P)
 
         # Downsampled (block-mean) + flattened references for alignment.
         ds_rgb = _block_mean(self._ref_rgb, ALIGN_DOWNSCALE)   # (N,h,w,3)
@@ -215,6 +229,22 @@ class ItemDB:
         if ``None`` we treat the slot as occupied and rely on the threshold.
         """
         scored = self.match(slot_rgb)
+        return self._decide_from_scored(scored, slot_rgb, row, col,
+                                        page=page, empty=empty)
+
+    def _decide_from_scored(self, scored, slot_rgb, row, col, page=None,
+                            empty=None):
+        """Turn a sorted ``[(name, distance), ...]`` into a :class:`SlotResult`.
+
+        The SINGLE source of the empty/item/unknown decision -- factored out of
+        :meth:`best_slot_result` so the per-slot path (which builds ``scored``
+        via :meth:`match`) and the PAGE-VECTORISED path (which builds the very
+        same per-slot ``scored`` list from one batched distance matrix, see
+        :meth:`scored_for_page`) reach byte-identical results. ``scored`` is the
+        ascending-by-distance list for THIS slot; ``slot_rgb`` is still needed
+        for the unknown signature and the near-uniform empty fallback. Mirrors
+        the documented decision order in :meth:`best_slot_result` exactly.
+        """
         if not scored:
             # No usable DB / slot -> unknown if occupied, else empty.
             state = STATE_EMPTY if empty else STATE_UNKNOWN
@@ -259,6 +289,82 @@ class ItemDB:
         return SlotResult(state=STATE_UNKNOWN, name=None, distance=best_dist,
                           margin=margin, signature=self._signature(slot_rgb),
                           page=page, row=row, col=col)
+
+    # -- page-vectorised matcher (OPT-IN; identical numbers to the loop) ---
+
+    def match_page_distances(self, slots_stack, shift_radius=SHIFT_RADIUS,
+                             chunk=VECTOR_REF_CHUNK):
+        """Masked MAD of a whole PAGE of slots vs all refs in ONE batched pass.
+
+        ``slots_stack`` is an ``(M, 32, 32, 3)`` float array of M extracted slots
+        (row-major, e.g. all 45 of a page). Returns an ``(M, N)`` float32 matrix
+        whose row ``i`` equals ``self._distances_all(slots_stack[i],
+        shift_radius)`` BIT-FOR-BIT -- it is the same masked mean-abs-diff,
+        minimised over the same integer shifts ``dy,dx in [-S..S]^2``, just
+        evaluated for every slot at once with the references CHUNKED (``chunk``
+        refs per reduction) to keep the ``(M, chunk, P)`` intermediate
+        cache-resident. ``None`` if numpy is missing, the DB is empty, or the
+        stack is not an ``(M, 32, 32, 3)`` array (caller falls back to the loop).
+
+        The whole-slot roll (``np.roll`` + edge replication on the leading-axis
+        stack) is the exact batched form of :func:`_shift_edge`, so no slot is
+        treated differently from the per-slot path. Pure numpy (GIL-free) and
+        never mutates ``slots_stack`` / the DB.
+        """
+        if np is None or self._ref_flat is None:
+            return None
+        arr = np.asarray(slots_stack, dtype=np.float32)
+        if arr.ndim != 4 or arr.shape[1:] != (SLOT_PX, SLOT_PX, 3):
+            return None
+        m = arr.shape[0]
+        n = self._ref_flat.shape[0]
+        if m == 0:
+            return np.empty((0, n), dtype=np.float32)
+        try:
+            ck = max(1, int(chunk))
+        except Exception:
+            ck = n
+        best = np.full((m, n), _INF, dtype=np.float32)
+        r = int(shift_radius)
+        for dy in range(-r, r + 1):
+            for dx in range(-r, r + 1):
+                shifted = _shift_edge_stack(arr, dy, dx)        # (M,32,32,3)
+                flat = shifted.reshape(m, -1)                   # (M, P)
+                # Reference-chunked so the (M, chunk, P) diff stays in cache; a
+                # whole (M, N, P) tensor is memory-bandwidth bound and slower.
+                for c0 in range(0, n, ck):
+                    rc = self._ref_flat[c0:c0 + ck]             # (c, P)
+                    mc = self._mask_flat[c0:c0 + ck]            # (c, P)
+                    ms = self._mask_sum3[c0:c0 + ck]            # (c,)
+                    diff = np.abs(flat[:, None, :] - rc[None, :, :])
+                    diff *= mc[None, :, :]
+                    dist = diff.sum(axis=2) / ms[None, :]       # (M, c)
+                    np.minimum(best[:, c0:c0 + ck], dist,
+                               out=best[:, c0:c0 + ck])
+        return best
+
+    def scored_for_page(self, slots_stack, shift_radius=SHIFT_RADIUS,
+                        chunk=VECTOR_REF_CHUNK):
+        """Per-slot sorted ``[(name, distance), ...]`` for a whole page.
+
+        Wraps :meth:`match_page_distances` and applies the SAME stable argsort
+        per slot that :meth:`match` does, returning a list of M scored lists (one
+        per slot, ascending by distance). So feeding each list to
+        :meth:`_decide_from_scored` reproduces :meth:`best_slot_result` exactly.
+        Returns ``None`` if the batched distance matrix is unavailable (caller
+        falls back to the per-slot path); an individual slot that is not a valid
+        32x32x3 array (already excluded by the stack-shape check) cannot occur
+        here.
+        """
+        dists = self.match_page_distances(slots_stack, shift_radius, chunk)
+        if dists is None:
+            return None
+        names = [r.name for r in self._refs]
+        out = []
+        for i in range(dists.shape[0]):
+            order = np.argsort(dists[i], kind='stable')
+            out.append([(names[j], float(dists[i][j])) for j in order])
+        return out
 
     # -- internals --------------------------------------------------------
 
@@ -372,4 +478,29 @@ def _shift_edge(img, dy, dx):
         out[:, :dx] = out[:, dx:dx + 1]
     elif dx < 0:
         out[:, dx:] = out[:, dx - 1:dx]
+    return out
+
+
+def _shift_edge_stack(stack, dy, dx):
+    """Batched :func:`_shift_edge` over a leading-axis stack of images.
+
+    ``stack`` is ``(M, H, W, C)``; the SAME ``(dy, dx)`` edge-replicating roll is
+    applied to all M images on the spatial axes (1, 2). Returns a NEW array (the
+    page matcher reduces it immediately) -- the per-image result is identical to
+    calling :func:`_shift_edge` on each ``stack[i]``. ``(0, 0)`` returns ``stack``
+    unchanged (no copy): the sole caller only READS the result (reshape -> view
+    -> diff) and never writes back, so a full ``(M,32,32,3)`` float32 allocation
+    (~0.5 MB) is saved on the first sweep iteration without any aliasing hazard.
+    """
+    if dy == 0 and dx == 0:
+        return stack
+    out = np.roll(stack, shift=(dy, dx), axis=(1, 2))
+    if dy > 0:
+        out[:, :dy, :, :] = out[:, dy:dy + 1, :, :]
+    elif dy < 0:
+        out[:, dy:, :, :] = out[:, dy - 1:dy, :, :]
+    if dx > 0:
+        out[:, :, :dx, :] = out[:, :, dx:dx + 1, :]
+    elif dx < 0:
+        out[:, :, dx:, :] = out[:, :, dx - 1:dx, :]
     return out

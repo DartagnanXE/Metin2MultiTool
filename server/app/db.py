@@ -322,14 +322,26 @@ def remove_ban(kind, value):
         return cur.rowcount
 
 
+#: Whitelist of allowed erasure columns, keyed by ``kind``. Defence-in-depth:
+#: the column name is interpolated into the SQL string (it cannot be a bound
+#: parameter), so it MUST come from this fixed map and never from the caller --
+#: even though admin._check_kind already validates upstream, this function is a
+#: public DB API and must not rely on the caller for SQL safety.
+_ERASE_COLUMNS = {'install': 'hwid', 'name': 'username'}
+
+
 def delete_entries(kind, value):
     """GDPR erasure: delete all submissions for an install id or a chosen name.
 
     ``kind='install'`` matches the ``hwid`` column (the install id);
     ``kind='name'`` matches the ``username`` column. Returns the number of rows
-    removed. Parameterised.
+    removed. The ``value`` is always bound; the column name is resolved through
+    the fixed :data:`_ERASE_COLUMNS` whitelist (raises ``ValueError`` on an
+    unknown kind) so no caller can inject an arbitrary column name.
     """
-    column = 'hwid' if kind == 'install' else 'username'
+    column = _ERASE_COLUMNS.get(kind)
+    if column is None:
+        raise ValueError('invalid kind: {!r}'.format(kind))
     with _LOCK:
         cur = _conn().execute(
             'DELETE FROM submissions WHERE {} = ?'.format(column), (value,))

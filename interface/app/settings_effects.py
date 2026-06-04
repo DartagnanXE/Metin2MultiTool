@@ -36,6 +36,18 @@ class SettingsEffectsMixin:
             'inventory', 'auto_scan_after_fishing',
             bool(self._auto_scan_var.get()))
 
+    def _on_fast_recognition_toggle(self):
+        """Persistiert den Opt-in 'schnelle (vektorisierte) Erkennung'-Schalter.
+
+        Reines bool (Default AUS = byte-stabil). True schaltet in
+        ``run_inventory_scan`` den vektorisierten, BIT-IDENTISCHEN Erkennungspfad
+        frei (gleiche InventoryMap, nur schneller -- die maskierte Differenz wird
+        je Seite in EINER gebatchten numpy-Operation statt 45 Einzelschritten
+        berechnet)."""
+        self._cfg = self.controller.update_config(
+            'inventory', 'fast_recognition',
+            bool(self._fast_recognition_var.get()))
+
     # -- Mount / Fish-Events / Ranking-Handler (Run 1) -------------------
 
     def _on_mount_toggle(self):

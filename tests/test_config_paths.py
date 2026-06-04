@@ -55,6 +55,37 @@ class TestConfigPath(unittest.TestCase):
         self.assertFalse(paths._dir_writable(None))
 
 
+class TestDebugLogPath(unittest.TestCase):
+    """Die Debug-Logdatei haengt am STABILEN Config-Ordner (nicht CWD-relativ),
+    damit sie bei der Portable-EXE nicht in System32 o.ae. landet."""
+
+    def test_dev_not_frozen_is_cwd_filename(self):
+        # Im Dev/Test-Betrieb (nicht frozen) byte-stabil = reiner Dateiname.
+        had = hasattr(sys, 'frozen')
+        saved = getattr(sys, 'frozen', None)
+        if had:
+            del sys.frozen
+        try:
+            self.assertEqual(paths.debug_log_path(), 'puzzle_debug.log')
+        finally:
+            if had:
+                sys.frozen = saved
+
+    def test_frozen_is_in_appdata_dir(self):
+        with tempfile.TemporaryDirectory() as appd:
+            sys.frozen = True
+            try:
+                p = paths.debug_log_path(appdata=appd)
+            finally:
+                del sys.frozen
+            self.assertEqual(os.path.basename(p), 'puzzle_debug.log')
+            self.assertEqual(os.path.basename(os.path.dirname(p)),
+                             paths.APP_DIR)
+
+    def test_never_raises(self):
+        self.assertIsInstance(paths.debug_log_path(), str)
+
+
 class TestLegacyConfigPaths(unittest.TestCase):
     def test_returns_exe_dir_then_cwd(self):
         # Erstes = config.json IM EXE-Ordner, letztes = CWD-Datei. Struktur statt

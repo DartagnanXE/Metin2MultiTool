@@ -49,9 +49,12 @@ except Exception:  # pragma: no cover
 
 # Logging weich einbinden -- ein kaputter Logger darf das Fenster nie stoppen.
 try:
-    from debuglog import log
+    from debuglog import log, log_event as _log_event_raw
 except Exception:  # pragma: no cover - reiner Fallback
     log = None
+    def _log_event_raw(state, message, **fields):
+        """No-op-Fallback, falls debuglog fehlt. Wirft nie."""
+        pass
 
 
 # -- Konstanten ------------------------------------------------------------
@@ -89,12 +92,8 @@ _open_windows = []
 
 
 def _log_event(message, **fields):
-    if log is None:
-        return
-    try:
-        log.event(0, message, **fields)
-    except Exception:
-        pass
+    """Strukturierte Log-Zeile (State 0); absturzsicher via debuglog.log_event."""
+    _log_event_raw(0, message, **fields)
 
 
 def _is_alive(win):

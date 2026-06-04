@@ -93,10 +93,8 @@ class FishingDetectMixin:
         return ok and max_val > 0.9
 
     def detect_daily_reward(self, image):
-
-        for i in range(0, 5):
-            for j in range(0, 5):
-                if int(image[10 + i,10 +  j, 0]) + int(image[10 + i,10 +  j, 1]) + int(image[10 + i,10 +  j, 2]) > 0:
-                    return False
-
-        return True
+        # Daily-reward popup leaves the top-left 5x5 patch all-black: True iff
+        # every BGR channel in image[10:15, 10:15] is 0. A single numpy reduction
+        # over the 75-element slice (with numpy's internal short-circuit) replaces
+        # the old 25-step Python loop + per-pixel int() casts -- identical result.
+        return not image[10:15, 10:15, :3].any()

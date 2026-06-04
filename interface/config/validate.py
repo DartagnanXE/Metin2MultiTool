@@ -303,6 +303,10 @@ def validate(cfg):
             inventory.get('hotkey'), DEFAULTS['inventory']['hotkey'])
         inventory['auto_scan_after_fishing'] = bool(
             inventory.get('auto_scan_after_fishing', False))
+        # OPT-IN vektorisierte Erkennung -- reines bool (Default False =
+        # byte-stabil; True schaltet den schnellen, bit-identischen Pfad frei).
+        inventory['fast_recognition'] = bool(
+            inventory.get('fast_recognition', False))
 
         # -- Username (einzige PII): gestrippt + auf USERNAME_MAXLEN gekappt.
         try:

@@ -38,6 +38,10 @@ FILENAME = 'config.json'
 #: Unterordner im per-user App-Data fuer den read-only-EXE-Fallback.
 APP_DIR = 'Metin2FishBot'
 
+#: Name der Debug-Logdatei -- EINZIGE Quelle der Wahrheit (Writer in hack.py /
+#: puzzle.py und der "Open log file"-Knopf im Log-Panel teilen ihn).
+DEBUG_LOG_FILENAME = 'puzzle_debug.log'
+
 _WRITE_PROBE = '.m2fb_write_test'
 
 
@@ -104,6 +108,15 @@ def sibling_path(filename, appdata=None):
         return filename
 
 
+def debug_log_path(appdata=None):
+    """Stabiler Pfad der Debug-Logdatei (``puzzle_debug.log``) -- selbe Logik wie
+    :func:`sibling_path` fuer ``config.json``: Dev/Test -> Dateiname im CWD
+    (byte-stabil), frozen -> ``%APPDATA%/Metin2FishBot/puzzle_debug.log``. So
+    landet das Log NIE versehentlich in einem privilegierten Verzeichnis
+    (z.B. System32 bei "Als Admin"). Wirft nie."""
+    return sibling_path(DEBUG_LOG_FILENAME, appdata=appdata)
+
+
 def legacy_sibling_paths(filename, executable=None):
     """Frueheres Speicherorte einer config-Geschwisterdatei (``config.json`` /
     ``stats.json``) fuer die EINMALIGE Migration nach ``%APPDATA%`` -- in
@@ -128,4 +141,5 @@ def legacy_config_paths(executable=None):
 
 
 __all__ = ['config_path', 'legacy_config_paths', 'sibling_path',
-           'legacy_sibling_paths', 'FILENAME', 'APP_DIR']
+           'legacy_sibling_paths', 'debug_log_path', 'FILENAME', 'APP_DIR',
+           'DEBUG_LOG_FILENAME']

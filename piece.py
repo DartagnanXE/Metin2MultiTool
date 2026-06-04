@@ -9,37 +9,25 @@ class Piece:
     width = 0
     piece_type = 0
 
-    def __init__(self, type):
+    # Steintyp -> (form, height, width). EINE Tabelle statt 6 identisch
+    # strukturierter if/elif-Aeste; neue Typen werden hier (nicht im Code)
+    # ergaenzt. Werte byte-identisch zur fruheren Verzweigung.
+    _PIECE_DATA = {
+        1: ([[1]],                 1, 1),
+        2: ([[1], [1], [1]],       3, 1),
+        3: ([[1, 1], [1, 1]],      2, 2),
+        4: ([[1, 1, 0], [0, 1, 1]], 2, 3),
+        5: ([[1, 0], [1, 1]],      2, 2),
+        6: ([[1, 1], [0, 1]],      2, 2),
+    }
 
-        if type == 1:
-            self.form = [[1]]
-            self.height = 1
-            self.width = 1
-            self.piece_type = type
-        elif type == 2:
-            self.form = [[1], [1], [1]]
-            self.height = 3
-            self.width = 1
-            self.piece_type = type
-        elif type == 3:
-            self.form = [[1, 1], [1, 1]]
-            self.height = 2
-            self.width = 2
-            self.piece_type = type
-        elif type == 4:
-            self.form = [[1, 1, 0], [0, 1, 1]]
-            self.height = 2
-            self.width = 3
-            self.piece_type = type
-        elif type == 5:
-            self.form = [[1, 0], [1, 1]]
-            self.height = 2
-            self.width = 2
-            self.piece_type = type
-        elif type == 6:
-            self.form = [[1, 1], [0, 1]]
-            self.height = 2
-            self.width = 2
+    def __init__(self, type):
+        data = self._PIECE_DATA.get(type)
+        if data is not None:
+            form, self.height, self.width = data
+            # Frische Zeilen-Kopien: jede Instanz besitzt ihre eigene Form (wie
+            # die fruheren Literale), damit die geteilte Tabelle nie aliased wird.
+            self.form = [list(row) for row in form]
             self.piece_type = type
         else:
             # Unbekannter Typ oder None -> sicherer, leerer Stein.

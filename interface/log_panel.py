@@ -20,6 +20,7 @@ import customtkinter as ctk
 
 from debuglog import log
 from i18n import t
+from interface.config.paths import DEBUG_LOG_FILENAME, debug_log_path
 from interface.widgets import (LIVE_GREEN, PANEL, PANEL_HOVER, PANEL_LIGHT,
                                TEAL, TEXT, TEXT_MUTED)
 
@@ -28,8 +29,10 @@ from interface.widgets import (LIVE_GREEN, PANEL, PANEL_HOVER, PANEL_LIGHT,
 MAX_LINES = 500
 # Pro Pump-Durchlauf maximal so viele Zeilen ziehen (haelt das UI responsiv).
 DRAIN_BATCH = 200
-# Pfad der Datei-Log-Senke (siehe hack.py: log.configure(path=...)).
-LOG_FILE = 'puzzle_debug.log'
+# Name der Datei-Log-Senke (siehe hack.py: log.configure(path=...)). Der KONKRETE
+# Pfad kommt aus debug_log_path() (stabil, frozen -> %APPDATA%); der reine Name
+# bleibt als Konstante fuer Rueckwaerts-Kompat/Bezug erhalten.
+LOG_FILE = DEBUG_LOG_FILENAME
 
 
 class LogPanel(ctk.CTkFrame):
@@ -151,9 +154,14 @@ class LogPanel(ctk.CTkFrame):
             pass
 
     def open_log_file(self):
-        """Oeffnet ``puzzle_debug.log`` mit dem Standardprogramm (Windows)."""
+        """Oeffnet ``puzzle_debug.log`` mit dem Standardprogramm (Windows).
+
+        Loest den Pfad ueber dieselbe ``debug_log_path()``-Quelle auf, die der
+        Writer (hack.py / puzzle.py) nutzt -- so wird auch im gepackten Zustand
+        (Log unter %APPDATA%) die RICHTIGE Datei geoeffnet, nicht eine CWD-Leiche.
+        """
         try:
-            path = os.path.abspath(LOG_FILE)
+            path = os.path.abspath(debug_log_path())
             if os.path.exists(path):
                 os.startfile(path)            # nur Windows; sonst -> except
         except Exception:

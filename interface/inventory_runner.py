@@ -456,11 +456,16 @@ def run_inventory_scan(cfg, previous_map=None, *, log_fn=None, db=None,
         except Exception:
             pass
 
+    # OPT-IN fast path: vectorised matcher + page-fanout (bit-identical map).
+    # Default False (byte-stable); cfg['inventory']['fast_recognition'] = True
+    # turns it on. ``None`` here would use the engine default (also off).
+    fast = bool((cfg or {}).get('inventory', {}).get('fast_recognition', False))
     inv = scanner.recognize_pages(
         captured, db,
         calib=DEFAULT_CALIBRATION,
         progress_fn=_progress,
         align_fn=_align_and_record,
+        vectorized=fast,
     )
 
     # Toggled-shut detection: a hotkey that CLOSED the inventory yields no items

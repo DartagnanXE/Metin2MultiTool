@@ -209,44 +209,6 @@ def validate_puzzle_region(crop_img, expected_size=DEFAULT_EXPECTED_SIZE):
         return CalibrationResult(False, reasons, details)
 
 
-def describe_grid(crop_img):
-    """Beschreibt jede der 24 Rasterzellen fuer die Debug-Konsole.
-
-    Rueckgabe-Dict::
-
-        {
-            'cells': {
-                (i, j): {'x': .., 'y': .., 'bgr': (b, g, r), 'empty': bool},
-                ...
-            },
-            'missing': [(i, j), ...],   # Punkte ausserhalb des Bildes
-            'empty_cells': int,
-            'filled_cells': int,
-        }
-
-    Gleiche Leer-Schwelle wie puzzle.set_puzzle_state. Wirft nie.
-    """
-    result = {'cells': {}, 'missing': [], 'empty_cells': 0, 'filled_cells': 0}
-    try:
-        samples, missing = _sample_grid(crop_img)
-        result['missing'] = missing
-        for s in samples:
-            result['cells'][(s['i'], s['j'])] = {
-                'x': s['x'],
-                'y': s['y'],
-                'bgr': s['bgr'],
-                'empty': s['empty'],
-            }
-            if s['empty']:
-                result['empty_cells'] += 1
-            else:
-                result['filled_cells'] += 1
-    except Exception:
-        # Defensiv: im Fehlerfall ein leeres, aber wohlgeformtes Dict.
-        pass
-    return result
-
-
 def find_puzzle_offset(screenshot):
     """Best-effort-Suche nach dem Puzzle-Offset im Vollbild-Screenshot.
 

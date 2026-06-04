@@ -15,6 +15,11 @@ import mount
 from fishing_match import _flog, _match_template_max  # noqa: F401  (re-export)
 from fishing_detect import FishingDetectMixin
 
+# Globales Stop-Signal (Responsiveness): die schweren Refill-Ops pollen es ueber
+# interruptible-sleeps + ein Zeitbudget und brechen bei F6 sofort ab. Default ist
+# das NIE-gesetzte NULL_SIGNAL -> ohne Injektion aendert sich nichts (byte-stabil).
+import stop_signal as _stopsig
+
 # Chat-OCR-Kern + reine Whitelist-Entscheidung. Defensiv (soft) importiert -- die
 # Whitelist ist opt-in (Default AUS), und ein fehlender Import darf das Angeln NIE
 # brechen: dann bleibt die Whitelist einfach wirkungslos (es wird alles geangelt).
@@ -54,23 +59,34 @@ class FishingBot(FishingDetectMixin):
 
     FISH_WINDOW_CLOSE = (430, 115)
 
-    # Golden-Tuna-Dialog: 3 senkrecht gestapelte Knoepfe (Spielkoordinaten,
-    # relativ zum Fenster-Offset). 1 = Freilassen, 2 = Aufschneiden,
-    # 3 = Als Koeder benutzen. Knoepfe sind gleichmaessig (DY) gestapelt.
-    # GEMESSEN an echten 802x632-Screenshots (FischOCR/GoldenerThunfisch*.png,
-    # KEIN Versatz -- Screenshot-Pixel == Spielkoordinaten): X=400,
-    # Y = {Freilassen:268, Aufschneiden:300, Koeder:332} (DY=32). Der frueher
-    # zu hohe/zu linke Wert (X=350, Y={242,280,318}) traf die Knoepfe nicht.
-    GOLDEN_TUNA_X = 400
-    GOLDEN_TUNA_DY = 32
-    GOLDEN_TUNA_Y = {1: 300 - GOLDEN_TUNA_DY,   # 268 (Feld 1, oben:  Freilassen)
-                     2: 300,                    # 300 (Feld 2, mitte: Aufschneiden)
-                     3: 300 + GOLDEN_TUNA_DY}   # 332 (Feld 3, unten: Koeder)
+    # Golden-Tuna-Dialog: 3 senkrecht gestapelte Knoepfe. 1 = Freilassen,
+    # 2 = Aufschneiden, 3 = Als Koeder benutzen. Knoepfe sind gleichmaessig (DY)
+    # gestapelt.
+    #
+    # KOORDINATEN-SYSTEM (kritisch): der Bot KLICKT in CLIENT-Koordinaten --
+    # ``self.wincap.offset_{x,y}`` ist der CLIENT-Ursprung (Fensterecke + 8px
+    # Rand + 30px Titelleiste), und der Klick ist ``offset + (X, Y)``. Die
+    # Referenz-Screenshots (FischOCR/GoldenerThunfisch*.png) sind aber das
+    # VOLLBILD 802x632 = Client + ~31px Titelleiste + 1px-Rand. Die DARAUS
+    # gemessenen Knopf-Mitten sind also FULL-FRAME und liegen, 1:1 als
+    # Client-Koordinate benutzt, ~31px ZU TIEF (und 1px zu weit rechts) -> der
+    # Klick verfehlt den Knopf. Darum die Full-Frame-Messung in CLIENT umrechnen:
+    # CLIENT = FULL_FRAME - (1, 31).
+    #   gemessen FULL-FRAME : X=400, Y={Freilassen:268, Aufschneiden:300,
+    #                         Koeder:332} (DY=32), Confirm-OK (400,277)
+    #   -> CLIENT           : X=399, Y={237, 269, 301} (DY unveraendert=32),
+    #                         Confirm-OK (399,246)
+    # Klickpositionen werden geloggt (fishing.golden_tuna_clicked/_confirmed).
+    GOLDEN_TUNA_X = 399                          # 400 (full-frame) - 1
+    GOLDEN_TUNA_DY = 32                          # relativer Abstand (frame-unabh.)
+    GOLDEN_TUNA_Y = {1: 269 - GOLDEN_TUNA_DY,   # 237 (Feld 1, oben:  Freilassen)
+                     2: 269,                    # 269 (Feld 2, mitte: Aufschneiden)
+                     3: 269 + GOLDEN_TUNA_DY}   # 301 (Feld 3, unten: Koeder)
 
     # Nach dem Options-Klick erscheint ein Bestaetigungs-Dialog mit EINEM
-    # OK-Knopf. Den frueher fehlenden Klick darauf ergaenzen, sonst stockte der
-    # Dialog. GEMESSEN (FischOCR/GoldenerThunfischAuswahlbestaetigen.png): (400,277).
-    GOLDEN_TUNA_CONFIRM = (400, 277)
+    # OK-Knopf. GEMESSEN full-frame (FischOCR/GoldenerThunfischAuswahlbestaetigen
+    # .png): (400,277) -> CLIENT (399,246).
+    GOLDEN_TUNA_CONFIRM = (399, 246)
 
     # set position of the fish windows
     # this value can be diferent by the sizes of the game window
@@ -172,6 +188,17 @@ class FishingBot(FishingDetectMixin):
     # Baiten in State 0). 0.0 = "noch nie geprueft" -> erste Pruefung sofort.
     _last_bait_check = 0.0
     _BAIT_REFILL_INTERVAL = 5.0
+
+    # Globales Stop-Signal (vom RunLoop injiziert). Default = NIE-gesetztes
+    # NULL_SIGNAL -> die Refill-Naps blockieren wie bisher, ein Stop bricht sie
+    # nie ab (byte-stabil). Mit echtem Signal pollt jede Refill-Nap es und bricht
+    # bei F6 in <1 Slice ab.
+    stop_signal = _stopsig.NULL_SIGNAL
+    # GEBUNDENE Obergrenze fuer EINEN Refill-Versuch (Inventar oeffnen + bis zu 4
+    # Seiten scannen + draggen). Auch ohne Stop endet die Op spaetestens hier mit
+    # klarem Log -> nie ein stiller Haenger. Grosszuegig (4 Seiten + Drag dauern
+    # real ~2-3 s); 20 s ist eine reine Sicherheits-Decke.
+    _BAIT_REFILL_BUDGET = 20.0
 
     # This is the filter parameters, this help to find the right image
     hsv_filter = HsvFilter(*FILTER_CONFIG)
@@ -334,14 +361,47 @@ class FishingBot(FishingDetectMixin):
             return None
 
     def _open_inventory(self):
-        """Druckt die Inventar-Hotkey (oeffnet/schliesst das Inventar). Wirft nie."""
+        """Druckt die Inventar-Hotkey (oeffnet/schliesst das Inventar). Wirft nie.
+
+        Die 0.25s-Wartezeit laeuft als INTERRUPTIBLE Nap ueber das Stop-Signal --
+        kommt waehrenddessen F6, kehrt sie sofort zurueck (kein blockierendes
+        sleep). Ohne injiziertes Signal (NULL_SIGNAL) wartet sie wie bisher."""
         try:
             key = str(self.inventory_hotkey or 'i')
             pydirectinput.keyDown(key)
             pydirectinput.keyUp(key)
-            sleep(0.25)
+            self._refill_sleep(0.25)
         except Exception:
             pass
+
+    def _refill_sleep(self, seconds):
+        """Interruptible Nap fuers Nachlegen: schlaeft ``seconds`` ueber das
+        Stop-Signal (``StopSignal.wait``) und kehrt SOFORT zurueck, sobald ein
+        Stop ansteht. Gibt ``False`` zurueck, wenn ein Stop die Nap abgeschnitten
+        hat (Aufrufer bricht ab). Faellt ohne Signal auf ``time.sleep`` zurueck.
+        Wirft nie."""
+        sig = getattr(self, 'stop_signal', None)
+        if sig is not None:
+            try:
+                return sig.wait(seconds)
+            except Exception:
+                pass
+        try:
+            sleep(seconds)
+        except Exception:
+            pass
+        return True
+
+    def _refill_should_stop(self):
+        """Predicate fuer die Refill-Engine: True, sobald ein Stop ansteht
+        (Stop-Signal gesetzt ODER botting bereits geraeumt). Wirft nie."""
+        try:
+            sig = getattr(self, 'stop_signal', None)
+            if sig is not None and sig.stopped:
+                return True
+            return not self.botting
+        except Exception:
+            return False
 
     def _maybe_refill_bait(self, screenshot):
         """Gedrosselt: ist der Koeder-Quickslot leer, EINEN Koeder nachlegen.
@@ -380,22 +440,44 @@ class FishingBot(FishingDetectMixin):
             target = _refill.quickslot_screen(slot, ox, oy)
             calib = self.bait_refill_calib or _refill.DEFAULT_CALIBRATION
 
+            # GEBUNDENE Obergrenze + interruptible: die schwere Op (Inventar
+            # oeffnen + Seiten scannen + draggen) bekommt ein hartes Zeitbudget
+            # UND bricht bei F6/Stop sofort ab. Klare Start-/Ende-Zeile -> der Bot
+            # haengt nie stumm. ``should_stop`` faengt den Stop auch zwischen den
+            # Engine-Schritten (Page-Switch/Drag) ab.
+            deadline = _stopsig.Deadline(
+                self._BAIT_REFILL_BUDGET, signal=getattr(self, 'stop_signal', None))
+            _flog(self.state, t('fishing.bait_refill_started'),
+                  budget=int(self._BAIT_REFILL_BUDGET))
+
             self._open_inventory()
             try:
                 result = _refill.refill_from_inventory(
                     _refill.BAIT_NAMES, target, inp=pydirectinput,
-                    wincap=self.wincap, db=self.bait_refill_db, calib=calib)
+                    wincap=self.wincap, db=self.bait_refill_db, calib=calib,
+                    sleep=self._refill_sleep, should_stop=self._refill_should_stop)
             finally:
                 self._open_inventory()   # Inventar wieder schliessen (Toggle)
 
             if result == 'dragged':
-                _flog(self.state, t('fishing.bait_refill_done'))
+                _flog(self.state, t('fishing.bait_refill_done'),
+                      secs='{:.1f}'.format(deadline.elapsed()))
             elif result == 'empty':
                 _flog(self.state, t('fishing.bait_refill_none_left'))
                 self.botting = False
                 self._notify_bait_empty()
+            elif result == 'stopped':
+                # Per F6/Stop abgebrochen -- still (der Lauf endet ohnehin); nur
+                # eine knappe Diagnose-Zeile, damit der Abbruch nachvollziehbar ist.
+                _flog(self.state, t('fishing.bait_refill_stopped'))
             else:   # 'error' -> diesmal ohne Nachlegen weiter (kein Stop)
                 _flog(self.state, t('fishing.bait_refill_failed'))
+
+            # Sicherheits-Decke: hat die Op das harte Budget gerissen (z. B. ein
+            # nie endender Drag), KLAR melden statt stumm weiterzulaufen.
+            if deadline.expired() and result not in ('stopped',):
+                _flog(self.state, t('fishing.bait_refill_timeout'),
+                      budget=int(self._BAIT_REFILL_BUDGET))
         except Exception:
             # Niemals den Angel-Loop kippen.
             pass

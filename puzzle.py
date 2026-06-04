@@ -13,6 +13,7 @@ import trained_solver
 from debuglog import log
 from respath import resource_path
 from i18n import t
+from interface.config.paths import debug_log_path
 from puzzle_detect import PuzzleDetectMixin
 
 # Nach so vielen Verwerfen IN FOLGE (ohne Platzierung dazwischen) gilt der
@@ -126,8 +127,9 @@ class PuzzleBot(PuzzleDetectMixin):
 
     def set_to_begin(self, values):
         # Logdatei pro Lauf frisch initialisieren (auch aus der .exe nutzbar).
+        # Stabiler Pfad (frozen -> %APPDATA%) statt CWD-relativ, s. debug_log_path.
         log.configure(to_console=True, to_file=True,
-                      path='puzzle_debug.log', level='DEBUG')
+                      path=debug_log_path(), level='DEBUG')
         log.section(t('puzzle.start_section'))
         self.wincap = WindowCapture(constants.GAME_NAME)
         self.state = 0
@@ -210,6 +212,30 @@ class PuzzleBot(PuzzleDetectMixin):
         mouse_x = int(cx + self.puzzle_offset[0] + self.wincap.offset_x)
         mouse_y = int(cy + self.puzzle_offset[1] + self.wincap.offset_y)
         pydirectinput.click(x=mouse_x, y=mouse_y, button=button)
+
+    def _cell_screen_point(self, i, j):
+        """Bildschirm-Klickpunkt der Brett-Zelle ``(i, j)`` als Int-Paar.
+
+        Loest die Zellmitte ueber ``geometry.cell_point(i, j, board_size)`` auf
+        und verschiebt sie um ``puzzle_offset`` + den Fenster-Rand
+        (``wincap.offset_*``) auf Bildschirm-Koordinaten. Buendelt die zuvor in
+        play_game (trained/Buch/greedy) und _place_deluxe woertlich duplizierte
+        Anker-Arithmetik -- byte-stabil (gleiche ``int()``-Rundung).
+        """
+        px, py = geometry.cell_point(i, j, self.board_size)
+        mouse_x = int(px + self.puzzle_offset[0] + self.wincap.offset_x)
+        mouse_y = int(py + self.puzzle_offset[1] + self.wincap.offset_y)
+        return (mouse_x, mouse_y)
+
+    def _click_cell(self, i, j):
+        """Klickt die Brett-Zelle ``(i, j)`` (Platzierungs-Klick).
+
+        Wie die bisherigen Inline-Aufrufe ein POSITIONALER Links-Klick
+        ``pydirectinput.click(x, y)`` (ohne ``button``-Kwarg) auf den von
+        :meth:`_cell_screen_point` gelieferten Punkt -- byte-stabil.
+        """
+        mouse_x, mouse_y = self._cell_screen_point(i, j)
+        pydirectinput.click(mouse_x, mouse_y)
 
     def _box_screen_point(self, box_point):
         """Rechnet einen Box-Slot (Fenster-INHALT-Koordinate, z.B. PUZZLE_BOX /
@@ -388,10 +414,7 @@ class PuzzleBot(PuzzleDetectMixin):
 
         log.event(self.state, t('puzzle.deluxe_placed'),
                   piece_type=deluxe.DELUXE_PIECE_TYPE, pos=anchor)
-        px, py = geometry.cell_point(ax, ay, self.board_size)
-        mouse_x = int(px + self.puzzle_offset[0] + self.wincap.offset_x)
-        mouse_y = int(py + self.puzzle_offset[1] + self.wincap.offset_y)
-        pydirectinput.click(mouse_x, mouse_y)
+        self._click_cell(ax, ay)
         return True
 
     def play_game(self):
@@ -448,10 +471,7 @@ class PuzzleBot(PuzzleDetectMixin):
             self.tetris.insert_piece(a[0], a[1], piece)
             if self.tetris.verify_end():
                 self.end = True
-            px, py = geometry.cell_point(a[0], a[1], self.board_size)
-            mouse_x = int(px + self.puzzle_offset[0] + self.wincap.offset_x)
-            mouse_y = int(py + self.puzzle_offset[1] + self.wincap.offset_y)
-            pydirectinput.click(mouse_x, mouse_y)
+            self._click_cell(a[0], a[1])
 
             return True
 
@@ -463,10 +483,7 @@ class PuzzleBot(PuzzleDetectMixin):
             self.tetris.insert_piece(pos[0], pos[1], piece)
             if self.tetris.verify_end():
                 self.end = True
-            px, py = geometry.cell_point(pos[0], pos[1], self.board_size)
-            mouse_x = int(px + self.puzzle_offset[0] + self.wincap.offset_x)
-            mouse_y = int(py + self.puzzle_offset[1] + self.wincap.offset_y)
-            pydirectinput.click(mouse_x, mouse_y)
+            self._click_cell(pos[0], pos[1])
 
             return None
 
@@ -501,10 +518,7 @@ class PuzzleBot(PuzzleDetectMixin):
             self.tetris.insert_piece(a[0], a[1], piece)
             if self.tetris.verify_end():
                 self.end = True
-            px, py = geometry.cell_point(a[0], a[1], self.board_size)
-            mouse_x = int(px + self.puzzle_offset[0] + self.wincap.offset_x)
-            mouse_y = int(py + self.puzzle_offset[1] + self.wincap.offset_y)
-            pydirectinput.click(mouse_x, mouse_y)
+            self._click_cell(a[0], a[1])
 
             return True
 

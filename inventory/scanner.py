@@ -78,23 +78,91 @@ def classify_slot(slot_rgb, db, row, col, page=None, tol=DEFAULT_TOLERANCE):
                                empty=empty, tol=tol)
 
 
+#: Module default for the OPT-IN page-vectorised matcher. ``False`` keeps the
+#: byte-identical per-slot path (the historical behaviour); a caller turns it on
+#: per-call via ``recognize_page(..., vectorized=True)`` /
+#: ``recognize_pages(..., vectorized=True)``. Exposed as a module attribute so a
+#: future global toggle / test can flip the default without touching call sites.
+VECTORIZED_DEFAULT = False
+
+
 def recognize_page(image_bgr, db, calib=DEFAULT_CALIBRATION, lattice=None,
-                   page=None):
+                   page=None, vectorized=None):
     """Classify all 45 slots of one captured page image (row-major).
 
     Auto-aligns the grid for this image unless an explicit ``lattice`` is given
     (the caller can reuse a locked lattice). Returns ``[SlotResult] * 45`` in
     row-major order. Degrades to all-unknown (logged) -- never raises -- if slot
     extraction is impossible (e.g. numpy missing).
+
+    With ``vectorized`` true (opt-in; default :data:`VECTORIZED_DEFAULT` == off)
+    the 45 slots are scored against the DB in ONE batched numpy reduction
+    (:meth:`ItemDB.scored_for_page`) instead of a per-slot loop -- numerically
+    identical (same masked MAD, same shift min, same stable order -> same
+    SlotResults), just without the 45x Python dispatch. The vectorised path
+    falls back to the per-slot loop whenever the batched matrix is unavailable
+    (numpy missing / empty DB), so it is never less capable than the default.
     """
     tol = int((calib or {}).get('tolerance', DEFAULT_TOLERANCE))
     if lattice is None:
         lattice = auto_align(image_bgr, db, calib)
 
+    use_vec = VECTORIZED_DEFAULT if vectorized is None else bool(vectorized)
+    if use_vec:
+        vec = _recognize_page_vectorized(image_bgr, db, lattice, page, tol)
+        if vec is not None:
+            return vec
+        # else: batched path unavailable -> fall through to the per-slot loop.
+
     results = []
     for row, col in slot_indices():
         results.append(_classify_one_slot(image_bgr, db, lattice, page,
                                            row, col, tol))
+    return results
+
+
+def _recognize_page_vectorized(image_bgr, db, lattice, page, tol):
+    """Vectorised twin of the :func:`recognize_page` loop (or ``None``).
+
+    Extracts all 45 slots into one ``(45, 32, 32, 3)`` stack, scores the whole
+    page against the DB in a single batched reduction
+    (:meth:`ItemDB.scored_for_page`), then per slot runs the SAME decision
+    (:meth:`ItemDB._decide_from_scored`) + the SAME stack-number read as
+    :func:`_classify_one_slot`. Returns the 45 row-major :class:`SlotResult`, or
+    ``None`` when the batched matrix is not available (no numpy / empty DB / an
+    unextractable slot) so the caller cleanly degrades to the per-slot loop.
+    Never raises; never mutates ``image_bgr`` / ``db``.
+    """
+    if getattr(db, 'scored_for_page', None) is None:
+        return None
+    indices = slot_indices()
+    slots = []
+    for row, col in indices:
+        slot = extract_slot(image_bgr, lattice.slot_box(row, col))
+        if slot is None:
+            return None  # cannot build a full stack -> let the loop handle it
+        slots.append(slot)
+    try:
+        import numpy as _np
+        stack = _np.stack(slots).astype(_np.float32)
+    except Exception:
+        return None
+    scored_lists = db.scored_for_page(stack)
+    if scored_lists is None or len(scored_lists) != len(indices):
+        return None
+
+    results = []
+    for (row, col), slot, scored in zip(indices, slots, scored_lists):
+        empty = upper_region_is_empty(slot, tol)
+        try:
+            res = db._decide_from_scored(scored, slot, row=row, col=col,
+                                         page=page, empty=empty)
+        except Exception:
+            res = SlotResult(state=STATE_UNKNOWN, name=None,
+                             distance=float('inf'), margin=0.0,
+                             signature=None, page=page, row=row, col=col)
+        res = _read_count_if_item(res, slot)
+        results.append(res)
     return results
 
 
@@ -117,16 +185,25 @@ def _classify_one_slot(image_bgr, db, lattice, page, row, col, tol):
                           distance=float('inf'), margin=0.0,
                           signature=None, page=page, row=row, col=col)
     res = classify_slot(slot, db, row=row, col=col, page=page, tol=tol)
-    # Read the printed STACK NUMBER on every recognised item (font-independent
-    # OCR) so stackables (baits, boxes, dyes, bleach, keys) sum by quantity, not
-    # by slot. Never raises -> degrades to count=None.
-    if res.state == STATE_ITEM:
-        try:
-            cr = read_count(slot)
-            res = replace(res, count=cr.value, count_confident=cr.confident)
-        except Exception:
-            pass
-    return res
+    return _read_count_if_item(res, slot)
+
+
+def _read_count_if_item(res, slot):
+    """Read + attach the printed stack number when ``res`` is a recognised item.
+
+    Shared tail of the per-slot and page-vectorised paths so BOTH read the stack
+    number identically. Reads the font-independent stack-count OCR on every
+    ITEM slot so stackables (baits, boxes, dyes, bleach, keys) sum by quantity,
+    not by slot. Never raises -> a failed read degrades to ``count=None``;
+    a non-item ``res`` is returned unchanged.
+    """
+    if res.state != STATE_ITEM:
+        return res
+    try:
+        cr = read_count(slot)
+        return replace(res, count=cr.value, count_confident=cr.confident)
+    except Exception:
+        return res
 
 
 # -- TWO-PHASE FAST PATH: capture (fast) then parallel recognise -------------
@@ -214,7 +291,7 @@ def _verified_capture(page, image, capture_fn, switch_page_fn, verify_page_fn):
 
 def recognize_pages(captured, db, calib=DEFAULT_CALIBRATION,
                     progress_fn=None, max_workers=None,
-                    align_fn=None):
+                    align_fn=None, vectorized=None):
     """PHASE 2 -- auto-align + classify the buffered pages, slots in PARALLEL.
 
     Takes the ``{page: bgr_image}`` buffer from :func:`capture_pages`, locks
@@ -233,6 +310,16 @@ def recognize_pages(captured, db, calib=DEFAULT_CALIBRATION,
     pool; ``max_workers <= 1`` (or a missing pool) runs a serial fallback that
     fires the same progress sequence.
 
+    OPT-IN VECTORISED PATH (``vectorized`` true; default
+    :data:`VECTORIZED_DEFAULT` == off): each PAGE is recognised as ONE batched
+    numpy reduction over its 45 slots (:func:`_recognize_page_vectorized`)
+    instead of fanning 45 individual slot tasks; the pages then fan across the
+    pool. The result map is IDENTICAL to the per-slot path (same engine, same
+    numbers); progress still advances 1..total in slot units (a page contributes
+    its 45 ticks when it completes) so the monotonic-1..total contract holds on
+    both paths. With ``vectorized`` false the original slot-fanout path runs
+    byte-for-byte unchanged.
+
     Defensive: never raises. A page whose auto-align fails still classifies
     against the calibration lattice; a slot whose worker raises degrades to an
     UNKNOWN result rather than aborting the scan.
@@ -243,6 +330,11 @@ def recognize_pages(captured, db, calib=DEFAULT_CALIBRATION,
 
     tol = int((calib or {}).get('tolerance', DEFAULT_TOLERANCE))
     aligner = align_fn if align_fn is not None else auto_align
+
+    use_vec = VECTORIZED_DEFAULT if vectorized is None else bool(vectorized)
+    if use_vec:
+        return _recognize_pages_vectorized(captured, db, calib, aligner,
+                                           progress_fn, max_workers, tol)
 
     # Lock each page's grid ONCE (cheap relative to the 45-slot classify), then
     # fan the slots out. Pre-size each page's result list so workers can drop
@@ -320,6 +412,98 @@ def recognize_pages(captured, db, calib=DEFAULT_CALIBRATION,
                     _emit_progress(done)
 
     pages_out = {page: tuple(slots) for page, slots in page_results.items()}
+    _log('inventory.scan_done', pages=len(pages_out))
+    return InventoryMap(pages=pages_out)
+
+
+def _recognize_pages_vectorized(captured, db, calib, aligner, progress_fn,
+                                max_workers, tol):
+    """Vectorised twin of :func:`recognize_pages`: PAGE-fanout, batched matcher.
+
+    Locks each page's grid exactly like the slot path (``aligner``, falling back
+    to the calibration lattice on failure), then runs ONE
+    :func:`_recognize_page_vectorized` per page -- each page is a single batched
+    numpy reduction over its 45 slots -- and fans the PAGES across the thread
+    pool (the heavy reduction is GIL-free, so pages overlap). The result map is
+    identical to the per-slot path.
+
+    Progress stays in SLOT units for an unchanged 0..100%% UI contract: a page
+    contributes its :data:`SLOTS_PER_PAGE` ticks (``done`` += 1 each) when it
+    completes, collected single-threaded via :func:`as_completed`, so ``done``
+    rises monotonically 1..``total`` with ``total = pages * 45`` and the last
+    tick equals ``total``. Never raises: a page whose vectorised recognition
+    fails degrades to the per-slot loop (inside :func:`recognize_page`) or, in
+    the extreme, to 45 UNKNOWN slots, but the scan always returns a full map.
+    """
+    lattices = {}
+    page_results = {}
+    for page, image in captured.items():
+        try:
+            lattice = aligner(image, db, calib)
+        except Exception as exc:
+            _log('inventory.scan_page_failed', page=page, detail=str(exc)[:120])
+            lattice = lattice_from_calibration(calib)
+        lattices[page] = lattice
+        page_results[page] = None
+
+    pages = list(captured.keys())
+    total = len(pages) * SLOTS_PER_PAGE
+    done = 0
+
+    def _emit_progress(d):
+        if progress_fn is None:
+            return
+        try:
+            progress_fn(d, total)
+        except Exception:
+            pass  # progress is cosmetic; never let it abort the scan
+
+    def _work(page):
+        # One whole page through the batched matcher. recognize_page already
+        # degrades to the per-slot loop if the batch is unavailable; wrap once
+        # more so a page NEVER aborts the scan (worst case: 45 UNKNOWN).
+        try:
+            slots = recognize_page(captured[page], db, calib,
+                                   lattice=lattices[page], page=page,
+                                   vectorized=True)
+        except Exception as exc:
+            _log('inventory.scan_page_failed', page=page, detail=str(exc)[:120])
+            slots = [SlotResult(state=STATE_UNKNOWN, name=None,
+                                distance=float('inf'), margin=0.0,
+                                signature=None, page=page, row=row, col=col)
+                     for (row, col) in slot_indices()]
+        return page, slots
+
+    def _collect(page, slots):
+        nonlocal done
+        page_results[page] = tuple(slots)
+        # Emit this page's 45 slot ticks so the bar advances in slot units.
+        for _ in range(SLOTS_PER_PAGE):
+            done += 1
+            _emit_progress(done)
+
+    workers = _resolve_workers(max_workers, len(pages))
+    if workers <= 1:
+        for page in pages:
+            _collect(*_work(page))
+    else:
+        try:
+            with ThreadPoolExecutor(max_workers=workers,
+                                    thread_name_prefix='inv-recognize') as ex:
+                futs = [ex.submit(_work, page) for page in pages]
+                for fut in as_completed(futs):
+                    page, slots = fut.result()
+                    _collect(page, slots)
+        except Exception as exc:
+            # Pool blew up -> finish serially so a full map still returns.
+            _log('inventory.scan_page_failed', page='recognize',
+                 detail=str(exc)[:120])
+            for page in pages:
+                if page_results[page] is None:
+                    _collect(*_work(page))
+
+    pages_out = {page: page_results[page] for page in pages
+                 if page_results[page] is not None}
     _log('inventory.scan_done', pages=len(pages_out))
     return InventoryMap(pages=pages_out)
 

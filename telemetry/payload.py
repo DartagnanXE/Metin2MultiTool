@@ -27,18 +27,6 @@ _MAX_COUNT = 100_000_000
 _MAX_RUNTIME_S = 100_000_000.0
 
 
-def _clamp_int(value, lo, hi):
-    try:
-        n = int(value)
-    except (TypeError, ValueError):
-        return lo
-    if n < lo:
-        return lo
-    if n > hi:
-        return hi
-    return n
-
-
 def _clamp_float(value, lo, hi):
     try:
         f = float(value)
@@ -51,6 +39,16 @@ def _clamp_float(value, lo, hi):
     if f > hi:
         return hi
     return f
+
+
+def _clamp_int(value, lo, hi):
+    # Delegates to _clamp_float so the int path shares the SAME (NaN-safe,
+    # range-clamped) logic and inherits its guards: previously int(float('inf'))
+    # raised OverflowError (uncaught -> broke the module's "never raises"
+    # contract); routing through _clamp_float clamps inf to ``hi`` first, then
+    # int() is safe. For all finite/garbage inputs the result is identical to the
+    # former standalone implementation.
+    return int(_clamp_float(value, lo, hi))
 
 
 def _clean_str(value, maxlen):

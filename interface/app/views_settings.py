@@ -95,6 +95,12 @@ class SettingsViewMixin:
             ibody, 1, t('ui.auto_scan_after_fishing'), None,
             t('ui.auto_scan_after_fishing_help'), self._auto_scan_var,
             self._on_auto_scan_toggle)
+        self._fast_recognition_var = ctk.BooleanVar(
+            value=self._cfg['inventory'].get('fast_recognition', False))
+        self._switch_row(
+            ibody, 2, t('ui.fast_recognition'), None,
+            t('ui.fast_recognition_help'), self._fast_recognition_var,
+            self._on_fast_recognition_toggle)
 
         # -- Karte "Window" (Settings #2 + #1) --------------------------
         window = Section(scroll, t('ui.group_window'))

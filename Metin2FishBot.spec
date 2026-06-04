@@ -124,6 +124,10 @@ a = Analysis(
         'inventory_campfire', 'interface.inventory_campfire_runner',
         # Run 1: Ranking/Events/Mount -- z.T. lazy in app.py/hack.py importiert.
         'stats', 'event_window', 'mount',
+        # Responsiveness-Kern: Stop-Signal + Hotkey-Daemon + Op-Zeitbudget. Statisch
+        # von run_loop/fishingbot importiert (also ohnehin im Graphen) -- hier
+        # explizit gepinnt, damit die Abhaengigkeit auch bei Refactors gebundelt bleibt.
+        'stop_signal',
         'telemetry', 'telemetry.hwid', 'telemetry.payload', 'telemetry.client',
         'interface.onboarding', 'interface.ranking_view',
     ] + ctk_hidden + tz_hidden + collect_submodules('pystray')  # pystray laedt sein Backend (pystray._win32) dynamisch -> alle Submodule mitnehmen

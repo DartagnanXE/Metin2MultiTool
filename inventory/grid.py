@@ -273,6 +273,23 @@ def auto_align(image_bgr, db, calib, radius=AUTO_ALIGN_RADIUS,
     return best_lat
 
 
+#: Lazily-resolved ``itemdb.downsample_slot`` (imported on first use to avoid the
+#: grid<->itemdb import cycle). Cached at module level so the alignment sweep --
+#: which calls :func:`_lattice_score` ~1300x per scan -- does NOT repeat a
+#: ``from .itemdb import`` (sys.modules dict lookup + getattr) on every call.
+_downsample_slot = None
+
+
+def _get_downsample_slot():
+    """Return ``itemdb.downsample_slot``, importing+caching it once. Lazy import
+    keeps the grid<->itemdb cycle from forming at module load."""
+    global _downsample_slot
+    if _downsample_slot is None:
+        from .itemdb import downsample_slot as _ds
+        _downsample_slot = _ds
+    return _downsample_slot
+
+
 def _lattice_score(image_bgr, db, lattice, boxes, thr=MATCH_THRESHOLD):
     """Score one candidate lattice: ``(matched_count, mean_matched_distance)``.
 
@@ -281,7 +298,7 @@ def _lattice_score(image_bgr, db, lattice, boxes, thr=MATCH_THRESHOLD):
     distance is taken at zero internal shift (cheap). Returns ``None`` if a slot
     cannot be extracted (off-image lattice) so that candidate is skipped.
     """
-    from .itemdb import downsample_slot
+    downsample_slot = _get_downsample_slot()
     matched = 0
     sum_dist = 0.0
     for row, col in boxes:

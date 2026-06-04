@@ -28,7 +28,19 @@ router = APIRouter()
 RATE_WINDOW_S = int(os.environ.get('RATE_LIMIT_WINDOW_S', '60'))
 RATE_MAX = int(os.environ.get('RATE_LIMIT_MAX', '5'))
 # Salt for IP hashing (GDPR: store a hash, not the raw IP). MUST be set in prod.
-IP_HASH_SALT = os.environ.get('IP_HASH_SALT', 'change-me-ip-salt')
+# If unset we keep working with a KNOWN public default so the dev/test path stays
+# byte-stable, but we WARN loudly: with the default salt an attacker who knows an
+# IP can recompute its stored ``ip_hash``, defeating the pseudonymisation. In
+# production IP_HASH_SALT must always be set in the environment.
+_IP_HASH_SALT_DEFAULT = 'change-me-ip-salt'
+IP_HASH_SALT = os.environ.get('IP_HASH_SALT', '')
+if not IP_HASH_SALT:
+    import warnings
+    warnings.warn(
+        'IP_HASH_SALT is not set -- ip_hash uses a known public default and '
+        'offers no GDPR pseudonymisation; set IP_HASH_SALT in production!',
+        stacklevel=1)
+    IP_HASH_SALT = _IP_HASH_SALT_DEFAULT   # degraded, not secure
 
 # Implausible-jump guard: a single submit may not increase a cumulative counter
 # by more than this (a real session cannot realistically jump by millions).

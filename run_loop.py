@@ -30,6 +30,7 @@ from interface import config as cfgmod
 import detection
 import event_window
 import stats as statsmod
+import stop_signal
 
 
 # Tick-Kadenz: 10 ms. Reicht voellig (runHack blockiert ohnehin waehrend einer
@@ -84,6 +85,21 @@ class RunLoop:
         # geprueft -- gilt fuer BEIDE Modi. None = kein Limit; nur positive Minuten.
         self._stop_deadline = None
 
+        # -- Responsiveness: globaler Stop-Signal + Hotkey-Daemon -------------
+        # EIN gemeinsames, flag-basiertes Stop-Signal fuer die ganze App. Der
+        # Hotkey-Daemon (eigener High-Frequency-Thread) setzt es bei F6 SOFORT --
+        # unabhaengig vom Hauptloop und von jeder schweren Op -- und ein Callback
+        # raeumt dabei ``botting`` beider Bots. Schwere Ops (Refill/Inventar-Scan)
+        # bekommen dieses Signal injiziert und brechen ueber seine
+        # interruptible-sleeps in <1 Slice ab. Default-Signal ist NIE gesetzt ->
+        # ohne laufenden Bot aendert sich nichts (byte-stabil).
+        self.stop_signal = stop_signal.StopSignal()
+        self._stop_watcher = None
+        # Vom Daemon-Callback gesetzt, wenn die Stop-TASTE (F6) den Stop ausloeste
+        # -- so kann der Tick den Hotkey-Stop (mit Grund/Log) vom stillen
+        # Button-Stop unterscheiden, obwohl BEIDE das Stop-Signal setzen.
+        self._hotkey_fired = False
+
         # -- Counter-/Stats-Zustand (single-threaded, im Tick gepflegt) -------
         # Per-Tick-Wanduhr fuer Laufzeit-Akkumulation (Delta zwischen zwei Ticks).
         self._last_tick_clock = None
@@ -124,8 +140,53 @@ class RunLoop:
         # UI-Sync.
         self.controller.on_start = self.on_start
         self.controller.on_stop = self.on_stop
+        # Stop-Hotkey-Daemon starten: pollt F6 auf EIGENEM High-Frequency-Thread
+        # und setzt bei Druck das Stop-Signal -> der ``_on_stop_signal``-Callback
+        # raeumt SOFORT botting beider Bots, voellig unabhaengig davon, was der
+        # Hauptloop oder eine schwere Op gerade tut. Strikt defensiv: ein Fehler
+        # hier (kein win32, kein Thread) laesst den In-Tick-Fallback-Poll greifen.
+        self.start_stop_watcher()
         # Ersten Tick einreihen (der Mainloop wird vom Bootstrap gestartet).
         self.app.after(self.tick_ms, self.tick)
+
+    def start_stop_watcher(self):
+        """Erzeugt + startet den Stop-Hotkey-Daemon-Thread (idempotent). Wirft nie.
+
+        Der Daemon liest die Stop-Taste live aus der Config (``controls.stop_hotkey``,
+        Default 'f6') und feuert bei der Press-Flanke das gemeinsame Stop-Signal.
+        Registriert ausserdem den Botting-raeum-Callback am Signal. Ohne win32
+        (headless) ist der Watcher ein No-op -> der In-Tick-Poll bleibt das Netz.
+        """
+        try:
+            self.stop_signal.add_callback(self._on_stop_signal)
+            self._stop_watcher = stop_signal.StopHotkeyWatcher(
+                self.stop_signal, key_provider=self._current_stop_key)
+            self._stop_watcher.start()
+        except Exception:
+            self._stop_watcher = None
+
+    def _current_stop_key(self):
+        """Liefert die aktuell konfigurierte Stop-Taste (Default 'f6'). Wirft nie."""
+        try:
+            return (self.controller.current_config()
+                    .get('controls', {}).get('stop_hotkey', 'f6'))
+        except Exception:
+            return 'f6'
+
+    def _on_stop_signal(self):
+        """Callback des Stop-Signals (vom Daemon-Thread bei F6 gefeuert).
+
+        Raeumt SOFORT ``botting`` beider Bots -- ein einfacher bool-Write, unter
+        dem GIL atomar, also thread-sicher ohne Lock. Der Hauptloop spiegelt das
+        beim naechsten Tick ins UI (notify_stop). Wirft nie -- darf den Daemon
+        nie kippen.
+        """
+        try:
+            self._hotkey_fired = True
+            self.fishbot.botting = False
+            self.puzzlebot.botting = False
+        except Exception:
+            pass
 
     # -- Counter / Stats ---------------------------------------------------
 
@@ -435,6 +496,11 @@ class RunLoop:
         """
         values = self.controller.collect_values()
         self.arm_stop_after()
+        # Stop-Signal + Hotkey-Marke fuer den NEUEN Lauf frisch zuruecksetzen (ein
+        # evtl. noch gesetztes Flag aus einem frueheren Stop darf den neuen Start
+        # nicht sofort kippen). Danach erst botting=True setzen.
+        self.stop_signal.clear()
+        self._hotkey_fired = False
         if self.controller.mode == 'fishing':
             # Konfigurierbare Hotkeys VOR set_to_begin auf die Instanz injizieren
             # (analog zur Puzzle-Config-Injektion). Frozen keys via to_values
@@ -465,6 +531,10 @@ class RunLoop:
                 self.controller.current_config()
                 .get('inventory', {}).get('hotkey', 'i'))
             self.fishbot.on_bait_empty = self._on_bait_empty
+            # Gemeinsames Stop-Signal injizieren: die schwere Refill-Op (Inventar
+            # oeffnen/scannen/draggen) pollt es ueber interruptible-sleeps und
+            # bricht bei F6 in <1 Slice ab -- der Bot haengt nie in einem Refill.
+            self.fishbot.stop_signal = self.stop_signal
             self.fishbot.set_to_begin(values)   # erzeugt wincap, liest frozen keys
             self.fishbot.botting = True
             self.puzzlebot.botting = False
@@ -478,9 +548,18 @@ class RunLoop:
     def on_stop(self):
         """Stoppt den Lauf. set_running(False) hat botting beider Bots bereits
         geleert (Exklusivitaets-Garantie) -- hier ist nichts weiter zu tun.
+
+        Setzt zusaetzlich das Stop-Signal, damit eine evtl. GERADE laufende
+        schwere Op (Refill mitten im Inventar-Scan/Drag) sofort abbricht, auch
+        wenn der Stop ueber den UI-Button statt ueber F6 kam. Das Flag wird beim
+        naechsten Tick / on_start wieder geraeumt.
         """
         self.fishbot.botting = False
         self.puzzlebot.botting = False
+        try:
+            self.stop_signal.request_stop()
+        except Exception:
+            pass
 
     # -- Tick --------------------------------------------------------------
 
@@ -510,9 +589,27 @@ class RunLoop:
         stop_reason = None
 
         # 0) Globaler Stop-Hotkey (Default F6): wirkt auch wenn das Spiel den
-        #    Fokus hat. Nur wenn ueberhaupt ein Bot laeuft; strikt defensiv.
-        if ((self.fishbot.botting or self.puzzlebot.botting)
-                and self._stop_hotkey_down()):
+        #    Fokus hat. ZWEI Quellen, beide flag-/poll-basiert und defensiv:
+        #    (a) der High-Frequency-Daemon hat das Stop-Signal bereits gesetzt
+        #        (er hat botting schon via Callback geraeumt -- hier nur noch den
+        #        Grund melden + das Signal konsumieren), ODER
+        #    (b) der In-Tick-Fallback-Poll (greift, falls der Daemon nicht laufen
+        #        kann, z. B. ohne win32). Nur relevant, solange ein Bot laeuft.
+        bot_active = self.fishbot.botting or self.puzzlebot.botting
+        if self.stop_signal.stopped:
+            # Das Signal wurde gesetzt (Daemon-F6 ODER Button-Stop). Es hat seinen
+            # Zweck (schwere Op abbrechen + botting raeumen) erfuellt -> hier
+            # konsumieren. NUR wenn die Stop-TASTE die Quelle war (``_hotkey_fired``)
+            # melden wir das mit Grund/Log; der Button-Stop bleibt still (er laeuft
+            # ohnehin ueber set_running). botting defensiv nachziehen.
+            self.fishbot.botting = False
+            self.puzzlebot.botting = False
+            if self._hotkey_fired and (bot_active or self.controller.running):
+                log.event('-', t('run.stop_hotkey'))
+                stop_reason = t('run.reason_stop_hotkey')
+            self._hotkey_fired = False
+            self.stop_signal.clear()
+        elif bot_active and self._stop_hotkey_down():
             log.event('-', t('run.stop_hotkey'))
             self.fishbot.botting = False
             self.puzzlebot.botting = False
@@ -574,6 +671,20 @@ class RunLoop:
         self.accrue_runtime()
         self.detect_puzzle_solved()
         self.check_event_warning()
+
+        # 2c) Stop-Signal, das WAEHREND dieses Ticks gefeuert wurde (der Daemon
+        #     hat F6 mitten in einer schweren Op in Schritt 2 erkannt -> botting
+        #     bereits geraeumt, die Op brach ueber das interruptible-sleep ab):
+        #     hier konsumieren + korrekt attribuieren, damit die Statuszeile in
+        #     Schritt 3 den Hotkey-Grund zeigt statt des generischen Fallbacks.
+        if self.stop_signal.stopped:
+            self.fishbot.botting = False
+            self.puzzlebot.botting = False
+            if stop_reason is None and self._hotkey_fired:
+                log.event('-', t('run.stop_hotkey'))
+                stop_reason = t('run.reason_stop_hotkey')
+            self._hotkey_fired = False
+            self.stop_signal.clear()
 
         # 3) Laufzustand spiegeln. Hat sich ein Bot SELBST gestoppt (Zeitlimit,
         #    Region-/Truhen-Fehler, Exception), faellt das UI auf START zurueck UND

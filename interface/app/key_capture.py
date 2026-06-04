@@ -11,13 +11,16 @@ from interface.app._common import *  # noqa: F401,F403
 
 class KeyCaptureMixin:
     def _key_btn(self, which):
-        """Der Key-Capture-Button zu ``which`` (bait/cast/inventory).
+        """Der Key-Capture-Button zu ``which`` (bait/cast/mount/inventory/stop).
 
         Registry statt if/else, damit der Fluss generisch bleibt -- bait/cast
-        treffen exakt dieselben Buttons wie zuvor."""
+        treffen exakt dieselben Buttons wie zuvor. ``mount`` MUSS hier stehen
+        (sonst gibt das Lookup ``None`` zurueck und der Reittier-Tasten-Knopf
+        bleibt stumm), passend zu WHICH_TO_CFG['mount'] in _common."""
         return {
             'bait': getattr(self, 'bait_key_btn', None),
             'cast': getattr(self, 'cast_key_btn', None),
+            'mount': getattr(self, 'mount_key_btn', None),
             'inventory': getattr(self, 'inventory_key_btn', None),
             'stop': getattr(self, 'stop_key_btn', None),
         }.get(which)
@@ -35,7 +38,11 @@ class KeyCaptureMixin:
             self._capturing = (which, btn)
             btn.configure(text=t('ui.key_capture_prompt'), fg_color=TEAL_SOFT,
                           text_color=TEAL_BRIGHT)
-            self.bind('<Key>', self._on_key_capture, add='+')
+            # funcid merken, damit _end_key_capture GENAU dieses Binding loest
+            # (unbind('<Key>') ohne id wuerde ALLE <Key>-Bindings des Widgets
+            # entfernen -- auch fremde, mit add='+' angehaengte).
+            self._key_capture_bid = self.bind(
+                '<Key>', self._on_key_capture, add='+')
         except Exception:
             self._capturing = None
 
@@ -74,9 +81,18 @@ class KeyCaptureMixin:
         """Beendet die Aufnahme: Anzeige zuruecksetzen, Binding loesen."""
         section, cfg_key = WHICH_TO_CFG.get(which, ('fishing', which + '_key'))
         try:
-            self.unbind('<Key>')
+            # NUR das eigene Binding loesen (per gemerkter funcid); ohne id wuerde
+            # Tk alle <Key>-Bindings des Widgets abreissen. Faellt die id (z. B.
+            # bei einem fehlgeschlagenen bind), faellt es sauber auf unbind ohne
+            # id zurueck -- defensiv, wirft nie.
+            bid = getattr(self, '_key_capture_bid', None)
+            if bid:
+                self.unbind('<Key>', bid)
+            else:
+                self.unbind('<Key>')
         except Exception:
             pass
+        self._key_capture_bid = None
         self._capturing = None
         try:
             btn.configure(text=str(self._cfg[section][cfg_key]).upper(),

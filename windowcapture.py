@@ -6,9 +6,12 @@ from i18n import t
 # (z.B. unter WSL/Test ohne Abhaengigkeiten) aus, bleibt die Capture-Logik
 # unveraendert lauffaehig. Logging darf den Bot nie zum Absturz bringen.
 try:
-    from debuglog import log
+    from debuglog import log, log_error as _log_error
 except Exception:  # pragma: no cover - nur Fallback, falls Modul fehlt
     log = None
+    def _log_error(msg, exc=None):
+        """No-op-Fallback, falls debuglog fehlt. Wirft nie."""
+        pass
 
 
 # Rand-/Titelleisten-Masse des METIN2-Fensters (Fenstermodus). Einzige
@@ -17,20 +20,6 @@ except Exception:  # pragma: no cover - nur Fallback, falls Modul fehlt
 # aussen - TITLEBAR - BORDER hoch -> Client 800x600 == aussen 816x638.
 BORDER_PIXELS = 8
 TITLEBAR_PIXELS = 30
-
-
-def _log_error(msg, exc=None):
-    """Leitet eine Fehlermeldung an den Logger weiter, falls vorhanden.
-
-    Schluckt jeden Logger-eigenen Fehler still, damit das Logging niemals
-    den Capture-Pfad stoert.
-    """
-    if log is None:
-        return
-    try:
-        log.error(msg, exc=exc)
-    except Exception:
-        pass
 
 
 # -- Modul-weiter Zustand: bevorzugtes Fenster-Handle (Item N) -------------
@@ -287,11 +276,22 @@ class WindowCapture:
             raise Exception(msg)
 
         # np.frombuffer statt des in NumPy >= 2 entfernten np.fromstring
-        # (fromstring im Binaermodus wirft dort ValueError). frombuffer liefert
-        # ein schreibgeschuetztes Array; .copy() macht es beschreibbar, damit
-        # die nachfolgende Zuweisung img.shape = ... nicht fehlschlaegt.
-        img = np.frombuffer(signedIntsArray, dtype='uint8').copy()
-        img.shape = (self.h, self.w, 4)
+        # (fromstring im Binaermodus wirft dort ValueError). signedIntsArray ist
+        # ein bereits losgeloester Python-``bytes``-Puffer (GetBitmapBits liefert
+        # eine Kopie), daher bleibt die frombuffer-Ansicht auch nach dem GDI-Free
+        # gueltig -- reshape ist eine reine Sicht (keine Kopie).
+        bgra = np.frombuffer(signedIntsArray, dtype='uint8').reshape(
+            self.h, self.w, 4)
+
+        # Alpha verwerfen UND zugleich C-zusammenhaengend machen, in EINER Kopie:
+        # cvtColor(BGRA2BGR) erzeugt ein frisches, contiguous BGR-Array. Das
+        # ersetzt das fruehere img[...,:3] (strided View) + ascontiguousarray
+        # (zweite Kopie) -- byte-identisches Ergebnis, aber nur EINE Vollkopie des
+        # ~1.8 MB-Puffers pro Frame statt zwei (bei ~30 Hz spuerbar weniger
+        # Allokations-/GC-Druck). Der Alpha-Drop bleibt noetig, sonst wirft
+        # cv.matchTemplate (Assertion: depth/type/dims). cv2 wird lokal importiert
+        # (nur dieser Live-Pfad braucht es; der Modul-Import bleibt schlank).
+        import cv2 as cv
 
         # free resources
         dcObj.DeleteDC()
@@ -299,19 +299,7 @@ class WindowCapture:
         win32gui.ReleaseDC(self.hwnd, wDC)
         win32gui.DeleteObject(dataBitMap.GetHandle())
 
-        # drop the alpha channel, or cv.matchTemplate() will throw an error like:
-        #   error: (-215:Assertion failed) (depth == CV_8U || depth == CV_32F) && type == _templ.type() 
-        #   && _img.dims() <= 2 in function 'cv::matchTemplate'
-        img = img[...,:3]
-
-        # make image C_CONTIGUOUS to avoid errors that look like:
-        #   File ... in draw_rectangles
-        #   TypeError: an integer is required (got type tuple)
-        # see the discussion here:
-        # https://github.com/opencv/opencv/issues/14866#issuecomment-580207109
-        img = np.ascontiguousarray(img)
-
-        return img
+        return cv.cvtColor(bgra, cv.COLOR_BGRA2BGR)
 
     # find the name of the window you're interested in.
     # once you have it, update window_capture()

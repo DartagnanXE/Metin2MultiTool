@@ -31,9 +31,16 @@ from i18n import t
 
 # Logging weich einbinden -- ein kaputter Logger darf das Overlay nie stoppen.
 try:
-    from debuglog import log
+    from debuglog import (log, log_event as _log_event_raw,
+                          log_error as _log_error)
 except Exception:  # pragma: no cover - reiner Fallback
     log = None
+    def _log_event_raw(state, message, **fields):
+        """No-op-Fallback, falls debuglog fehlt. Wirft nie."""
+        pass
+    def _log_error(message, exc=None):
+        """No-op-Fallback, falls debuglog fehlt. Wirft nie."""
+        pass
 
 
 # -- Konstanten ------------------------------------------------------------
@@ -190,21 +197,9 @@ class MarkResult(dict):
 # -- Logging-Helfer --------------------------------------------------------
 
 def _log_event(message, **fields):
-    if log is None:
-        return
-    try:
-        log.event(0, message, **fields)
-    except Exception:
-        pass
-
-
-def _log_error(message, exc=None):
-    if log is None:
-        return
-    try:
-        log.error(message, exc=exc)
-    except Exception:
-        pass
+    """Strukturierte Log-Zeile (State 0); absturzsicher via debuglog.log_event.
+    ``_log_error`` wird direkt aus debuglog importiert (gleiche Signatur)."""
+    _log_event_raw(0, message, **fields)
 
 
 def _window_origin():
@@ -225,16 +220,10 @@ def _window_origin():
         return None
 
 
-def window_origin():
-    """Oeffentlicher Wrapper um :func:`_window_origin`.
-
-    Liefert den Bildschirmursprung des Spiel-Fensterinhalts ``(ox, oy)`` oder
-    ``None``, wenn das Fenster/der Capture-Stack fehlt. Damit
-    :mod:`overlay_preview` den GLEICHEN Ursprung-Pfad wie das Mark-Overlay nutzt
-    (eine Quelle der Wahrheit), ohne auf das private ``_window_origin``
-    zuzugreifen.
-    """
-    return _window_origin()
+#: Oeffentlicher Alias auf :func:`_window_origin` (KEIN Wrapper -- identische
+#: Funktion unter beiden Namen). So nutzt :mod:`overlay_preview` denselben
+#: Ursprung-Pfad wie das Mark-Overlay, ohne auf den privaten Namen zuzugreifen.
+window_origin = _window_origin
 
 
 def _default_grid_corners(default_offset):

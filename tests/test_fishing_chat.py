@@ -137,6 +137,94 @@ class TestFishingChatRealLabels(unittest.TestCase):
 
 
 @unittest.skipUnless(_HAS_DEPS, 'numpy/PIL fehlen')
+class TestChatRegionBottomAnchor(unittest.TestCase):
+    """Kalibrier-Fix: die Default-Chat-Region wird an den UNTEREN Frame-Rand
+    verankert, damit DIESELBE Logik den 802x632-Referenz-Shot (mit Titelleiste)
+    UND den 800x601-Live-Client (ohne Titelleiste, ~31px kuerzer) trifft.
+
+    Der Live-Capture von ``WindowCapture`` ist der reine Client; eine fix aus
+    632 gemessene y-Region laege darin ~31px zu tief (in der Hotbar) -> die
+    Chat-Zeile wuerde komplett verfehlt (Regression, die dieser Fix behebt).
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        fc.reset_template_cache()
+
+    def test_reference_frame_region_is_unchanged(self):
+        # Bit-Stabilitaet: auf dem 632er-Referenzframe MUSS die verankerte Region
+        # exakt die alte CHAT_REGION sein -> alle Templates/Labels bleiben gueltig.
+        self.assertEqual(fc.chat_region_for_frame(632), fc.CHAT_REGION)
+        self.assertEqual(fc.chat_region_for_frame(632), (115, 579, 405, 596))
+
+    def test_client_frame_region_shifts_up_by_titlebar(self):
+        # 800x601-Client: y um die ~31px Titelleiste (632-601) nach OBEN gerueckt.
+        self.assertEqual(fc.chat_region_for_frame(601), (115, 548, 405, 565))
+        ref = fc.chat_region_for_frame(632)
+        cli = fc.chat_region_for_frame(601)
+        self.assertEqual(ref[1] - cli[1], 31)   # obere y-Kante
+        self.assertEqual(ref[3] - cli[3], 31)   # untere y-Kante
+        self.assertEqual((ref[0], ref[2]), (cli[0], cli[2]))  # x unveraendert
+
+    def test_bad_height_falls_back_to_chat_region(self):
+        # Defensiv: unbrauchbare Hoehe -> fixe CHAT_REGION, nie ein Crash.
+        for bad in (0, -5, None, 'x', float('nan')):
+            self.assertEqual(fc.chat_region_for_frame(bad), fc.CHAT_REGION)
+
+    def test_explicit_region_is_respected(self):
+        # Ein explizit uebergebenes region UEBERSCHREIBT den Auto-Anker.
+        custom = (0, 0, 3, 3)
+        # Auf rein schwarzem Bild -> NONE, aber ohne den Auto-Anker zu nehmen
+        # (kein Crash, deterministisch).
+        res = fc.read_hook(np.zeros((601, 800, 3), dtype=np.uint8), region=custom)
+        self.assertEqual(res.kind, fc.NONE)
+
+    @unittest.skipUnless(_shots_present(), 'FischOCR-Screenshots fehlen')
+    def test_simulated_client_frame_reads_every_label(self):
+        # Schluessel-Beleg: aus jedem 802x632-Label einen ECHTEN 800x601-Client
+        # bauen (oben 31px Titelleiste + 1px-Rand wegschneiden -- genau das, was
+        # WindowCapture fuer dieselbe Szene liefert). Die Chat-Zeile sitzt dann
+        # bei y[548,565]; der Auto-Anker MUSS jeden Fisch/Item korrekt lesen.
+        # Mit der alten fixen Region (y[579,596]) waere das NONE gewesen.
+        title, border = 31, 1
+        cases = {k: v for k, v in _EXPECTED.items() if v[1] is not None}
+        failures = []
+        for fname, (exp_kind, exp_name) in sorted(cases.items()):
+            full = _load_bgr(os.path.join(_FISCH_DIR, fname))   # (632, 802)
+            client = full[title:, border:border + 800]          # -> (601, 800)
+            if client.shape[:2] != (601, 800):
+                failures.append('%s: client shape %r' % (fname, client.shape[:2]))
+                continue
+            res = fc.read_hook(client)                          # Auto-Anker
+            if not (res.kind == exp_kind and res.name == exp_name and res.confident):
+                failures.append('%s -> %r (erwartet kind=%s name=%r)'
+                                % (fname, res, exp_kind, exp_name))
+        self.assertEqual(failures, [],
+                         '601-Client-Fehlklassifikationen:\n' + '\n'.join(failures))
+
+    def test_live_capture_region_lands_on_chat_row(self):
+        # Optional: der echte Bot-Capture (live_capture.png, 800x601) liegt im
+        # Repo-Root. Falls vorhanden: die verankerte Region MUSS die Chat-Textzeile
+        # treffen (Wort-Segmentierung findet dort Text) -- NICHT mehr die Hotbar.
+        path = os.path.join(_ROOT, 'live_capture.png')
+        if not os.path.isfile(path):
+            self.skipTest('live_capture.png fehlt')
+        live = _load_bgr(path)
+        if live.shape[:2] != (601, 800):
+            self.skipTest('live_capture.png ist nicht 800x601')
+        x0, y0, x1, y1 = fc.chat_region_for_frame(live.shape[0])
+        self.assertEqual((y0, y1), (548, 565))
+        binary = fc._binary_line(live[y0:y1, x0:x1])
+        words = fc._segment_words(binary)
+        # In der Chat-Zeile steht Text -> mindestens ein Wort-Segment, Tinte > 0.
+        self.assertGreaterEqual(len(words), 1)
+        self.assertGreater(int(binary.sum()), 0)
+        # read_hook wirft auch hier nie.
+        self.assertIn(fc.read_hook(live).kind,
+                      (fc.NONE, fc.FISH, fc.ITEM, fc.NIETE))
+
+
+@unittest.skipUnless(_HAS_DEPS, 'numpy/PIL fehlen')
 class TestFishingChatRobustness(unittest.TestCase):
     """Der Kern wirft NIE und liefert bei Muell sauber NONE/UNKNOWN."""
 

@@ -148,20 +148,24 @@ class TestSetToBeginParsing(unittest.TestCase):
 class TestGoldenTunaGeometry(unittest.TestCase):
     """The three stacked golden-tuna dialog buttons (evenly DY-spaced).
 
-    Coordinates were re-measured on real 802x632 screenshots (no offset):
-    X=400, Y = {Release:268, Slice:300, Bait:332} (DY=32), plus a confirm-OK
-    at (400, 277) that dismisses the follow-up dialog.
+    The bot clicks in CLIENT coordinates (wincap.offset = client origin). The
+    buttons were measured on the 802x632 FULL-FRAME shots (client + ~31px
+    titlebar + 1px border): X=400, Y={Release:268, Slice:300, Bait:332} (DY=32),
+    confirm-OK (400,277). Converted to CLIENT = full-frame - (1, 31):
+    X=399, Y={237, 269, 301} (DY unchanged), confirm-OK (399, 246).
     """
 
     def test_x_and_dy_constants(self):
-        self.assertEqual(fishingbot.FishingBot.GOLDEN_TUNA_X, 400)
+        # X = 400 (full-frame) - 1 = 399; DY is a relative spacing (unchanged).
+        self.assertEqual(fishingbot.FishingBot.GOLDEN_TUNA_X, 399)
         self.assertEqual(fishingbot.FishingBot.GOLDEN_TUNA_DY, 32)
 
-    def test_y_table_is_stacked_around_300(self):
+    def test_y_table_is_stacked_around_269(self):
+        # Full-frame {268,300,332} - 31 -> client {237,269,301}.
         y = fishingbot.FishingBot.GOLDEN_TUNA_Y
-        self.assertEqual(y[1], 268)   # top    (300 - 32)  Freilassen
-        self.assertEqual(y[2], 300)   # middle (300)       Aufschneiden
-        self.assertEqual(y[3], 332)   # bottom (300 + 32)  Als Koeder benutzen
+        self.assertEqual(y[1], 237)   # top    (269 - 32)  Freilassen
+        self.assertEqual(y[2], 269)   # middle (269)       Aufschneiden
+        self.assertEqual(y[3], 301)   # bottom (269 + 32)  Als Koeder benutzen
 
     def test_fields_are_evenly_spaced(self):
         y = fishingbot.FishingBot.GOLDEN_TUNA_Y
@@ -169,7 +173,8 @@ class TestGoldenTunaGeometry(unittest.TestCase):
         self.assertEqual(y[3] - y[2], fishingbot.FishingBot.GOLDEN_TUNA_DY)
 
     def test_confirm_ok_position(self):
-        self.assertEqual(fishingbot.FishingBot.GOLDEN_TUNA_CONFIRM, (400, 277))
+        # (400, 277) full-frame - (1, 31) -> (399, 246) client.
+        self.assertEqual(fishingbot.FishingBot.GOLDEN_TUNA_CONFIRM, (399, 246))
 
 
 class TestMatchTemplateMax(unittest.TestCase):
@@ -530,6 +535,64 @@ class TestBaitRefillTrigger(unittest.TestCase):
         fake = _FakeRefill(empty=True)
         self._run(bot, fake)
         self.assertEqual(fake.refill_calls, [])
+
+    # -- Responsiveness: the heavy refill op is interruptible + bounded ----
+
+    def test_stop_signal_passed_as_should_stop_and_sleep(self):
+        # The bot must hand the engine an interruptible sleep + a should_stop
+        # predicate so a panic-stop aborts the multi-page scan.
+        import stop_signal
+        bot = self._bot()
+        bot.stop_signal = stop_signal.StopSignal()
+        fake = _FakeRefill(empty=True, result='dragged')
+        self._run(bot, fake)
+        _names, _target, kw = fake.refill_calls[0]
+        self.assertTrue(callable(kw.get('sleep')))
+        self.assertTrue(callable(kw.get('should_stop')))
+        # should_stop reflects the signal.
+        self.assertFalse(kw['should_stop']())
+        bot.stop_signal.request_stop()
+        self.assertTrue(kw['should_stop']())
+
+    def test_stopped_result_keeps_bot_state_and_no_crash(self):
+        # 'stopped' (engine aborted by F6) must not be treated as 'empty'; it
+        # just logs. botting is whatever the stop path already set (here True,
+        # since we only simulate the engine result).
+        bot = self._bot()
+        fake = _FakeRefill(empty=True, result='stopped')
+        self._run(bot, fake)                      # must not raise
+        self.assertTrue(bot.botting)              # not stopped *by refill*
+
+    def test_refill_should_stop_true_when_signal_set(self):
+        import stop_signal
+        bot = self._bot()
+        bot.stop_signal = stop_signal.StopSignal()
+        self.assertFalse(bot._refill_should_stop())
+        bot.stop_signal.request_stop()
+        self.assertTrue(bot._refill_should_stop())
+
+    def test_refill_should_stop_true_when_not_botting(self):
+        bot = self._bot()
+        bot.botting = False
+        self.assertTrue(bot._refill_should_stop())
+
+    def test_refill_sleep_interrupts_on_signal(self):
+        import stop_signal, time as _t
+        bot = self._bot()
+        bot.stop_signal = stop_signal.StopSignal()
+        import threading
+        threading.Timer(0.02, bot.stop_signal.request_stop).start()
+        t0 = _t.monotonic()
+        result = bot._refill_sleep(5.0)
+        self.assertFalse(result)                  # cut short by the stop
+        self.assertLess(_t.monotonic() - t0, 0.5)
+
+    def test_refill_sleep_without_signal_uses_plain_sleep(self):
+        # Default NULL_SIGNAL is never set -> wait returns True (uninterrupted)
+        # for a tiny duration without blocking the test meaningfully.
+        bot = self._bot()
+        # bot.stop_signal defaults to the never-set NULL_SIGNAL on the class.
+        self.assertTrue(bot._refill_sleep(0.001))
 
 
 class TestFireOnCatch(unittest.TestCase):

@@ -27,13 +27,17 @@ except Exception:  # pragma: no cover
 # The only 8 valid quick-slot keys (index 0 -> slot 1, ... index 7 -> slot 8).
 QUICKSLOT_KEYS = ('1', '2', '3', '4', 'f1', 'f2', 'f3', 'f4')
 
-# Drop-pixel CENTRE of each quick-slot in the 800x600 client (before the window
-# offset). MEASURED from a real bottom action bar (slot 1 = the red potion "194"
-# anchors the grid): slots 1-4 left of the divider (~x448), then a short gap,
-# then 5-8. Pitch ~38px, row centre y~580.
+# Drop-pixel CENTRE of each quick-slot in the 800x601 client (before the window
+# offset). RE-MEASURED from a real live capture (live_capture.png, 800x601 CLIENT
+# -- NOT the 802x632 reference): the quick-slot belt sits along the bottom edge,
+# split by a central chevron divider into 1-4 (left) and 5-8 (right). The clean
+# periodic slot borders on the empty right half land at x=455,487,519,551,583
+# (pitch 32px), bracketing slots 5-8 at centres 471/503/535/567; the left half
+# borders at 316/348/380/412/444 bracket slots 1-4 at 332/364/396/428. Row centre
+# y~582 (icon interior spans y~568..596). The bait stack "47" sat in slot 2 here.
 QUICKSLOT_XY = {
-    1: (324, 580), 2: (362, 580), 3: (400, 580), 4: (438, 580),
-    5: (476, 580), 6: (514, 580), 7: (552, 580), 8: (590, 580),
+    1: (332, 582), 2: (364, 582), 3: (396, 582), 4: (428, 582),
+    5: (471, 582), 6: (503, 582), 7: (535, 582), 8: (567, 582),
 }
 
 # Item names eligible for each refill (recognised by the inventory engine).
@@ -143,52 +147,117 @@ def drag(api, x1, y1, x2, y2, steps=DRAG_STEPS, settle=DRAG_SETTLE,
             pass
 
 
-def quickslot_is_empty(screenshot_bgr, slot_1to8, radius=8, thr=42):
-    """True iff quick-slot ``slot_1to8`` looks EMPTY (no bait icon).
+# Empty-slot probe tunables (calibrated on live_capture.png, 800x601 CLIENT).
+# An EMPTY slot is not merely dark -- it is DARK *and* FLAT (uniform background,
+# no icon highlights). An OCCUPIED slot -- even a dark, thin reddish bait icon
+# like the "47" worm stack -- always carries BRIGHT pixels (icon highlights /
+# white stack digits) and high local contrast. The old test (patch mean < 42)
+# wrongly flagged the worm slot as empty (its patch mean was only ~25, barely
+# above a truly empty ~9), so the bot refilled CONSTANTLY. We instead require
+# all three empty signals to agree, with wide margins measured on the live frame:
+#   empty patch:  mean ~9,  std ~7,   bright(>70) px = 0
+#   worm patch:   mean ~25, std ~46,  bright(>70) px ~38
+QUICKSLOT_PROBE_RADIUS = 11   # half-size of the sampled square (px)
+QUICKSLOT_DARK_MEAN = 45      # slot mean grayscale must be below this to be empty
+QUICKSLOT_FLAT_STD = 14       # ... and contrast (std) below this (flat background)
+QUICKSLOT_BRIGHT_VALUE = 70   # a pixel brighter than this counts as "icon ink"
+QUICKSLOT_MAX_BRIGHT_PX = 4   # ... and fewer than this many bright px present
+
+
+def quickslot_is_empty(screenshot_bgr, slot_1to8, radius=QUICKSLOT_PROBE_RADIUS,
+                       dark_mean=QUICKSLOT_DARK_MEAN, flat_std=QUICKSLOT_FLAT_STD,
+                       bright_value=QUICKSLOT_BRIGHT_VALUE,
+                       max_bright_px=QUICKSLOT_MAX_BRIGHT_PX):
+    """True iff quick-slot ``slot_1to8`` is CONFIDENTLY EMPTY (no item icon).
 
     Samples a small patch at the slot's client pixel on the captured window
-    (the screenshot IS the 800x600 window, so client == screenshot coords) and
-    calls it empty when that patch is dark -- an occupied slot shows a bright
-    item icon. Returns ``False`` (assume occupied -> do nothing) when numpy/the
-    image is unavailable, so a vision hiccup never triggers a needless refill.
+    (the screenshot IS the 800x601 client, so client == screenshot coords) and
+    calls it empty ONLY when that patch is at once DARK (low mean), FLAT (low
+    std) and free of bright "icon ink" pixels -- the fingerprint of the empty
+    slot background. Any item, even a dark bait icon with a stack count, breaks
+    at least one of those, so it reads as occupied. Channel-order agnostic
+    (uses the per-pixel channel mean), so it works on BGR captures or RGB alike.
+
+    Strictly conservative for the refill loop: returns ``False`` (assume
+    OCCUPIED -> do NOT refill) whenever numpy/the image is unavailable, the
+    patch is degenerate, or anything raises. In doubt we never refill.
     """
     if _np is None or screenshot_bgr is None:
         return False
     try:
         cx, cy = QUICKSLOT_XY[int(slot_1to8)]
         arr = _np.asarray(screenshot_bgr)
+        if arr.ndim != 3 or arr.shape[2] < 3:
+            return False
         h, w = arr.shape[0], arr.shape[1]
-        y0, y1 = max(0, cy - radius), min(h, cy + radius)
-        x0, x1 = max(0, cx - radius), min(w, cx + radius)
+        r = max(1, int(radius))
+        y0, y1 = max(0, cy - r), min(h, cy + r)
+        x0, x1 = max(0, cx - r), min(w, cx + r)
         if y1 <= y0 or x1 <= x0:
             return False
-        return float(arr[y0:y1, x0:x1, :3].mean()) < thr
+        patch = arr[y0:y1, x0:x1, :3].astype(_np.float32)
+        gray = patch.mean(axis=2)
+        bright_px = int((gray > float(bright_value)).sum())
+        is_dark = float(gray.mean()) < float(dark_mean)
+        is_flat = float(gray.std()) < float(flat_std)
+        return is_dark and is_flat and bright_px < int(max_bright_px)
     except Exception:
         return False
 
 
 def tab_click(inp, calib, offset_x, offset_y, page):
-    """Click an inventory page tab (I..IV) via the injected input api."""
-    pt = ((calib or {}).get('tabs', {}) or {}).get(page)
-    if pt:
-        inp.click(x=int(offset_x + pt[0]), y=int(offset_y + pt[1]),
-                  button='left')
+    """Click an inventory page tab (I..IV) via the injected input api.
+
+    Defensive (wie der ganze Refill-Pfad): ein fehlender Tab-Punkt oder ein
+    Input-Fehler darf den Scan NIE abreissen -- still no-op statt Exception.
+    """
+    try:
+        pt = ((calib or {}).get('tabs', {}) or {}).get(page)
+        if pt:
+            inp.click(x=int(offset_x + pt[0]), y=int(offset_y + pt[1]),
+                      button='left')
+    except Exception:
+        pass
 
 
 def refill_from_inventory(item_names, target_xy, *, inp, wincap, db,
-                          calib=DEFAULT_CALIBRATION, sleep=None):
+                          calib=DEFAULT_CALIBRATION, sleep=None,
+                          should_stop=None):
     """Scan the (already open) inventory + drag the first matching item to
-    ``target_xy``. Returns ``'dragged'`` / ``'empty'`` / ``'error'``.
+    ``target_xy``. Returns ``'dragged'`` / ``'empty'`` / ``'error'`` / ``'stopped'``.
 
     Reuses the headless scanner (tab-click page switch built from the
     calibration + window offset) + the tested find/coordinate/drag helpers.
     Strictly defensive -- a vision/input failure returns ``'error'`` and never
     raises into the bot loop.
+
+    ``should_stop`` is an optional no-arg predicate (the live loop passes the
+    global Stop-Signal). When it goes truthy the op aborts at the NEXT checkpoint
+    -- between page switches, before the drag -- and returns ``'stopped'`` so a
+    panic-stop (F6) is honoured within one page-switch nap instead of blocking
+    the loop for the whole multi-page scan + drag. Off (``None``) -> unchanged.
     """
     if sleep is None:
         import time
         sleep = time.sleep
+    stop = should_stop if callable(should_stop) else (lambda: False)
+
+    def _napped(seconds):
+        """Sleep ``seconds`` but bail the instant a stop is requested.
+
+        Returns ``False`` if a stop interrupted the nap (caller aborts). The
+        injected ``sleep`` is the interruptible Stop-Signal.wait in production
+        (returns False on a stop) and a plain/​no-op sleep in tests; either way we
+        re-check ``stop`` after it so the abort is honoured regardless.
+        """
+        result = sleep(seconds)
+        if result is False:
+            return False
+        return not stop()
+
     try:
+        if stop():
+            return 'stopped'
         from inventory.scanner import scan_inventory
         # Vertrag (vgl. fishingbot.bait_refill_db / run_loop._bait_refill_db):
         # db=None -> Engine baut/nutzt den gebuendelten Default selbst. Der
@@ -206,23 +275,42 @@ def refill_from_inventory(item_names, target_xy, *, inp, wincap, db,
         ox = int(getattr(wincap, 'offset_x', 0) or 0)
         oy = int(getattr(wincap, 'offset_y', 0) or 0)
 
+        # Abbruch-Marke fuer den seriellen Page-Scan: ``_switch_page`` ist der
+        # einzige Hook waehrend des Scans -- wird hier zwischen den Seiten
+        # gesetzt, falls ein Stop kam, damit der Scan nach der aktuellen Seite
+        # zuegig endet (statt alle 4 Seiten + Drag durchzuziehen).
+        aborted = {'stop': False}
+
         def _switch_page(page):
+            # MUSS die Tab navigieren: scan_inventory ruft switch_page_fn(page),
+            # um auf Seite ``page`` zu wechseln, BEVOR es den Frame greift. Ohne
+            # den Klick blieb dieselbe (Start-)Seite offen -> der Scanner sah I..IV
+            # alle als Seite I, Items auf II/III/IV wurden nie gefunden -> der Bot
+            # meldete faelschlich 'empty'. Erst klicken, dann die (interruptible)
+            # Settle-Nap fuer den Stop-Check.
             tab_click(inp, calib, ox, oy, page)
-            sleep(0.2)
+            if not _napped(0.2):
+                aborted['stop'] = True
 
         inv = scan_inventory(
             capture_fn=wincap.get_screenshot,
             switch_page_fn=_switch_page,
             db=db, calib=calib)
+        if aborted['stop'] or stop():
+            return 'stopped'
         loc = find_first(inv, item_names)
         if loc is None:
             return 'empty'
         page, row, col = loc
         tab_click(inp, calib, ox, oy, page)
-        sleep(0.25)
+        if not _napped(0.25):
+            return 'stopped'
         fx, fy = inventory_slot_screen(row, col, ox, oy, calib)
+        # Den Drag selbst mit der interruptiblen Sleep ausstatten: bricht ein Stop
+        # mitten in den Zwischen-Moves, gibt der finally-Block in ``drag`` die
+        # Maustaste trotzdem frei (kein haengender Mausknopf).
         drag(inp, fx, fy, int(target_xy[0]), int(target_xy[1]), sleep=sleep)
-        sleep(0.15)
+        _napped(0.15)
         return 'dragged'
     except Exception:
         return 'error'

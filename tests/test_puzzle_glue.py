@@ -327,5 +327,53 @@ class TestButtonClickMethods(unittest.TestCase):
         self.assertEqual((call['x'], call['y']), (ex, ey))
 
 
+class TestCellClickHelpers(unittest.TestCase):
+    """Pin the board-CELL screen point + click used by play_game/_place_deluxe.
+
+    The placement paths (trained / opening-book / greedy / deluxe) each turned a
+    chosen board cell ``(i, j)`` into screen coordinates
+    ``int(geometry.cell_point(i, j, board_size) + puzzle_offset + wincap.offset)``
+    and clicked it POSITIONALLY (``pydirectinput.click(x, y)``, no button kwarg).
+    These helpers (``_cell_screen_point`` / ``_click_cell``) deduplicate that
+    arithmetic; this test nails the EXACT output so the extraction stays
+    byte-identical (the placement paths themselves need a live window).
+    """
+
+    def _bot(self, offset=(270, 227), wincap=(1000, 500), board_size=None):
+        bot = puzzle.PuzzleBot.__new__(puzzle.PuzzleBot)
+        bot.board_size = board_size or puzzle.PuzzleBot.PUZZLE_WINDOW_SIZE
+        bot.puzzle_offset = offset
+        bot.wincap = _FakeWincap(*wincap)
+        return bot
+
+    def _expected(self, bot, i, j):
+        import geometry
+        cx, cy = geometry.cell_point(i, j, bot.board_size)
+        return (int(cx + bot.puzzle_offset[0] + bot.wincap.offset_x),
+                int(cy + bot.puzzle_offset[1] + bot.wincap.offset_y))
+
+    def test_cell_screen_point_matches_inlined_formula(self):
+        bot = self._bot()
+        for (i, j) in ((0, 0), (3, 5), (2, 4)):
+            self.assertEqual(bot._cell_screen_point(i, j),
+                             self._expected(bot, i, j), (i, j))
+
+    def test_cell_screen_point_scales_with_board_size(self):
+        bot = self._bot(board_size=(520, 340))
+        self.assertEqual(bot._cell_screen_point(3, 5), self._expected(bot, 3, 5))
+
+    def test_click_cell_clicks_positionally_at_cell_point(self):
+        bot = self._bot()
+        calls = []
+        with mock.patch.object(puzzle.pydirectinput, 'click',
+                               lambda *a, **kw: calls.append((a, kw))):
+            bot._click_cell(2, 4)
+        # Exactly the inlined call shape: two positional args, no kwargs.
+        self.assertEqual(len(calls), 1)
+        args, kwargs = calls[0]
+        self.assertEqual(kwargs, {})
+        self.assertEqual(args, self._expected(bot, 2, 4))
+
+
 if __name__ == '__main__':
     unittest.main()

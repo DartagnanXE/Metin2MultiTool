@@ -40,9 +40,16 @@ from i18n import t
 
 # Logging weich einbinden -- ein kaputter Logger darf das Overlay nie stoppen.
 try:
-    from debuglog import log
+    from debuglog import (log, log_event as _log_event_raw,
+                          log_error as _log_error)
 except Exception:  # pragma: no cover - reiner Fallback
     log = None
+    def _log_event_raw(state, message, **fields):
+        """No-op-Fallback, falls debuglog fehlt. Wirft nie."""
+        pass
+    def _log_error(message, exc=None):
+        """No-op-Fallback, falls debuglog fehlt. Wirft nie."""
+        pass
 
 # Tk weich einbinden (kein Display unter WSL/Test -> ImportError moeglich).
 try:
@@ -57,10 +64,11 @@ DEFAULT_BOARD_SIZE = geometry.REF_SIZE          # (260, 170)
 DEFAULT_DURATION_MS = 5000                      # ~5 Sekunden, dann Auto-Close
 DEFAULT_ALPHA = 0.85
 
-# Erlaubter Deckkraft-Bereich (deckt sich mit config.OVERLAY_OPACITY_MIN/MAX und
-# overlay_mark.ALPHA_MIN/MAX). Lokal gehalten -> headless ohne interface.config.
-ALPHA_MIN = 0.4
-ALPHA_MAX = 1.0
+# Erlaubter Deckkraft-Bereich + Klemm-Helfer kommen aus EINER Quelle
+# (overlay_mark re-exportiert overlay_geometry) -- frueher hier dupliziert. Der
+# Klemm-Fallback (overlay_geometry.OVERLAY_ALPHA == 0.85) ist identisch zu
+# DEFAULT_ALPHA, daher byte-stabil. overlay_mark ist ohnehin schon importiert.
+from overlay_mark import ALPHA_MIN, ALPHA_MAX, _clamp_alpha  # noqa: F401
 
 # Radius der gezeichneten Rasterpunkte (wie overlay_mark.DOT_RADIUS).
 DOT_RADIUS = 3
@@ -87,37 +95,9 @@ _KEYPOINT_ACCESSORS = (
 # -- Logging-Helfer --------------------------------------------------------
 
 def _log_event(message, **fields):
-    if log is None:
-        return
-    try:
-        log.event(0, message, **fields)
-    except Exception:
-        pass
-
-
-def _log_error(message, exc=None):
-    if log is None:
-        return
-    try:
-        log.error(message, exc=exc)
-    except Exception:
-        pass
-
-
-def _clamp_alpha(value):
-    """Klemmt eine Deckkraft defensiv in [ALPHA_MIN, ALPHA_MAX].
-
-    Nicht-numerische Eingabe -> ``DEFAULT_ALPHA``. Wirft nie.
-    """
-    try:
-        number = float(value)
-    except (TypeError, ValueError):
-        return DEFAULT_ALPHA
-    if number < ALPHA_MIN:
-        return ALPHA_MIN
-    if number > ALPHA_MAX:
-        return ALPHA_MAX
-    return number
+    """Strukturierte Log-Zeile (State 0); absturzsicher via debuglog.log_event.
+    ``_log_error`` wird direkt aus debuglog importiert (gleiche Signatur)."""
+    _log_event_raw(0, message, **fields)
 
 
 def _safe_offset(offset):

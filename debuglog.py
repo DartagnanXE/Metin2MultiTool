@@ -231,3 +231,27 @@ class DebugLog:
 
 # Singleton: ueberall via ``from debuglog import log`` importierbar.
 log = DebugLog()
+
+
+# -- modulweite Bequemlichkeits-Shims (absturzsicher) ----------------------
+#
+# Mehrere Module brauchten denselben "logge defensiv, wirf nie"-Wrapper und
+# hatten ihn jeweils lokal kopiert. Hier EINMAL bereitgestellt -> ein einziger
+# Aenderungspunkt, kein Drift. Die ``log``-Methoden schlucken zwar bereits ihre
+# eigenen Fehler; das zusaetzliche try/except deckt zudem den (theoretischen)
+# Fall ab, dass ``log`` selbst ersetzt/kaputt ist. Beide Helfer WERFEN NIE.
+
+def log_event(state, message, **fields):
+    """Strukturierte Event-Zeile (``log.event``), absturzsicher. Wirft nie."""
+    try:
+        log.event(state, message, **fields)
+    except Exception:
+        pass
+
+
+def log_error(message, exc=None):
+    """Fehlerzeile (``log.error``), absturzsicher. Wirft nie."""
+    try:
+        log.error(message, exc=exc)
+    except Exception:
+        pass

@@ -46,6 +46,34 @@ MIN_ASSET_BYTES = 2_000_000   # sanity floor (the real exe is tens of MB)
 _USER_AGENT = 'Metin2FishBot-Updater'
 _CHUNK = 64 * 1024
 
+# Hosts the portable EXE may be downloaded from. A GitHub release asset's
+# ``browser_download_url`` points at github.com and 302-redirects to
+# objects.githubusercontent.com (sometimes release-assets.githubusercontent.com).
+# The downloaded bytes are LAUNCHED as an EXE, so we pin the download to these
+# GitHub hosts: a tampered/spoofed API response (MitM, DNS poisoning) cannot then
+# steer the download to an attacker-controlled URL.
+_ALLOWED_UPDATE_HOSTS = frozenset({
+    'github.com',
+    'objects.githubusercontent.com',
+    'release-assets.githubusercontent.com',
+})
+
+
+def _validate_download_url(url):
+    """Reject a download URL that is not HTTPS to a trusted GitHub host.
+
+    Raises :class:`UpdateError` (``'insecure_url'`` / ``'untrusted_host'``) so the
+    caller's existing failure path handles it; the host comparison is
+    case-insensitive and ignores any ``user:pass@``/port portion.
+    """
+    from urllib.parse import urlsplit
+    parts = urlsplit(url or '')
+    if parts.scheme != 'https':
+        raise UpdateError('insecure_url')
+    host = (parts.hostname or '').lower()
+    if host not in _ALLOWED_UPDATE_HOSTS:
+        raise UpdateError('untrusted_host')
+
 
 class UpdateError(Exception):
     """Failure during download/apply. ``args[0]`` is a short machine code
@@ -208,6 +236,10 @@ def download_asset(update_info, dest_dir=None, progress=None):
     url = getattr(update_info, 'download_url', None)
     if not url:
         raise UpdateError('no_asset')
+    # Pin the download to trusted GitHub hosts before opening the connection: the
+    # downloaded bytes are launched as an EXE, so a spoofed API response must not
+    # be able to point us at an attacker-controlled URL.
+    _validate_download_url(url)
     dest_dir = dest_dir or tempfile.gettempdir()
     version = getattr(update_info, 'version', '0') or '0'
     dest = os.path.join(dest_dir,

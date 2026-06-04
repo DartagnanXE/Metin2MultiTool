@@ -39,13 +39,16 @@ from debuglog import log
 from i18n import t
 from interface import config as cfgmod
 from interface.app import App
+from interface.config.paths import debug_log_path
 import stats as statsmod
 from run_loop import RunLoop
 
 
 # Debug-Konsole einmalig beim Start verdrahten: parallel Konsole + Logdatei,
 # damit Angel-/Puzzle-Fehler auch aus der gepackten .exe nachvollziehbar sind.
-log.configure(to_console=True, to_file=True, path='puzzle_debug.log',
+# debug_log_path() bindet die Logdatei an den stabilen Config-Ordner (frozen ->
+# %APPDATA%), damit sie nicht CWD-relativ (ggf. System32 bei "Als Admin") landet.
+log.configure(to_console=True, to_file=True, path=debug_log_path(),
               level='DEBUG')
 log.section(t('run.bot_started'))
 

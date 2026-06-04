@@ -11,10 +11,10 @@ Benutzung ueberall::
     msg = t('ui.setting_changed', section='fishing', key='bait_time', value=7.5)
 
 Die Uebersetzungstabelle liegt in :mod:`i18n_data` (key -> {'en': .., 'de': ..}).
-Default-Sprache ist Englisch; ``set_lang('de')`` schaltet zur Laufzeit um und
-benachrichtigt registrierte Beobachter (das UI rendert sich dann neu). Logs
-werden zum Emit-Zeitpunkt uebersetzt -> neue Zeilen erscheinen in der aktuellen
-Sprache, bereits geschriebene bleiben unveraendert (normales i18n-Verhalten).
+Default-Sprache ist Englisch; ``set_lang('de')`` schaltet zur Laufzeit um (das
+UI rendert sich danach selbst neu). Logs werden zum Emit-Zeitpunkt uebersetzt ->
+neue Zeilen erscheinen in der aktuellen Sprache, bereits geschriebene bleiben
+unveraendert (normales i18n-Verhalten).
 """
 
 from i18n_data import TRANSLATIONS
@@ -22,7 +22,6 @@ from i18n_data import TRANSLATIONS
 LANGS = ('en', 'de')
 _DEFAULT = 'en'
 _lang = _DEFAULT
-_observers = []
 
 
 def get_lang():
@@ -31,21 +30,10 @@ def get_lang():
 
 
 def set_lang(lang):
-    """Setzt die Sprache und benachrichtigt die Beobachter. Wirft nie."""
+    """Setzt die Sprache. Wirft nie."""
     global _lang
     if lang in LANGS and lang != _lang:
         _lang = lang
-        for callback in list(_observers):
-            try:
-                callback(lang)
-            except Exception:
-                pass
-
-
-def on_change(callback):
-    """Registriert ``callback(lang)`` fuer Sprachwechsel (z.B. UI-Neu-Render)."""
-    if callable(callback) and callback not in _observers:
-        _observers.append(callback)
 
 
 def t(key, **fmt):

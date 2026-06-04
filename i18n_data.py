@@ -54,9 +54,12 @@ TRANSLATIONS = {
     'fishing.whitelist_abort_niete': {'en': 'Whitelist: nibble / no catch -> aborting minigame ({how}) and recasting', 'de': 'Whitelist: Niete / kein Fang -> Minispiel abgebrochen ({how}) und neu auswerfen'},
     'fishing.whitelist_keep': {'en': 'Whitelist: wanted catch ({name}) -> fishing on', 'de': 'Whitelist: gewünschter Fang ({name}) -> weiter angeln'},
     'fishing.bait_refill_empty_slot': {'en': 'Bait quick-slot empty -> refilling one bait from the inventory', 'de': 'Köder-Quickslot leer -> lege einen Köder aus dem Inventar nach'},
-    'fishing.bait_refill_done': {'en': 'Bait refilled into the quick-slot', 'de': 'Köder in den Quickslot nachgelegt'},
+    'fishing.bait_refill_started': {'en': 'Bait refill: opening inventory + scanning (max {budget}s)', 'de': 'Köder-Nachlegen: Inventar öffnen + scannen (max {budget}s)'},
+    'fishing.bait_refill_done': {'en': 'Bait refilled into the quick-slot ({secs}s)', 'de': 'Köder in den Quickslot nachgelegt ({secs}s)'},
     'fishing.bait_refill_none_left': {'en': 'No bait left in the inventory -> stopping the bot. Restock bait, then start again.', 'de': 'Kein Köder mehr im Inventar -> Bot wird gestoppt. Köder nachkaufen, dann erneut starten.'},
     'fishing.bait_refill_failed': {'en': 'Bait refill failed (inventory scan/drag error) -> fishing on without refill this time', 'de': 'Köder-Nachlegen fehlgeschlagen (Inventar-Scan-/Zieh-Fehler) -> diesmal ohne Nachlegen weiter angeln'},
+    'fishing.bait_refill_stopped': {'en': 'Bait refill aborted by stop', 'de': 'Köder-Nachlegen durch Stop abgebrochen'},
+    'fishing.bait_refill_timeout': {'en': 'Bait refill exceeded its {budget}s time budget -> aborted (inventory may be open; check Metin2)', 'de': 'Köder-Nachlegen hat sein {budget}s-Zeitbudget überschritten -> abgebrochen (Inventar evtl. offen; Metin2 prüfen)'},
     'fishing.minigame_finished': {'en': 'Minigame finished -> back to bait', 'de': 'Minispiel beendet -> zurück zu Köder'},
     'fishing.minigame_phase_start': {'en': 'Minigame phase starting', 'de': 'Minispiel-Phase startet'},
     'fishing.minigame_timeout': {'en': 'Minigame timeout (15s) -> back to bait', 'de': 'Minispiel-Timeout (15s) -> zurück zu Köder'},
@@ -381,6 +384,8 @@ TRANSLATIONS = {
     'ui.inventory_hotkey_sub': {'en': 'In-game key that opens the inventory (default: i)', 'de': 'Spiel-Taste, die das Inventar öffnet (Standard: i)'},
     'ui.auto_scan_after_fishing': {'en': 'Auto-scan after fishing', 'de': 'Auto-Scan nach dem Angeln'},
     'ui.auto_scan_after_fishing_help': {'en': 'Planned: automatically scan the inventory when fishing stops. The setting is saved now; the automation arrives in a later version.', 'de': 'Geplant: nach dem Angel-Stopp automatisch das Inventar scannen. Die Einstellung wird bereits gespeichert; die Automatik folgt in einer späteren Version.'},
+    'ui.fast_recognition': {'en': 'Fast recognition', 'de': 'Schnelle Erkennung'},
+    'ui.fast_recognition_help': {'en': 'Speeds up the inventory scan: each page is matched in one batched operation instead of slot by slot. The result is identical to the normal scan, just faster. Default off.', 'de': 'Beschleunigt den Inventar-Scan: jede Seite wird in einem gebündelten Schritt statt Slot für Slot erkannt. Das Ergebnis ist identisch zum normalen Scan, nur schneller. Standard aus.'},
 
     # ========================================================================
     # Run 1: Mount, Fish events, Golden-Tuna tooltip, Ranking, Onboarding,

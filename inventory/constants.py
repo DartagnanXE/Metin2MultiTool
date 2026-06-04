@@ -97,6 +97,21 @@ EMPTY_FALLBACK_STD = 6.0
 # the best (lowest-distance) shift. Absorbs sub-pixel / small session offset.
 SHIFT_RADIUS = 2
 
+# OPT-IN page-vectorised matcher (inventory.itemdb.ItemDB.match_page_distances):
+# instead of looping the masked-MAD matcher 45x per page (one Python call + one
+# numpy broadcast over the N references each), the vectorised primitive scores
+# ALL of a page's slots against ALL references in ONE batched numpy reduction
+# (slots on a new leading axis, references chunked to stay cache-resident). It is
+# NUMERICALLY IDENTICAL to the per-slot loop (bit-exact masked MAD + min over the
+# same [-S..S]^2 shifts -> same stable argsort -> same names/margins), it just
+# removes the 45x Python per-slot dispatch and reuses one big GIL-free numpy op.
+# This is the *factor* the matcher chunks references into: the giant
+# (slots, N, 32*32*3) intermediate is memory-bandwidth bound and slower than the
+# per-slot loop if materialised whole, so references are processed VECTOR_REF_CHUNK
+# at a time -- each chunk's (slots, chunk, P) diff stays in cache. ~8 measured
+# fastest on the build box (43 refs); the result is identical for any chunk >= 1.
+VECTOR_REF_CHUNK = 8
+
 # Auto-grid-alignment search radius (pixels) around the calibration origin
 # guess. The DENSE 1px search MUST stay strictly below the half-pitch (16px)
 # bound: at exactly +-pitch/2 the objective becomes ambiguous (the grid shifted

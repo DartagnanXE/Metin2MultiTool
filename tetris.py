@@ -149,34 +149,24 @@ class Tetris:
     def verify_isolated(self, x, y):
 
         if (x == 0 and y == 0) or (x == 2 and y == 0):
-            if self.board[x][y+1] == 1 and self.board[x+1][y] == 1:
-                return True
-            return False
+            return self.board[x][y+1] == 1 and self.board[x+1][y] == 1
 
         if (x == 0 and y == 5) or (x == 2 and y == 5):
-            if self.board[x][y-1] == 1 and self.board[x+1][y] == 1:
-                return True
-            return False
+            return self.board[x][y-1] == 1 and self.board[x+1][y] == 1
 
         if (x == 1 and y == 0) or (x == 3 and y == 0):
-            if self.board[x-1][y] == 1 and self.board[x][y+1] == 1:
-                return True
-            return False
+            return self.board[x-1][y] == 1 and self.board[x][y+1] == 1
 
         if (x == 1 and y == 5) or (x == 3 and y == 5):
-            if self.board[x-1][y] == 1 and self.board[x][y-1] == 1:
-                return True
-            return False
+            return self.board[x-1][y] == 1 and self.board[x][y-1] == 1
 
         if (x == 0 or x == 2) and (y > 0 and y < 5):
-            if self.board[x][y-1] == 1 and self.board[x][y+1] == 1 and self.board[x+1][y] == 1:
-                return True
-            return False
+            return (self.board[x][y-1] == 1 and self.board[x][y+1] == 1
+                    and self.board[x+1][y] == 1)
 
         if (x == 1 or x == 3) and (y > 0 and y < 5):
-            if self.board[x][y-1] == 1 and self.board[x][y+1] == 1 and self.board[x-1][y] == 1:
-                return True
-            return False
+            return (self.board[x][y-1] == 1 and self.board[x][y+1] == 1
+                    and self.board[x-1][y] == 1)
 
         # Vorsichtsmassnahme: falls keine Bedingung greift, explizit False.
         return False

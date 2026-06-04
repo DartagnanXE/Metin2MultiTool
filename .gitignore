@@ -146,6 +146,10 @@ installer_output/
 # campfire_templates/, klein, ohne Namen) sind committed + werden gebundelt.
 FischOCR/
 config.json.bak*
+# Debug-Captures des Live-Spielfensters (Kalibrierung) -- enthalten den Spiel-
+# Screenshot des Nutzers; lokale Test-Fixtures, NICHT ins oeffentliche Repo.
+live_capture.png
+live_chat_ruler.png
 # Laufzeit-erzeugte Dateien (Strategie-Cache / Einstellungen / Diagnose):
 trained_V.npy
 config.json
