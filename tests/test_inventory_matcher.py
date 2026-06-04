@@ -120,6 +120,58 @@ class TestUnmaskedAblation(unittest.TestCase):
 
 
 @unittest.skipUnless(np is not None and synth is not None, 'numpy required')
+class TestNewFishRecognised(unittest.TestCase):
+    """Targeted lock for the two newly added fish (Kleiner_Fisch /
+    Süßwassergarnele): each must be in the DB and recover ITSELF -- composited on
+    the dark AND the lavender glow background (with a fake stack number, a +/-1px
+    shift and noise, like the headline sweep) -- as a CONFIDENT item, never
+    colliding with any of the existing icons. Skipped without numpy/PIL/icons."""
+
+    NEW = ('Kleiner_Fisch', 'Süßwassergarnele')
+
+    def setUp(self):
+        self.db = _db_or_skip()
+        self.refs = self.db.references()
+        self.by_name = {r.name: r for r in self.refs}
+
+    def test_new_fish_present_in_db(self):
+        for name in self.NEW:
+            self.assertIn(name, self.by_name,
+                          'new fish icon not in recognition DB: ' + name)
+
+    def test_new_fish_self_recover_dark_and_glow(self):
+        for name in self.NEW:
+            ref = self.by_name.get(name)
+            self.assertIsNotNone(ref)
+            for glow in (False, True):
+                slot = synth.synth_slot(ref, glow=glow, number=True,
+                                        shift=(1, -1), noise=4.0)
+                rgb = extract_slot(slot, (0, 0, 32, 32))
+                scored = self.db.match(rgb, shift_radius=2)
+                self.assertTrue(scored)
+                best_name, best_dist = scored[0]
+                margin = scored[1][1] - best_dist if len(scored) > 1 else 0.0
+                self.assertEqual(best_name, name,
+                                 '{} (glow={}) mis-recognised as {}'.format(
+                                     name, glow, best_name))
+                self.assertGreater(margin, 0.0)
+
+    def test_no_existing_icon_resolves_to_a_new_fish(self):
+        # Adding the two new icons must not steal an existing item's identity:
+        # every OTHER icon's synthetic slot must still recognise as itself.
+        for ref in self.refs:
+            if ref.name in self.NEW:
+                continue
+            slot = synth.synth_slot(ref, glow=False, number=True,
+                                    shift=(1, -1), noise=4.0)
+            rgb = extract_slot(slot, (0, 0, 32, 32))
+            best_name = self.db.match(rgb, shift_radius=2)[0][0]
+            self.assertNotIn(
+                best_name, self.NEW,
+                '{} wrongly resolved to new fish {}'.format(ref.name, best_name))
+
+
+@unittest.skipUnless(np is not None and synth is not None, 'numpy required')
 class TestMatchMechanics(unittest.TestCase):
     def setUp(self):
         self.db = _db_or_skip()

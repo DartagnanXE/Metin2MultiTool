@@ -72,12 +72,28 @@ class TestItemOrder(unittest.TestCase):
 class TestAvailableItems(unittest.TestCase):
     def test_all_items_shown_fish_first(self):
         items = im.available_items()
-        self.assertEqual(len(items), 43)             # every bundled item shows
+        self.assertEqual(len(items), 45)             # every bundled item shows
         self.assertIn('Worm', items)
         self.assertIn('Lagerfeuer', items)
         last_fish = max(i for i, n in enumerate(items) if n in im.FISH)
         first_rest = min(i for i, n in enumerate(items) if n not in im.FISH)
         self.assertLess(last_fish, first_rest)
+
+    def test_new_fish_are_managed_and_burnable(self):
+        # The two added fish (Kleiner_Fisch / Süßwassergarnele) must show in the
+        # grid, sort into the FISH block, and -- as normal fish -- cycle through
+        # the full KEEP/REMOVE/CAMPFIRE states (no bait/tool exclusion).
+        items = im.available_items()
+        for name in ('Kleiner_Fisch', 'Süßwassergarnele'):
+            self.assertIn(name, items)
+            self.assertIn(name, im.FISH)
+            self.assertIn(name, im.BURNABLE)
+            self.assertEqual(im.allowed_states(name),
+                             (im.KEEP, im.REMOVE, im.CAMPFIRE))
+            # listed within the fish block (before any non-fish item)
+            self.assertLess(
+                items.index(name),
+                min(i for i, n in enumerate(items) if n not in im.FISH))
 
     def test_known_members(self):
         items = set(im.available_items())
@@ -96,8 +112,16 @@ class TestLocalizedName(unittest.TestCase):
                              'Schwarzes Haarfärbemittel')
             self.assertEqual(im.localized_name('Kelpie_Key'),
                              'Wassernixenschlüssel')
+            # The two newly added fish localise in both languages.
+            self.assertEqual(im.localized_name('Kleiner_Fisch'),
+                             'Kleiner Fisch')
+            self.assertEqual(im.localized_name('Süßwassergarnele'),
+                             'Süßwassergarnele')
             i18n.set_lang('en')
             self.assertEqual(im.localized_name('Catfish'), 'Catfish')
+            self.assertEqual(im.localized_name('Kleiner_Fisch'), 'Small Fish')
+            self.assertEqual(im.localized_name('Süßwassergarnele'),
+                             'Freshwater Shrimp')
         finally:
             i18n.set_lang(old)
 

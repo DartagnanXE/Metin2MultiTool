@@ -34,9 +34,10 @@ _NUM_STATES = 3
 # Items recognised as 'fish' (the actual catch) -> listed FIRST.
 FISH = frozenset({
     'Brook_Trout', 'Carp', 'Catfish', 'Eel', 'Goldfish', 'Grass_Carp',
-    'Large_Zander', 'Lotus_Fish', 'Mandarin_Fish', 'Mirror_Carp', 'Perch',
-    'Rainbow_Trout', 'Red_King_Crab', 'River_Trout', 'Rudd', 'Salmon', 'Shiri',
-    'Skygazer', 'Smelt', 'Snakehead', 'Sweetfish', 'Tenchi', 'Yabby', 'Zander',
+    'Kleiner_Fisch', 'Large_Zander', 'Lotus_Fish', 'Mandarin_Fish',
+    'Mirror_Carp', 'Perch', 'Rainbow_Trout', 'Red_King_Crab', 'River_Trout',
+    'Rudd', 'Salmon', 'Shiri', 'Skygazer', 'Smelt', 'Snakehead', 'Sweetfish',
+    'Süßwassergarnele', 'Tenchi', 'Yabby', 'Zander',
 })
 
 # Nothing is hard-excluded any more -- EVERY item shows in the grid. What a click
@@ -65,6 +66,7 @@ ITEM_NAMES = {
     'Eel': ('Eel', 'Aal'),
     'Goldfish': ('Goldfish', 'Goldfisch'),
     'Grass_Carp': ('Grass Carp', 'Graskarpfen'),
+    'Kleiner_Fisch': ('Small Fish', 'Kleiner Fisch'),
     'Large_Zander': ('Large Zander', 'Großer Zander'),
     'Lotus_Fish': ('Lotus Fish', 'Lotusfisch'),
     'Mandarin_Fish': ('Mandarin Fish', 'Mandarinfisch'),
@@ -80,6 +82,7 @@ ITEM_NAMES = {
     'Smelt': ('Smelt', 'Stint'),
     'Snakehead': ('Snakehead', 'Schlangenkopffisch'),
     'Sweetfish': ('Sweetfish', 'Ayu'),
+    'Süßwassergarnele': ('Freshwater Shrimp', 'Süßwassergarnele'),
     'Tenchi': ('Tenchi', 'Tenchi'),
     'Yabby': ('Yabby', 'Yabbie-Krebs'),
     'Zander': ('Zander', 'Zander'),

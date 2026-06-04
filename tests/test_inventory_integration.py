@@ -6,16 +6,16 @@ together on STATIC images (no game, no win32, no live capture/input -- every
 live primitive is either a fake callback or a monkeypatch). They are deliberately
 the HARD, exact-number counterpart to the looser ``test_inventory_smoke_real``:
 where that module only prints recognition counts, here the real no-glow shot
-``FischOhneLeuchten.png`` is pinned to its exact 28-item ground truth.
+``FischOhneLeuchten.png`` is pinned to its exact 33-item ground truth.
 
 Covered (one TestCase per area; numbers asserted, not printed):
 
-  1. CORE scan on FischOhneLeuchten.png -> a 28-item InventoryMap with the
-     expected names at the expected slots (exact set; full page tally 28/1/16).
+  1. CORE scan on FischOhneLeuchten.png -> a 33-item InventoryMap with the
+     expected names at the expected slots (exact set; full page tally 33/1/11).
   2. The hover-clear slot-centre sweep: 45 serpentine centres in the right order,
      each == slot-box CENTRE (origin + col*px + 16 / row*py + 16), + to_screen.
   3. Margin-acceptance: synthetic GLOW recall IMPROVES with margin-primary on,
-     AND a no-glow regression keeps 28/28 with ZERO close-family confusion.
+     AND a no-glow regression keeps 33/33 with ZERO close-family confusion.
   4. The Console / map formatter output (format_full on the real map).
   5. The DIFFERENTIAL diff (previous-vs-new): only newly-appeared UNKNOWNs warn
      (exactly one), unchanged unknowns stay SILENT, recognised changes tracked,
@@ -80,7 +80,7 @@ def _load_bgr(path):
 
 # Ground truth for FischOhneLeuchten.png (no glow), derived by running the real
 # auto-align + recognize_page pipeline once and frozen here. Every one of these
-# 28 matches has distance < 1.7 and margin > 27 on the real pixels, so they are
+# 33 matches has distance < 1.7 and margin > 27 on the real pixels, so they are
 # stable, confident, close-family-unambiguous recognitions -- the exact set the
 # CORE scan must reproduce. Note the genuine close-family pair both present and
 # DISTINCT: 'Zander' and 'Large_Zander'.
@@ -89,8 +89,11 @@ def _load_bgr(path):
 # row-band + full-res re-rank recovers the topmost item row (two 'Worm' baits at
 # (0,1)/(0,2)) that the older +-radius-only sweep silently dropped one slot-row
 # LOW (it locked y=275, scoring 26 and missing that row); the corrected lock is
-# 28 items, every one a < 1.7 match. Everything below is the same set shifted one
-# row down.
+# 33 items, every one a < 1.7 match. Everything below is the same set shifted one
+# row down. The five 'Kleiner_Fisch' at (1,4)/(3,1)/(5,1)/(5,3)/(6,2) were
+# UNKNOWN before that fish icon was added to the DB (each now dist ~0.8 /
+# margin ~37 -- a genuine recognition, not a close-family false match); the
+# other 28 items are byte-identical to the pre-addition ground truth.
 _EXPECTED_ITEMS = {
     (0, 1): 'Worm',
     (0, 2): 'Worm',
@@ -98,12 +101,14 @@ _EXPECTED_ITEMS = {
     (1, 1): 'Mandarin_Fish',
     (1, 2): 'White_Hair_Dye',
     (1, 3): 'Large_Zander',
+    (1, 4): 'Kleiner_Fisch',
     (2, 0): 'Large_Zander',
     (2, 1): 'Sage_King_Symbol',
     (2, 2): 'Silver_Key',
     (2, 3): 'Grass_Carp',
     (2, 4): 'Zander',
     (3, 0): 'Shiri',
+    (3, 1): 'Kleiner_Fisch',
     (3, 2): 'Sage_King_Symbol',
     (3, 3): 'Perch',
     (3, 4): 'Large_Zander',
@@ -113,17 +118,20 @@ _EXPECTED_ITEMS = {
     (4, 3): 'Salmon',
     (4, 4): 'Zander',
     (5, 0): 'Carp',
+    (5, 1): 'Kleiner_Fisch',
     (5, 2): 'Perch',
+    (5, 3): 'Kleiner_Fisch',
     (5, 4): 'Gold_Key',
     (6, 1): 'Salmon',
+    (6, 2): 'Kleiner_Fisch',
     (6, 3): 'Tenchi',
     (6, 4): 'Lagerfeuer',
     (7, 1): 'Sage_King_Symbol',
     (7, 2): 'Lagerfeuer',
 }
-_EXPECTED_ITEM_COUNT = 28
+_EXPECTED_ITEM_COUNT = 33
 _EXPECTED_EMPTY_COUNT = 1
-_EXPECTED_UNKNOWN_COUNT = 16
+_EXPECTED_UNKNOWN_COUNT = 11
 
 # The locked lattice the real shot aligns to (origin + 32px pitch on both axes).
 _EXPECTED_ORIGIN = (633, 243)
@@ -133,7 +141,7 @@ _EXPECTED_PAGE = 'I'
 # Close families that must NOT be confused with one another in the no-glow scan.
 # Each tuple is a set of icon basenames that look alike; the regression asserts
 # every recognised name sits in at most one family member per slot AND that the
-# whole 26-set introduces no WRONG sibling (we know the exact correct set).
+# whole 33-set introduces no WRONG sibling (we know the exact correct set).
 _CLOSE_FAMILIES = (
     ('Zander', 'Large_Zander'),
     ('Black_Hair_Dye', 'Blonde_Hair_Dye', 'Brown_Hair_Dye',
@@ -152,7 +160,7 @@ def _build_db_or_skip(case):
 
 
 # --------------------------------------------------------------------------- #
-# (1) CORE scan on the real no-glow shot -> exact 26-item InventoryMap.        #
+# (1) CORE scan on the real no-glow shot -> exact 33-item InventoryMap.        #
 # --------------------------------------------------------------------------- #
 @unittest.skipUnless(np is not None and Image is not None and _shot_present(),
                      'numpy/PIL/screenshot required')
@@ -178,11 +186,11 @@ class TestCoreScanGroundTruth(unittest.TestCase):
         self.assertEqual(self.lattice.origin, _EXPECTED_ORIGIN)
         self.assertEqual(self.lattice.pitch, _EXPECTED_PITCH)
 
-    def test_exactly_28_items(self):
+    def test_exactly_33_items(self):
         items = self.inv.items()
         self.assertEqual(len(items), _EXPECTED_ITEM_COUNT,
-                         'expected exactly 28 recognised items')
-        # And the whole-page tally is exactly 28 item / 1 empty / 16 unknown.
+                         'expected exactly 33 recognised items')
+        # And the whole-page tally is exactly 33 item / 1 empty / 11 unknown.
         self.assertEqual(len(self.results), SLOTS_PER_PAGE)
         empties = [r for r in self.results if r.state == STATE_EMPTY]
         unknowns = self.inv.unknowns()
@@ -400,7 +408,7 @@ class TestMarginAcceptanceGlowRecall(unittest.TestCase):
 @unittest.skipUnless(np is not None and Image is not None and _shot_present(),
                      'numpy/PIL/screenshot required')
 class TestNoGlowRegressionNoCloseFamilyConfusion(unittest.TestCase):
-    """The no-glow shot stays 28/28 with ZERO close-family confusion."""
+    """The no-glow shot stays 33/33 with ZERO close-family confusion."""
 
     @classmethod
     def setUpClass(cls):
@@ -413,10 +421,10 @@ class TestNoGlowRegressionNoCloseFamilyConfusion(unittest.TestCase):
             img, cls.db, DEFAULT_CALIBRATION, lattice=lattice, page='I')
         cls.items = [r for r in cls.results if r.state == STATE_ITEM]
 
-    def test_still_28_of_28(self):
+    def test_still_33_of_33(self):
         # Margin-primary (which is ALWAYS on in the real classifier) must NOT
-        # have inflated or changed the no-glow result: still exactly 28, still
-        # the exact ground-truth set.
+        # have inflated or changed the no-glow result: still exactly the
+        # ground-truth count (33), still the exact ground-truth set.
         self.assertEqual(len(self.items), _EXPECTED_ITEM_COUNT)
         got = {(r.row, r.col): r.name for r in self.items}
         self.assertEqual(got, _EXPECTED_ITEMS)
@@ -454,7 +462,7 @@ class TestNoGlowRegressionNoCloseFamilyConfusion(unittest.TestCase):
 
 
 # --------------------------------------------------------------------------- #
-# (4) Console / map formatter output on the real 26-item map.                 #
+# (4) Console / map formatter output on the real 33-item map.                 #
 # --------------------------------------------------------------------------- #
 @unittest.skipUnless(np is not None and Image is not None and _shot_present(),
                      'numpy/PIL/screenshot required')
@@ -472,8 +480,9 @@ class TestFormatterOnRealMap(unittest.TestCase):
 
     def test_page_grid_header_and_shape(self):
         lines = report.format_page_grid(self.inv, 'I')
-        # Header carries the exact 28/16 tally.
-        self.assertEqual(lines[0], 'Page I  (items=28 unknown=16)')
+        # Header carries the exact 33/11 tally (28 originals + 5 Kleiner_Fisch
+        # that were unknown before the new fish icon entered the DB).
+        self.assertEqual(lines[0], 'Page I  (items=33 unknown=11)')
         # 1 header + ROWS body lines.
         self.assertEqual(len(lines), 1 + ROWS)
 
@@ -481,7 +490,7 @@ class TestFormatterOnRealMap(unittest.TestCase):
         lines = report.format_full(self.inv)
         text = '\n'.join(lines)
         # The page header appears, then the tracked summary after the grid.
-        self.assertIn('Page I  (items=28 unknown=16)', lines)
+        self.assertIn('Page I  (items=33 unknown=11)', lines)
         self.assertIn('Tracked found at:', lines)
         self.assertLess(text.index('Page I '), text.index('Tracked found at:'))
         # Lagerfeuer (a KEY_ITEM) is found twice at its ground-truth slots.
