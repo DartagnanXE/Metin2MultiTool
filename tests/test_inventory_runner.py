@@ -247,6 +247,37 @@ class TestRunInventoryScan(unittest.TestCase):
         self.assertTrue(any('Found items' in ln for ln in lines))
         self.assertTrue(any('Tracked found at:' in ln for ln in lines))
 
+    def test_live_scan_aligns_grid_once_for_stable_bag(self):
+        # ALIGN-ONCE in the LIVE runner: the inventory window is one fixed frame,
+        # so its grid is identical on all four tabs -> auto_align must run at most
+        # ONCE per scan (not once per tab). Each synth page carries an item at the
+        # locked origin (2,2) so the shared grid finds items on every page and no
+        # per-page 0-item fallback re-align fires.
+        pages = {}
+        for i, label in enumerate(PAGES):
+            pages[label] = self._page_with({0: {'ref': self.refs[i]},
+                                            6: {'ref': self.refs[(i + 1)
+                                                                 % len(self.refs)]}})
+        pdi, lines, ctx = self._wire(pages)
+        # Wrap the (already pinned) constant aligner with a call counter.
+        base_align = ir.scanner.auto_align
+        calls = [0]
+
+        def counting_align(img, db, calib, **kw):
+            calls[0] += 1
+            return base_align(img, db, calib, **kw)
+        ir.scanner.auto_align = counting_align
+        try:
+            cfg = {'inventory': {'hotkey': 'i'}}
+            inv = ir.run_inventory_scan(cfg, previous_map=None,
+                                        log_fn=lines.append, db=self.db)
+        finally:
+            self._restore_grid(ctx)
+
+        self.assertEqual(set(inv.pages), set(PAGES))
+        # The whole point: one align for the four-tab scan (~4x less align time).
+        self.assertEqual(calls[0], 1)
+
     def test_configurable_hotkey_used(self):
         pages = {label: self._page_with({0: {'ref': self.refs[0]}})
                  for label in PAGES}

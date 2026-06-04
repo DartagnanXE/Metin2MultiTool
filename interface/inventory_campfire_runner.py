@@ -20,7 +20,9 @@ inventory scan -- and the same TOGGLE caveat applies (documented there).
 import time
 
 import constants
-from inventory.constants import DEFAULT_CALIBRATION, PAGES, OPEN_SETTLE_S
+from inventory.constants import DEFAULT_CALIBRATION, PAGES, OPEN_SETTLE_S, TAB_SETTLE_S
+from inventory import grid as grid_mod
+from inventory import hover
 from i18n import t
 
 import inventory_campfire as campfire
@@ -74,6 +76,57 @@ def _bgr_to_rgb(bgr):
         return bgr[:, :, ::-1]
     except Exception:
         return bgr
+
+
+def _lock_lattice(wincap, db, calib):
+    """Lock the inventory grid ONCE on the live window (or ``None`` on failure).
+
+    Captures a single BGR frame and runs :func:`inventory.grid.auto_align`, so the
+    campfire drag SOURCE + the tool double-click hit the SAME grid recognition
+    uses (the user's bag sits ~1 slot above the bundled DEFAULT_CALIBRATION). The
+    grid is identical across all four tabs (one fixed window), so this single lock
+    serves every page. Strictly defensive -> any hiccup returns ``None`` and the
+    caller falls back to the calibration lattice (the un-aligned, historical
+    behaviour) rather than aborting the grill.
+    """
+    if wincap is None or db is None:
+        return None
+    try:
+        frame = wincap.get_screenshot()
+        if frame is None:
+            return None
+        return grid_mod.auto_align(frame, db, calib)
+    except Exception:
+        return None
+
+
+def _park_cursor(offset, calib):
+    """MOVE the cursor OFF the tab/grid after a tab click (never a click).
+
+    Mirrors :meth:`interface.inventory_runner._Runner.switch_page`: after clicking
+    a page tab the cursor would otherwise rest ON the tab (just above the grid) and
+    its glow/tooltip can occlude the slot below. We move it to the neutral
+    :func:`inventory.hover.tab_park_point` (left of the grid, clear of all tabs)
+    at ``pydirectinput.PAUSE = 0`` (restored in a ``finally``). MOVE-only; a failed
+    park is non-fatal. No-op headless (``pydirectinput`` absent).
+    """
+    if pydirectinput is None:
+        return
+    try:
+        park = hover.to_screen([hover.tab_park_point(calib)], offset)[0]
+    except Exception:
+        return
+    old_pause = getattr(pydirectinput, 'PAUSE', None)
+    try:
+        pydirectinput.PAUSE = 0
+        pydirectinput.moveTo(park[0], park[1])
+    except Exception:
+        pass
+    finally:
+        try:
+            pydirectinput.PAUSE = old_pause
+        except Exception:
+            pass
 
 
 def run_campfire_grill(cfg, states, *, log_fn=None, db=None,
@@ -147,7 +200,11 @@ def run_campfire_grill(cfg, states, *, log_fn=None, db=None,
                         pydirectinput.click(x=int(ox + pt[0]), y=int(oy + pt[1]))
                     except Exception:
                         pass
-                    time.sleep(0.2)
+                    # Park the cursor OFF the tab/grid before the capture so the
+                    # hardware cursor / tab glow never occludes the slot below
+                    # (same fix as inventory_runner._Runner.switch_page).
+                    _park_cursor(offset, calib)
+                    time.sleep(TAB_SETTLE_S)
 
             return scan_inventory(
                 capture_fn=wincap.get_screenshot,
@@ -156,6 +213,13 @@ def run_campfire_grill(cfg, states, *, log_fn=None, db=None,
         except Exception:
             return None
 
+    # Lock the inventory grid ONCE on the live window (identical across all four
+    # tabs -> one lock serves every page). Threaded into run_campfire so the tool
+    # double-click + every fish drag SOURCE hit the SAME grid recognition uses,
+    # not the raw (un-aligned) DEFAULT_CALIBRATION that grabs ~1 slot too low.
+    # Defensive: None -> run_campfire falls back to the calibration lattice.
+    locked = _lock_lattice(wincap, db, calib)
+
     _emit('0', 'campfire.started')
     result = campfire.run_campfire(
         states,
@@ -163,5 +227,6 @@ def run_campfire_grill(cfg, states, *, log_fn=None, db=None,
         capture_rgb_fn=capture_rgb_fn,
         scan_fn=scan_fn,
         offset=offset,
-        calib=calib)
+        calib=calib,
+        lattice=locked)
     return result

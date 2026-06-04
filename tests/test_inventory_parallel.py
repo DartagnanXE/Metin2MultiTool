@@ -261,6 +261,143 @@ class TestRecognizePagesParallel(unittest.TestCase):
 
 
 @unittest.skipUnless(np is not None and synth is not None, 'numpy required')
+class TestAlignOnce(unittest.TestCase):
+    """ALIGN-ONCE: the grid is locked once on the richest page + reused across the
+    fixed-window tabs (~4x less align time), result bit-identical, with a per-page
+    0-item fallback that re-aligns only a genuinely mis-fit tab."""
+
+    def setUp(self):
+        self.db = ItemDB.from_bundled()
+        if not self.db.references():
+            self.skipTest('bundled icons / numpy unavailable')
+        self.refs = self.db.references()
+
+    def _pages_with_items(self, origin=(2, 2)):
+        captured = {}
+        for i, label in enumerate(PAGES):
+            layout = [None] * SLOTS_PER_PAGE
+            layout[0] = {'ref': self.refs[i % len(self.refs)]}
+            layout[6] = {'ref': self.refs[(i + 1) % len(self.refs)]}
+            page, _ = synth.synth_page(layout, origin=origin)
+            captured[label] = page
+        return captured
+
+    def _states(self, inv):
+        out = {}
+        for page, slots in inv.pages.items():
+            for s in slots:
+                out[(page, s.row, s.col)] = (s.state, s.name)
+        return out
+
+    def _counting_align(self, lattice):
+        """A position-INDEPENDENT aligner (returns the same lattice for every
+        page -- the stable-window invariant) that counts its invocations."""
+        calls = [0]
+
+        def align(image, db, calib):
+            calls[0] += 1
+            return lattice
+        return align, calls
+
+    def test_aligns_once_on_stable_grid_slot_path(self):
+        captured = self._pages_with_items()
+        align, calls = self._counting_align(_FIXED_LATTICE)
+        inv = scanner.recognize_pages(captured, self.db, align_fn=align)
+        # A stable bag whose shared grid finds items on every page -> the aligner
+        # ran EXACTLY ONCE (not once per tab) and no fallback fired.
+        self.assertEqual(calls[0], 1)
+        # Every page actually had its items recognised (so no 0-item fallback).
+        for label in PAGES:
+            self.assertTrue(any(s.state == STATE_ITEM
+                                for s in inv.pages[label]))
+
+    def test_aligns_once_on_stable_grid_vectorized_path(self):
+        captured = self._pages_with_items()
+        align, calls = self._counting_align(_FIXED_LATTICE)
+        scanner.recognize_pages(captured, self.db, align_fn=align,
+                                vectorized=True)
+        self.assertEqual(calls[0], 1)
+
+    def test_align_once_equals_per_page_align(self):
+        # The align-once map is bit-identical to aligning every page independently
+        # (the regression guard: only the align COUNT drops).
+        captured = self._pages_with_items()
+        once = scanner.recognize_pages(captured, self.db,
+                                       align_fn=_fixed_align)
+        per_page = {}
+        for page, image in captured.items():
+            for s in scanner.recognize_page(image, self.db,
+                                            lattice=_FIXED_LATTICE, page=page):
+                per_page[(page, s.row, s.col)] = (s.state, s.name)
+        self.assertEqual(self._states(once), per_page)
+
+    def test_record_fn_fires_for_every_page(self):
+        # Even though only one page is aligned, the per-page (image, lattice)
+        # record callback must fire for ALL pages (the live runner needs each
+        # page's frame for its per-page unknown crop).
+        captured = self._pages_with_items()
+        recorded = {}
+
+        def record(page, image, lattice):
+            recorded[page] = (id(image), lattice)
+
+        scanner.recognize_pages(captured, self.db, align_fn=_fixed_align,
+                                record_fn=record)
+        self.assertEqual(set(recorded), set(PAGES))
+        # Each page recorded ITS OWN frame against the (shared) locked lattice.
+        for label in PAGES:
+            self.assertEqual(recorded[label][0], id(captured[label]))
+            self.assertEqual(recorded[label][1], _FIXED_LATTICE)
+
+    def test_zero_item_page_triggers_single_extra_realign(self):
+        # Page II's items sit at a DIFFERENT origin, so the shared anchor grid
+        # places it with 0 items -> the fallback re-aligns ONLY page II (1 extra
+        # align) and recovers its items; the other pages keep the shared lock.
+        captured = {}
+        for i, label in enumerate(PAGES):
+            layout = [None] * SLOTS_PER_PAGE
+            if label == 'II':
+                layout[0] = {'ref': self.refs[3]}
+                layout[6] = {'ref': self.refs[4]}
+                captured[label] = synth.synth_page(layout, origin=(10, 10))[0]
+            else:
+                # page I richest (3 items) -> the anchor; III/IV have 1 each.
+                n = 3 if label == 'I' else 1
+                for k in range(n):
+                    layout[k * 6] = {'ref': self.refs[(i + k) % len(self.refs)]}
+                captured[label] = synth.synth_page(layout, origin=(2, 2))[0]
+
+        from inventory.grid import GridLattice, aligned_match_count
+        lat_a = GridLattice(origin=(2, 2), pitch=(32, 32))
+        lat_b = GridLattice(origin=(10, 10), pitch=(32, 32))
+        calls = [0]
+
+        def align(image, db, calib):
+            # Simulate auto_align finding the TRUE grid for whatever page it sees.
+            calls[0] += 1
+            a = aligned_match_count(image, db, lat_a)
+            b = aligned_match_count(image, db, lat_b)
+            return lat_b if b > a else lat_a
+
+        inv = scanner.recognize_pages(captured, self.db, align_fn=align)
+        # Anchor align (page I) + ONE fallback re-align (page II) = 2 total.
+        self.assertEqual(calls[0], 2)
+        # Page II's two items were recovered by the fallback.
+        page_ii_items = [s for s in inv.pages['II'] if s.state == STATE_ITEM]
+        self.assertEqual(len(page_ii_items), 2)
+        # The other pages still recognised their items via the shared lock.
+        for label in ('I', 'III', 'IV'):
+            self.assertTrue(any(s.state == STATE_ITEM
+                                for s in inv.pages[label]))
+
+    def test_single_page_aligns_at_most_once(self):
+        captured = {'I': self._pages_with_items()['I']}
+        align, calls = self._counting_align(_FIXED_LATTICE)
+        scanner.recognize_pages(captured, self.db, align_fn=align)
+        self.assertLessEqual(calls[0], 1)
+
+
+@unittest.skipUnless(np is not None and synth is not None, 'numpy required')
 class TestRecognizeProgress(unittest.TestCase):
     """Progress callback monotonicity + totals, on pool and serial paths."""
 

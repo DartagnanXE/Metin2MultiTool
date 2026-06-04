@@ -365,7 +365,7 @@ def locate_fire(capture_rgb_fn, *, template=None, rotate_fn=None,
 
 def run_campfire(states, *, inp, capture_rgb_fn, scan_fn, offset=(0, 0),
                  calib=DEFAULT_CALIBRATION, sleep=None, template=None,
-                 birds_eye_key='g', rotate_key='e'):
+                 birds_eye_key='g', rotate_key='e', lattice=None):
     """Full grill flow: place the campfire, find the fire, drag the fish on.
 
     All live dependencies are INJECTED so the orchestration is headless-testable
@@ -379,6 +379,13 @@ def run_campfire(states, *, inp, capture_rgb_fn, scan_fn, offset=(0, 0),
         headless scanner); used to LOCATE the campfire tool + the fish slots.
       * ``offset``         -- ``(offset_x, offset_y)`` window origin added to every
         world click (exactly like the rest of the bot).
+      * ``lattice``        -- optional locked :class:`inventory.grid.GridLattice`
+        (from :func:`inventory.grid.auto_align`) the runner pre-locks ONCE on the
+        live window. Threaded into EVERY slot-coordinate call (the tool double-
+        click + every fish drag SOURCE) so they hit the SAME grid recognition uses
+        -- the user's bag sits ~1 slot above the bundled DEFAULT_CALIBRATION, so
+        the un-aligned calib alone grabs one slot too low + off-centre. ``None``
+        falls back to the calibration lattice (the historical headless behaviour).
 
     Returns a :class:`CampfireResult`. STRICTLY defensive: any failure short-
     circuits to a clear status (and the button is released in :func:`drag`'s
@@ -402,7 +409,8 @@ def run_campfire(states, *, inp, capture_rgb_fn, scan_fn, offset=(0, 0),
             _flog('-', 'campfire.scan_failed')
             return CampfireResult('error')
 
-        tool = _find_item_slot(inv, CAMPFIRE_ITEM_NAME, calib, ox, oy)
+        tool = _find_item_slot(inv, CAMPFIRE_ITEM_NAME, calib, ox, oy,
+                               lattice=lattice)
         if tool is None:
             _flog('-', 'campfire.no_campfire_item')
             return CampfireResult('no_campfire_item')
@@ -439,7 +447,7 @@ def run_campfire(states, *, inp, capture_rgb_fn, scan_fn, offset=(0, 0),
         grilled = []
         for (page, row, col, name) in targets:
             _switch_page(inp, calib, ox, oy, page, sleep)
-            fx, fy = _slot_screen(row, col, calib, ox, oy)
+            fx, fy = _slot_screen(row, col, calib, ox, oy, lattice=lattice)
             drag(inp, fx, fy, fire_screen[0], fire_screen[1], sleep=sleep)
             sleep(GRILL_SETTLE_S)
             grilled.append((page, row, col, name))
@@ -536,13 +544,22 @@ def _tap_key(api, key):
 
 # -- coordinate helpers (reuse the inventory calibration) -------------------
 
-def _slot_screen(row, col, calib, offset_x, offset_y):
-    """Screen centre of inventory slot ``(row, col)`` (grid calib + offset).
+def _slot_screen(row, col, calib, offset_x, offset_y, lattice=None):
+    """Screen centre of inventory slot ``(row, col)`` (grid + offset).
 
     Same maths as :func:`interface.refill.inventory_slot_screen` so the campfire
     drag source tracks the user's own inventory calibration.
+
+    GRID SOURCE: when a locked ``lattice`` (an :class:`inventory.grid.GridLattice`
+    from :func:`inventory.grid.auto_align`) is passed, its origin/pitch are used --
+    so the drag SOURCE + the campfire PARK hit the SAME grid the recognition locked
+    onto (the user's window sits ~1 slot above the bundled DEFAULT_CALIBRATION, so
+    the raw calib alone grabs one slot too low + misses the slot centre). With
+    ``lattice=None`` it falls back to :func:`lattice_from_calibration` -- the
+    historical behaviour, kept byte-identical for headless tests that pass no
+    locked grid.
     """
-    lat = lattice_from_calibration(calib)
+    lat = lattice if lattice is not None else lattice_from_calibration(calib)
     ox, oy = lat.origin
     px, py = lat.pitch
     x = ox + col * px + px // 2
@@ -565,11 +582,13 @@ def _switch_page(inp, calib, offset_x, offset_y, page, sleep):
         pass
 
 
-def _find_item_slot(inv, name, calib, offset_x, offset_y):
+def _find_item_slot(inv, name, calib, offset_x, offset_y, lattice=None):
     """First slot holding ``name`` -> ``(page, (screen_x, screen_y))`` or ``None``.
 
     Page order I->IV then row-major. Pure (uses :func:`_slot_screen`); the seam
-    that turns the located Lagerfeuer tool into a click point. Never raises.
+    that turns the located Lagerfeuer tool into a click point. The optional locked
+    ``lattice`` is forwarded so the tool double-click lands on the SAME grid the
+    fish drags do (see :func:`_slot_screen`). Never raises.
     """
     try:
         page_map = getattr(inv, 'pages', {}) or {}
@@ -578,7 +597,7 @@ def _find_item_slot(inv, name, calib, offset_x, offset_y):
                 if (getattr(s, 'state', None) == 'item'
                         and getattr(s, 'name', None) == name):
                     xy = _slot_screen(int(s.row), int(s.col), calib,
-                                      offset_x, offset_y)
+                                      offset_x, offset_y, lattice=lattice)
                     return (page, xy)
     except Exception:
         return None

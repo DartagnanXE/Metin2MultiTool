@@ -273,6 +273,27 @@ def auto_align(image_bgr, db, calib, radius=AUTO_ALIGN_RADIUS,
     return best_lat
 
 
+def aligned_match_count(image_bgr, db, lattice, thr=MATCH_THRESHOLD):
+    """Cheap count of confidently-matched slots for ``image_bgr`` at ``lattice``.
+
+    A thin public wrapper over the downsampled alignment scorer
+    (:func:`_lattice_score`) returning JUST the matched-slot count (0 when the
+    image/db/numpy is unusable). Used by the scanner's ALIGN-ONCE optimisation to
+    pick the buffered page with the MOST items as the single auto-align anchor
+    (the grid is identical across all four fixed-window tabs, so one lock serves
+    every page -- but locking on the page richest in items gives auto_align the
+    most signal to recover the documented row drift). Pure; never raises.
+    """
+    if np is None or image_bgr is None or db is None:
+        return 0
+    if getattr(db, 'alignment_distances', None) is None:
+        return 0
+    score = _lattice_score(image_bgr, db, lattice, slot_indices(), thr)
+    if score is None:
+        return 0
+    return int(score[0])
+
+
 #: Lazily-resolved ``itemdb.downsample_slot`` (imported on first use to avoid the
 #: grid<->itemdb import cycle). Cached at module level so the alignment sweep --
 #: which calls :func:`_lattice_score` ~1300x per scan -- does NOT repeat a

@@ -23,6 +23,8 @@ import types
 import unittest
 
 import inventory_campfire as campfire
+from inventory.grid import GridLattice, lattice_from_calibration
+from inventory.constants import DEFAULT_CALIBRATION
 
 try:
     import numpy as np
@@ -468,6 +470,76 @@ class TestRunCampfireOrchestration(unittest.TestCase):
         # Even with a drag error, the button is released in drag()'s finally.
         self.assertIn(('up',), rec.events)
         self.assertIn(res.status, ('done', 'error'))
+
+
+# ---------------------------------------------------------------------------
+# _slot_screen / drag honour the LOCKED lattice (FIX 1+2)
+# ---------------------------------------------------------------------------
+
+class TestSlotScreenLattice(unittest.TestCase):
+    """The drag SOURCE + tool double-click must hit the LOCKED grid, not the raw
+    (un-aligned) DEFAULT_CALIBRATION that grabs ~1 slot too low."""
+
+    def test_lattice_none_matches_calibration_lattice(self):
+        # With lattice=None the historical calibration-lattice maths is kept
+        # byte-identical (the headless-test fallback).
+        lat = lattice_from_calibration(DEFAULT_CALIBRATION)
+        ox, oy = lat.origin
+        px, py = lat.pitch
+        for (row, col) in ((0, 0), (1, 2), (8, 4)):
+            exp = (100 + ox + col * px + px // 2, 200 + oy + row * py + py // 2)
+            self.assertEqual(
+                campfire._slot_screen(row, col, DEFAULT_CALIBRATION, 100, 200),
+                exp)
+
+    def test_locked_lattice_origin_pitch_used(self):
+        # A locked lattice (e.g. from auto_align) -> its origin/pitch drive the
+        # slot centre, NOT the calibration grid. The user's bag sits ~30px (≈1
+        # slot) higher than DEFAULT_CALIBRATION; this is exactly that correction.
+        locked = GridLattice(origin=(632, 245), pitch=(32, 32))
+        # slot (1,2): x = 632 + 2*32 + 16 = 712 ; y = 245 + 1*32 + 16 = 293
+        self.assertEqual(
+            campfire._slot_screen(1, 2, DEFAULT_CALIBRATION, 1000, 500,
+                                  lattice=locked),
+            (1000 + 712, 500 + 293))
+        # And it differs from the raw-calibration result (proves the fix bites).
+        raw = campfire._slot_screen(1, 2, DEFAULT_CALIBRATION, 1000, 500)
+        self.assertNotEqual(raw,
+                            campfire._slot_screen(1, 2, DEFAULT_CALIBRATION,
+                                                  1000, 500, lattice=locked))
+
+    def test_find_item_slot_threads_lattice(self):
+        locked = GridLattice(origin=(632, 245), pitch=(32, 32))
+        inv = _inv({'I': [_slot('Lagerfeuer', 1, 2)]})
+        page, xy = campfire._find_item_slot(inv, 'Lagerfeuer',
+                                            DEFAULT_CALIBRATION, 1000, 500,
+                                            lattice=locked)
+        self.assertEqual(page, 'I')
+        self.assertEqual(xy, (1000 + 712, 500 + 293))
+
+    def test_run_campfire_drags_from_locked_grid(self):
+        # End-to-end: a locked lattice passed to run_campfire must place the
+        # drag SOURCE (and the tool double-click) on the LOCKED grid.
+        rec = _Recorder()
+        locked = GridLattice(origin=(632, 245), pitch=(32, 32))
+        inv = _inv({'I': [_slot('Lagerfeuer', 0, 0), _slot('Carp', 1, 2)]})
+        orig = campfire.find_label
+        campfire.find_label = lambda *a, **k: (True, 0.99, (300, 400))
+        try:
+            res = campfire.run_campfire(
+                {'Carp': 2}, inp=rec, capture_rgb_fn=lambda: 'frame',
+                scan_fn=lambda: inv, offset=(1000, 500),
+                sleep=_noop_sleep, lattice=locked)
+        finally:
+            campfire.find_label = orig
+        self.assertEqual(res.status, 'done')
+        ev = rec.events
+        # The Carp drag SOURCE = locked slot (1,2) + offset = (1712, 793).
+        down_idx = next(i for i, e in enumerate(ev) if e[0] == 'down')
+        self.assertEqual(ev[down_idx - 1], ('move', 1712, 793))
+        # The tool was double-clicked at the locked slot (0,0) = (648, 761).
+        # x = 632 + 16 = 648 ; y = 245 + 16 = 261 ; + offset (1000,500).
+        self.assertIn(('dclick', 1000 + 648, 500 + 261), ev)
 
 
 # ---------------------------------------------------------------------------

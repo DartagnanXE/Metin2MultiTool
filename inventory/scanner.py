@@ -46,7 +46,8 @@ from .constants import (
 )
 from dataclasses import replace
 
-from .grid import extract_slot, auto_align, upper_region_is_empty, lattice_from_calibration
+from .grid import (extract_slot, auto_align, upper_region_is_empty,
+                   lattice_from_calibration, aligned_match_count)
 from .types import SlotResult, InventoryMap, STATE_UNKNOWN, STATE_ITEM
 from .digits import read_count
 from i18n import t
@@ -206,6 +207,98 @@ def _read_count_if_item(res, slot):
         return res
 
 
+# -- ALIGN-ONCE: lock the grid once, reuse across the fixed-window tabs ------
+
+def _lock_lattices(captured, db, calib, aligner, record_fn=None):
+    """Lock a grid lattice per page, but auto-align AT MOST ONCE on a stable bag.
+
+    The inventory window is FIXED, so its grid is geometrically IDENTICAL on all
+    four tabs -- yet the old path ran the (expensive, ~seconds) ``auto_align``
+    once PER buffered page (4x). This locks the grid ONCE on an anchor page and
+    REUSES that single lattice for every page:
+
+      * ANCHOR  -- the buffered page with the MOST confident items at the
+        calibration lattice (:func:`inventory.grid.aligned_match_count`, a cheap
+        downsampled probe). auto_align recovers the documented row-drift only
+        when it has items to lock onto, so the richest page is the robust anchor;
+        an all-empty bag has no signal anywhere and any page (-> calibration
+        origin) is equivalent.
+      * REUSE   -- every page is assigned that one locked lattice; ``aligner`` is
+        invoked EXACTLY ONCE (on the anchor) for a stable bag (~4x less align
+        time). With 0/1 buffered pages it is also at most once.
+
+    ``record_fn(page, image, lattice)`` (optional) is called for EVERY page so a
+    caller that needs the per-page (image, lattice) pair -- e.g. the live runner's
+    per-page unknown crop -- still records all pages even though only one was
+    aligned. Returns ``{page: GridLattice}``. Defensive: an aligner that raises
+    falls back to the calibration lattice; never raises.
+
+    NOTE: the per-page 0-item FALLBACK (re-align a page the shared grid could not
+    place) lives in the recognisers, which re-align + re-classify only such a page
+    -- so a genuinely mis-fitting tab still self-corrects, while the common stable
+    bag pays a single align. Bit-identical to per-page aligning whenever
+    ``aligner`` is position-independent (it returns the same lattice for every
+    page), which is exactly the stable-window invariant + the test stubs.
+    """
+    pages = list(captured.keys())
+    base = lattice_from_calibration(calib)
+
+    def _align_one(page):
+        try:
+            return aligner(captured[page], db, calib)
+        except Exception as exc:
+            _log('inventory.scan_page_failed', page=page, detail=str(exc)[:120])
+            return base
+
+    if not pages:
+        return {}
+
+    if len(pages) == 1:
+        only = pages[0]
+        lat = _align_one(only)
+        if record_fn is not None:
+            _safe_record(record_fn, only, captured[only], lat)
+        return {only: lat}
+
+    # Pick the anchor: the page richest in confidently-matched slots (most signal
+    # for auto_align's drift recovery). Cheap downsampled probe at the calibration
+    # lattice; ties resolve to the FIRST page (deterministic, capture order).
+    anchor = pages[0]
+    best = -1
+    for page in pages:
+        try:
+            cnt = aligned_match_count(captured[page], db, base)
+        except Exception:
+            cnt = 0
+        if cnt > best:
+            best = cnt
+            anchor = page
+
+    shared = _align_one(anchor)            # the ONE expensive align of the scan
+    lattices = {}
+    for page in pages:
+        lattices[page] = shared
+        if record_fn is not None:
+            _safe_record(record_fn, page, captured[page], shared)
+    return lattices
+
+
+def _safe_record(record_fn, page, image, lattice):
+    """Call ``record_fn(page, image, lattice)`` best-effort (never raises)."""
+    try:
+        record_fn(page, image, lattice)
+    except Exception:
+        pass
+
+
+def _page_has_item(slots):
+    """True iff any slot in ``slots`` is a recognised ITEM (fallback trigger)."""
+    try:
+        return any(getattr(s, 'state', None) == STATE_ITEM for s in slots)
+    except Exception:
+        return True  # unsure -> do NOT trigger a re-align
+
+
 # -- TWO-PHASE FAST PATH: capture (fast) then parallel recognise -------------
 
 def capture_pages(capture_fn, switch_page_fn, pages=PAGES,
@@ -291,17 +384,30 @@ def _verified_capture(page, image, capture_fn, switch_page_fn, verify_page_fn):
 
 def recognize_pages(captured, db, calib=DEFAULT_CALIBRATION,
                     progress_fn=None, max_workers=None,
-                    align_fn=None, vectorized=None):
+                    align_fn=None, vectorized=None, record_fn=None):
     """PHASE 2 -- auto-align + classify the buffered pages, slots in PARALLEL.
 
-    Takes the ``{page: bgr_image}`` buffer from :func:`capture_pages`, locks
-    each page's grid (``auto_align``; overridable via ``align_fn`` for tests),
-    then classifies all of that page's slots. The 45-per-page slot
+    Takes the ``{page: bgr_image}`` buffer from :func:`capture_pages`, locks the
+    grid ONCE on the richest buffered page and reuses it across the fixed-window
+    tabs (:func:`_lock_lattices`; ``align_fn`` overrides the aligner for tests),
+    then classifies all of each page's slots. The 45-per-page slot
     classifications across ALL buffered pages are run on a
     :class:`~concurrent.futures.ThreadPoolExecutor`: each task is one
     :func:`_classify_one_slot` call, which is pure numpy/cv2 (the heavy matcher
     releases the GIL) so the threads run in genuine parallel with NO pickling
     overhead. Returns an assembled :class:`InventoryMap`.
+
+    ALIGN-ONCE: ``auto_align`` (the expensive per-scan cost) runs at most ONCE for
+    a stable bag instead of once per tab (~4x less align time) -- the grid is
+    identical on every tab of the one fixed window. A page the shared grid places
+    with ZERO items is re-aligned + re-classified on its OWN (the only case that
+    pays a second align), so a genuinely mis-fitting tab still self-corrects. The
+    result map is bit-identical to per-page aligning whenever the aligner is
+    position-independent (the stable-window invariant + the test stubs).
+
+    ``record_fn(page, image, lattice)`` (optional) fires once per page with the
+    locked lattice, so the live runner can file each page's (image, lattice) for
+    its per-page unknown crop even though only one page was aligned.
 
     Progress: ``progress_fn(done, total)`` (best-effort, wrapped) fires after
     each slot completes, with ``total = len(captured) * 45`` and ``done``
@@ -334,22 +440,17 @@ def recognize_pages(captured, db, calib=DEFAULT_CALIBRATION,
     use_vec = VECTORIZED_DEFAULT if vectorized is None else bool(vectorized)
     if use_vec:
         return _recognize_pages_vectorized(captured, db, calib, aligner,
-                                           progress_fn, max_workers, tol)
+                                           progress_fn, max_workers, tol,
+                                           record_fn)
 
-    # Lock each page's grid ONCE (cheap relative to the 45-slot classify), then
-    # fan the slots out. Pre-size each page's result list so workers can drop
+    # ALIGN-ONCE: lock the grid once on the richest page, reuse for all tabs.
+    # Then fan the slots out. Pre-size each page's result list so workers can drop
     # their SlotResult into a fixed row-major index with no shared mutation race
     # (each (page, row, col) writes a distinct cell).
-    lattices = {}
+    lattices = _lock_lattices(captured, db, calib, aligner, record_fn)
     page_results = {}
     jobs = []  # (page, row, col, flat_index)
-    for page, image in captured.items():
-        try:
-            lattice = aligner(image, db, calib)
-        except Exception as exc:
-            _log('inventory.scan_page_failed', page=page, detail=str(exc)[:120])
-            lattice = lattice_from_calibration(calib)
-        lattices[page] = lattice
+    for page in captured:
         page_results[page] = [None] * SLOTS_PER_PAGE
         for flat, (row, col) in enumerate(slot_indices()):
             jobs.append((page, row, col, flat))
@@ -411,21 +512,61 @@ def recognize_pages(captured, db, calib=DEFAULT_CALIBRATION,
                     done += 1
                     _emit_progress(done)
 
+    # ALIGN-ONCE fallback: a page the SHARED grid placed with ZERO items might be
+    # mis-fit (the one case worth a second align). Re-align it ALONE; if its own
+    # lattice differs, re-classify that page with it. Only fires for a >1-page
+    # scan where the shared lattice produced no item -- the stable bag never hits
+    # this, so it stays bit-identical + single-align there.
+    if len(captured) > 1:
+        for page in list(page_results.keys()):
+            if _page_has_item(page_results[page]):
+                continue
+            relat = _realign_page(captured[page], db, calib, aligner,
+                                  lattices.get(page))
+            if relat is None:
+                continue
+            lattices[page] = relat
+            if record_fn is not None:
+                _safe_record(record_fn, page, captured[page], relat)
+            page_results[page] = [
+                _classify_one_slot(captured[page], db, relat, page, row, col,
+                                   tol)
+                for (row, col) in slot_indices()]
+
     pages_out = {page: tuple(slots) for page, slots in page_results.items()}
     _log('inventory.scan_done', pages=len(pages_out))
     return InventoryMap(pages=pages_out)
 
 
+def _realign_page(image, db, calib, aligner, shared_lattice):
+    """Re-align ONE page on its own (or ``None`` to skip the re-classify).
+
+    The align-once fallback: when the shared grid placed a page with no item, try
+    aligning THAT page independently. Returns the page's own lattice ONLY when it
+    is BOTH usable AND actually different from the shared one (otherwise there is
+    nothing to gain -- return ``None`` so the caller keeps the shared result and
+    pays no re-classify). Defensive: an aligner that raises -> ``None``.
+    """
+    try:
+        relat = aligner(image, db, calib)
+    except Exception as exc:
+        _log('inventory.scan_page_failed', page='realign', detail=str(exc)[:120])
+        return None
+    if relat is None or relat == shared_lattice:
+        return None
+    return relat
+
+
 def _recognize_pages_vectorized(captured, db, calib, aligner, progress_fn,
-                                max_workers, tol):
+                                max_workers, tol, record_fn=None):
     """Vectorised twin of :func:`recognize_pages`: PAGE-fanout, batched matcher.
 
-    Locks each page's grid exactly like the slot path (``aligner``, falling back
-    to the calibration lattice on failure), then runs ONE
-    :func:`_recognize_page_vectorized` per page -- each page is a single batched
-    numpy reduction over its 45 slots -- and fans the PAGES across the thread
-    pool (the heavy reduction is GIL-free, so pages overlap). The result map is
-    identical to the per-slot path.
+    Locks the grid with the SAME align-once policy as the slot path
+    (:func:`_lock_lattices`: one auto-align on the richest page, reused across the
+    fixed-window tabs), then runs ONE :func:`_recognize_page_vectorized` per page
+    -- each page is a single batched numpy reduction over its 45 slots -- and fans
+    the PAGES across the thread pool (the heavy reduction is GIL-free, so pages
+    overlap). The result map is identical to the per-slot path.
 
     Progress stays in SLOT units for an unchanged 0..100%% UI contract: a page
     contributes its :data:`SLOTS_PER_PAGE` ticks (``done`` += 1 each) when it
@@ -435,16 +576,8 @@ def _recognize_pages_vectorized(captured, db, calib, aligner, progress_fn,
     fails degrades to the per-slot loop (inside :func:`recognize_page`) or, in
     the extreme, to 45 UNKNOWN slots, but the scan always returns a full map.
     """
-    lattices = {}
-    page_results = {}
-    for page, image in captured.items():
-        try:
-            lattice = aligner(image, db, calib)
-        except Exception as exc:
-            _log('inventory.scan_page_failed', page=page, detail=str(exc)[:120])
-            lattice = lattice_from_calibration(calib)
-        lattices[page] = lattice
-        page_results[page] = None
+    lattices = _lock_lattices(captured, db, calib, aligner, record_fn)
+    page_results = {page: None for page in captured}
 
     pages = list(captured.keys())
     total = len(pages) * SLOTS_PER_PAGE
@@ -501,6 +634,28 @@ def _recognize_pages_vectorized(captured, db, calib, aligner, progress_fn,
             for page in pages:
                 if page_results[page] is None:
                     _collect(*_work(page))
+
+    # ALIGN-ONCE fallback (mirrors the slot path): re-align + re-recognise ONLY a
+    # >1-page scan's page the shared grid placed with no item. Stable bag: no-op.
+    if len(pages) > 1:
+        for page in pages:
+            slots = page_results.get(page)
+            if slots is None or _page_has_item(slots):
+                continue
+            relat = _realign_page(captured[page], db, calib, aligner,
+                                  lattices.get(page))
+            if relat is None:
+                continue
+            lattices[page] = relat
+            if record_fn is not None:
+                _safe_record(record_fn, page, captured[page], relat)
+            try:
+                page_results[page] = tuple(recognize_page(
+                    captured[page], db, calib, lattice=relat, page=page,
+                    vectorized=True))
+            except Exception as exc:
+                _log('inventory.scan_page_failed', page=page,
+                     detail=str(exc)[:120])
 
     pages_out = {page: page_results[page] for page in pages
                  if page_results[page] is not None}

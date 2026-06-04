@@ -283,6 +283,21 @@ class _Runner:
         lattice = existing[1] if existing else self._last_lattice
         self._page_frames[page] = (image, lattice)
 
+    def note_page_recognised(self, page, image, lattice):
+        """File a page's ``(image, lattice)`` by EXPLICIT label (align-once seam).
+
+        The scanner now locks the grid once and reuses it across tabs, so it can
+        no longer hand each page through the aligner; instead it calls this once
+        per page with the page LABEL, image, and the (shared) locked lattice. We
+        file ``(image, lattice)`` under ``page`` for that page's unknown crop and
+        keep ``_last_lattice`` as the crop fallback. Pure bookkeeping; never
+        raises. Supersedes the object-identity :meth:`note_recognised_page` (kept
+        for back-compat with any direct align_fn caller).
+        """
+        self._last_lattice = lattice
+        if page is not None:
+            self._page_frames[page] = (image, lattice)
+
     def note_recognised_page(self, image, lattice):
         """File a page's ``(image, lattice)`` as it is auto-aligned in PHASE 2.
 
@@ -426,16 +441,21 @@ def run_inventory_scan(cfg, previous_map=None, *, log_fn=None, db=None,
     # its page label for the per-page unknown crop.
     runner._capture_buffer = captured
 
-    # PHASE 2 (parallel recognise): record each page's locked lattice + frame as
-    # it is aligned (so a flagged unknown crops from its OWN page), then classify
-    # all 180 slots across the thread pool. Progress is slot-granular: push a
-    # coarse per-quarter line to the Console + forward the (done,total) tick to
-    # the optional UI callback (which marshals onto the GUI thread). Both are
-    # best-effort -- a raising sink/callback must never abort the scan.
-    def _align_and_record(image, db_, calib):
-        lattice = scanner.auto_align(image, db_, calib)
-        runner.note_recognised_page(image, lattice)
-        return lattice
+    # PHASE 2 (parallel recognise): record each page's locked lattice + frame so a
+    # flagged unknown crops from its OWN page, then classify all 180 slots across
+    # the thread pool. ALIGN-ONCE: the engine now locks the grid only on the
+    # richest page (the bag is one fixed window -> the grid is identical on every
+    # tab), so the per-page (image, lattice) bookkeeping moves to a dedicated
+    # record_fn (fired for EVERY page) -- the align_fn is just the aligner. Both
+    # keep _last_lattice as the crop fallback. Progress is slot-granular: push a
+    # coarse per-quarter Console line + forward the (done,total) tick to the
+    # optional UI callback (which marshals onto the GUI thread). Best-effort -- a
+    # raising sink/callback must never abort the scan.
+    def _align_only(image, db_, calib):
+        return scanner.auto_align(image, db_, calib)
+
+    def _record_page(page, image, lattice):
+        runner.note_page_recognised(page, image, lattice)
 
     last_console_step = [0]   # tracks last 'done' at which a Console line fired
 
@@ -464,7 +484,8 @@ def run_inventory_scan(cfg, previous_map=None, *, log_fn=None, db=None,
         captured, db,
         calib=DEFAULT_CALIBRATION,
         progress_fn=_progress,
-        align_fn=_align_and_record,
+        align_fn=_align_only,
+        record_fn=_record_page,
         vectorized=fast,
     )
 
