@@ -319,5 +319,112 @@ def _load_bgr_if(path):
     return _load_bgr(path)
 
 
+def _render_name(name, atlas):
+    """Rendert ``name`` aus den Atlas-Glyphen (1px-Luecken, fehlende Zeichen +
+    Leerzeichen ausgelassen) zu einem Binaerbild -- so wie die Chat-Schrift es
+    zeichnet. ``None`` wenn kein Zeichen verfuegbar ist."""
+    glyphs = [atlas[c] for c in name if c in atlas]
+    if not glyphs:
+        return None
+    h = max(g.shape[0] for g in glyphs)
+    w = sum(g.shape[1] for g in glyphs) + (len(glyphs) - 1)
+    canvas = np.zeros((h, w), dtype=np.uint8)
+    x = 0
+    for g in glyphs:
+        canvas[:g.shape[0], x:x + g.shape[1]] = g
+        x += g.shape[1] + 1
+    return canvas
+
+
+@unittest.skipUnless(_HAS_DEPS, 'numpy/PIL fehlen')
+class TestCharOcrUnits(unittest.TestCase):
+    """Zeichen-OCR (liest JEDEN Namen ueber den gebuendelten Glyphen-Atlas +
+    Fuzzy) -- self-contained ueber die GESHIPPTEN glyph__-PNGs, KEINE
+    Screenshots noetig (laeuft auch in CI)."""
+
+    def setUp(self):
+        fc.reset_template_cache()
+        fc.reset_known_names_cache()
+        self.atlas = fc._load_templates().get('glyph', {})
+
+    def test_glyph_filename_roundtrip(self):
+        for ch in ['a', 'ä', 'ö', 'S', 'Z', ',', '.']:
+            fn = fc.glyph_filename(ch)
+            self.assertTrue(fn.startswith(fc.GLYPH_PREFIX))
+            self.assertEqual(fc._glyph_char_from_filename(fn), ch)
+
+    def test_levenshtein_basics(self):
+        self.assertEqual(fc._levenshtein('abc', 'abc'), 0)
+        self.assertEqual(fc._levenshtein('abc', 'abd'), 1)
+        self.assertEqual(fc._levenshtein('', 'abc'), 3)
+        self.assertEqual(fc._levenshtein('kitten', 'sitting'), 3)
+
+    def test_atlas_shipped_with_core_chars(self):
+        # Die geshippten glyph__-PNGs muessen den Kern-Zeichensatz enthalten.
+        for ch in ['a', 'e', 's', 'r', 'n', 'i', 'l', 'k', 'w', 'S', 'K']:
+            self.assertIn(ch, self.atlas, 'Atlas-Zeichen %r fehlt' % ch)
+
+    def test_fuzzy_recovers_new_fish_from_partial_reads(self):
+        names = fc._known_names()
+        for read, expect in [('Kleiner?isch', 'Kleiner Fisch'),
+                             ('KleinerRisch', 'Kleiner Fisch'),
+                             ('S??wassergarnele', 'Süßwassergarnele'),
+                             ('Suewassergarnele', 'Süßwassergarnele'),
+                             ('wassergarnele', 'Süßwassergarnele')]:
+            bn, sim, mg = fc._fuzzy_best_name(read, names)
+            self.assertEqual(bn, expect, 'read=%r -> %r' % (read, bn))
+            self.assertGreaterEqual(sim, fc.NAME_FUZZY_MIN_SIM)
+            self.assertGreaterEqual(mg, fc.NAME_FUZZY_MIN_MARGIN)
+
+    def test_fuzzy_rejects_garbage(self):
+        names = fc._known_names()
+        for read in ['xqzv', '????', '']:
+            bn, sim, mg = fc._fuzzy_best_name(read, names)
+            confident = (sim >= fc.NAME_FUZZY_MIN_SIM
+                         and mg >= fc.NAME_FUZZY_MIN_MARGIN)
+            self.assertFalse(confident, 'Muell %r faelschlich konfident' % read)
+
+    def test_read_synthetic_render_roundtrips_new_fish(self):
+        # Rendert die 2 NEUEN Fische aus dem geshippten Atlas, liest zeichenweise
+        # zurueck und fuzzy-matcht -> der richtige offizielle Name muss gewinnen.
+        if not self.atlas:
+            self.skipTest('kein Glyphen-Atlas gebuendelt')
+        names = fc._known_names()
+        for name in ['Kleiner Fisch', 'Süßwassergarnele', 'Lachs', 'Zander']:
+            canvas = _render_name(name, self.atlas)
+            self.assertIsNotNone(canvas)
+            read = fc._read_name_text(canvas, 0, canvas.shape[1], self.atlas)
+            bn, sim, mg = fc._fuzzy_best_name(read, names)
+            self.assertEqual(bn, name,
+                             'render(%r) -> read=%r -> %r' % (name, read, bn))
+            self.assertGreaterEqual(sim, fc.NAME_FUZZY_MIN_SIM)
+
+
+@unittest.skipUnless(_shots_present(), 'numpy/PIL oder FischOCR-Screenshots fehlen')
+class TestCharOcrFallbackRealShots(unittest.TestCase):
+    """Fallback-Pfad an ECHTEN Shots: name__-Templates ENTFERNT -> nur der
+    Glyphen-Atlas + Fuzzy muessen alle 7 gelabelten Namen erkennen (beweist die
+    Zeichen-OCR auf echten Pixeln inkl. klebender Ligaturen)."""
+
+    def setUp(self):
+        fc.reset_template_cache()
+        full = fc._load_templates()
+        # Nur disc + glyph behalten, NAME-Templates leeren -> Fuzzy-Pfad erzwingen.
+        self.only_glyph = {'disc': full.get('disc', {}), 'name': {},
+                           'glyph': full.get('glyph', {})}
+
+    def test_fallback_reads_all_seven_names(self):
+        for fname, (kind, name) in _EXPECTED.items():
+            if name is None:
+                continue                     # Niete/Koeder haben keinen Namen
+            bgr = _load_bgr(os.path.join(_FISCH_DIR, fname))
+            res = fc.read_hook(bgr, region=fc.CHAT_REGION,
+                               templates=self.only_glyph)
+            self.assertEqual(res.kind, kind, fname)
+            self.assertEqual(res.name, name,
+                             '%s: Fuzzy las %r' % (fname, res.name))
+            self.assertTrue(res.confident, fname)
+
+
 if __name__ == '__main__':
     unittest.main(verbosity=2)

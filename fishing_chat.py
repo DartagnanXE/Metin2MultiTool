@@ -145,6 +145,25 @@ NAME_MIN_MARGIN = 0.06      # Abstand Bester vs. Zweitbester
 
 _TEMPLATE_DIR = 'fishing_chat_templates'
 
+# Per-Zeichen-Atlas (``glyph__<hex>.png``). Damit liest :func:`read_hook` auch
+# einen NAMEN, fuer den es KEIN whole-name-Template gibt: Name-Region in Zeichen
+# segmentieren, jedes gegen den Atlas matchen, den zusammengesetzten String
+# gegen die bekannten offiziellen Namen FUZZY-matchen. So wird ein NEUER Fisch
+# am Haken lesbar OHNE eigenen Chat-Screenshot -- sein Name muss nur in
+# ITEM_NAMES stehen. (Build: tools/extract_fishing_chat_templates.py.)
+GLYPH_PREFIX = 'glyph__'
+
+# Zeichen-Match-Boden: ein Name-Lauf, der gegen JEDES Atlas-Glyph schlechter als
+# das hier scort, wird als '?' (unbekanntes Zeichen) gelesen -- der Fuzzy-
+# Abgleich vertraegt einzelne solche Stellen.
+GLYPH_MIN_SCORE = 0.30
+
+# Fuzzy-NAME-Annahme (Zeichen-OCR-Fallback). Bewusst streng: lieber UNKNOWN
+# (Aufrufer angelt normal weiter) als ein falscher Name. An echten Daten haben
+# ALLE korrekten Treffer Aehnlichkeit >= 0.79 bei klarem Abstand zum Zweitbesten.
+NAME_FUZZY_MIN_SIM = 0.72
+NAME_FUZZY_MIN_MARGIN = 0.10
+
 
 # -- Ergebnis-Container --------------------------------------------------
 
@@ -397,14 +416,14 @@ def _load_template_png(path):
 def _load_templates():
     """Laedt + cached die gebuendelten Vorlagen.
 
-    Rueckgabe ``{'disc': {key: bitmap}, 'name': {german_name: bitmap}}``. Fehlt
-    der Ordner oder Pillow, sind die Dicts leer -> alles wird sauber zu NONE/
-    UNKNOWN (kein Crash).
+    Rueckgabe ``{'disc': {key: bitmap}, 'name': {german_name: bitmap},
+    'glyph': {char: bitmap}}``. Fehlt der Ordner oder Pillow, sind die Dicts
+    leer -> alles wird sauber zu NONE/UNKNOWN (kein Crash).
     """
     global _TEMPLATES_CACHE
     if _TEMPLATES_CACHE is not None:
         return _TEMPLATES_CACHE
-    disc, name = {}, {}
+    disc, name, glyph = {}, {}, {}
     try:
         base = resource_path(_TEMPLATE_DIR)
         files = os.listdir(base) if os.path.isdir(base) else []
@@ -416,11 +435,15 @@ def _load_templates():
                 continue
             if fname.startswith('disc__'):
                 disc[fname[len('disc__'):-4]] = bitmap
+            elif fname.startswith(GLYPH_PREFIX):
+                ch = _glyph_char_from_filename(fname)
+                if ch is not None:
+                    glyph[ch] = bitmap
             elif fname.startswith('name__'):
                 name[_slug_to_name(fname[len('name__'):-4])] = bitmap
     except Exception:
         pass
-    _TEMPLATES_CACHE = {'disc': disc, 'name': name}
+    _TEMPLATES_CACHE = {'disc': disc, 'name': name, 'glyph': glyph}
     return _TEMPLATES_CACHE
 
 
@@ -448,6 +471,20 @@ def _slug(text):
     while '__' in slug:
         slug = slug.replace('__', '_')
     return slug.strip('_')
+
+
+def glyph_filename(ch):
+    """Einzelzeichen -> dateinamen-sicherer Atlas-PNG-Name ``glyph__<hex>.png``
+    (hex = Unicode-Codepoint, daher Umlaute/Satzzeichen unproblematisch)."""
+    return '%s%04x.png' % (GLYPH_PREFIX, ord(ch))
+
+
+def _glyph_char_from_filename(fname):
+    """``glyph__<hex>.png`` -> das Zeichen (``None`` bei kaputtem Namen)."""
+    try:
+        return chr(int(fname[len(GLYPH_PREFIX):-4], 16))
+    except Exception:
+        return None
 
 
 # Slug -> offizieller DE-Name. Eindeutige Rueck-Abbildung, damit der Slug im
@@ -507,6 +544,135 @@ def _save_template_png(bitmap, path):
         return False
 
 
+# -- Zeichen-OCR: liest JEDEN Namen, auch ohne whole-name-Template -------
+
+def _char_runs(binary, a, b):
+    """Spaltenlaeufe (= einzelne Zeichen) in ``[a, b)`` als absolute
+    ``(start, end)``. Defensiv: ``[]`` bei kaputter Eingabe."""
+    try:
+        sub = binary[:, int(a):int(b)]
+        col = sub.sum(axis=0)
+        runs, i, n = [], 0, int(col.shape[0])
+        while i < n:
+            if col[i] > 0:
+                j = i
+                while j < n and col[j] > 0:
+                    j += 1
+                runs.append((int(a) + i, int(a) + j))
+                i = j
+            else:
+                i += 1
+        return runs
+    except Exception:
+        return []
+
+
+def _read_name_text(binary, start, end, atlas):
+    """Liest die NAME-Region ``[start, end)`` zeichenweise gegen den Glyphen-
+    ``atlas`` und gibt den ROH erkannten String zurueck (jeder Spaltenlauf ein
+    Zeichen, bestes maskiertes NCC; unter :data:`GLYPH_MIN_SCORE` -> '?').
+    Wort-Luecken werden NICHT als Leerzeichen kodiert -- der Fuzzy-Abgleich
+    normalisiert Leerzeichen ohnehin weg. Wirft nie -> '' bei jedem Problem."""
+    try:
+        if not atlas or binary is None:
+            return ''
+        out = []
+        for (ra, rb) in _char_runs(binary, start, end):
+            glyph = _crop_word_band(binary, (ra, rb))
+            best_c, best_s = '?', -1.0
+            for ch, tmpl in atlas.items():
+                s = _match_score(glyph, tmpl)
+                if s > best_s:
+                    best_s, best_c = s, ch
+            out.append(best_c if best_s >= GLYPH_MIN_SCORE else '?')
+        return ''.join(out)
+    except Exception:
+        return ''
+
+
+def _levenshtein(a, b):
+    """Edit-Distanz (iterativ, zwei Zeilen)."""
+    m, n = len(a), len(b)
+    if m == 0:
+        return n
+    if n == 0:
+        return m
+    prev = list(range(n + 1))
+    for i in range(1, m + 1):
+        cur = [i] + [0] * n
+        ai = a[i - 1]
+        for j in range(1, n + 1):
+            cur[j] = min(prev[j] + 1, cur[j - 1] + 1,
+                         prev[j - 1] + (0 if ai == b[j - 1] else 1))
+        prev = cur
+    return prev[n]
+
+
+def _norm_for_fuzzy(text):
+    """Vergleichsform: Leerzeichen weg + lowercase (robust gegen l/L-
+    Verwechslung im Pixel-Font und gegen Wortabstaende)."""
+    return ''.join(str(text).split()).lower()
+
+
+_KNOWN_NAMES_CACHE = None
+
+
+def _known_names():
+    """Cached Liste der offiziellen DE-Namen (ITEM_NAMES + Sonderfaelle), gegen
+    die der Zeichen-OCR-Lesestring gefuzzy-matcht wird. Defensiv: bei Import-
+    fehler nur die Sonderfaelle (-> Zeichen-OCR liefert dann hoechstens diese,
+    sonst UNKNOWN, NIE ein falscher Name)."""
+    global _KNOWN_NAMES_CACHE
+    if _KNOWN_NAMES_CACHE is not None:
+        return _KNOWN_NAMES_CACHE
+    names, seen = [], set()
+
+    def add(nm):
+        if nm and nm not in seen:
+            seen.add(nm)
+            names.append(nm)
+
+    try:
+        from interface.inventory_manage import ITEM_NAMES
+        for _key, (_en, de) in ITEM_NAMES.items():
+            add(de)
+    except Exception:
+        pass
+    add('Goldener Thunfisch')
+    add('Rotes Haarfärbemittel')
+    _KNOWN_NAMES_CACHE = names
+    return names
+
+
+def reset_known_names_cache():
+    """Vergisst die gecachte Namensliste (Tests)."""
+    global _KNOWN_NAMES_CACHE
+    _KNOWN_NAMES_CACHE = None
+
+
+def _fuzzy_best_name(text, candidates):
+    """``(best_name, similarity, margin)`` des aehnlichsten offiziellen Namens
+    zum roh gelesenen ``text`` (normalisierte Aehnlichkeit
+    ``1 - Levenshtein/maxlen``). ``margin`` = Abstand zum Zweitbesten.
+    ``(None, 0.0, 0.0)`` wenn nichts taugt."""
+    r = _norm_for_fuzzy(text)
+    if not r or not candidates:
+        return (None, 0.0, 0.0)
+    scored = []
+    for name in candidates:
+        key = _norm_for_fuzzy(name)
+        if not key:
+            continue
+        sim = 1.0 - _levenshtein(r, key) / float(max(len(r), len(key)))
+        scored.append((sim, name))
+    if not scored:
+        return (None, 0.0, 0.0)
+    scored.sort(key=lambda x: x[0], reverse=True)
+    best_sim, best_name = scored[0]
+    second = scored[1][0] if len(scored) > 1 else 0.0
+    return (best_name, best_sim, best_sim - second)
+
+
 # -- Klassifikation ------------------------------------------------------
 
 def _classify_words(binary, words, templates):
@@ -556,6 +722,20 @@ def _classify_words(binary, words, templates):
             and name_margin >= NAME_MIN_MARGIN):
         return HookResult(kind, name_key, confident=True,
                           score=name_score, margin=name_margin)
+
+    # FALLBACK: whole-name-Template unsicher -> Zeichen-OCR. Liest die NAME-
+    # Region zeichenweise gegen den Glyphen-Atlas und fuzzy-matcht gegen die
+    # bekannten offiziellen Namen. So werden auch Fische OHNE eigenes
+    # name__-Template erkannt (ihr Name muss nur in ITEM_NAMES stehen) -- kein
+    # Chat-Screenshot pro Fisch noetig. Bleibt streng: lieber UNKNOWN.
+    glyph_atlas = templates.get('glyph', {})
+    if glyph_atlas:
+        read = _read_name_text(binary, name_start, name_end, glyph_atlas)
+        fname, sim, fmargin = _fuzzy_best_name(read, _known_names())
+        if (fname is not None and sim >= NAME_FUZZY_MIN_SIM
+                and fmargin >= NAME_FUZZY_MIN_MARGIN):
+            return HookResult(kind, fname, confident=True,
+                              score=sim, margin=fmargin)
 
     # Biss sicher, Name unsicher -> UNKNOWN (Aufrufer angelt normal weiter).
     return HookResult(kind, UNKNOWN, confident=False,
@@ -615,9 +795,14 @@ def read_hook(screenshot_bgr, region=None, templates=None):
 __all__ = [
     'FISH', 'ITEM', 'NIETE', 'NONE', 'UNKNOWN',
     'CHAT_REGION', 'INK_THRESHOLD', 'WORD_GAP', 'DISC_WORD_INDEX',
+    'GLYPH_PREFIX', 'GLYPH_MIN_SCORE', 'NAME_FUZZY_MIN_SIM',
+    'NAME_FUZZY_MIN_MARGIN',
     'chat_region_for_frame',
     'HookResult', 'read_hook',
-    'reset_template_cache', 'name_to_slug',
+    'reset_template_cache', 'reset_known_names_cache', 'name_to_slug',
+    'glyph_filename',
     # fuer den Extraktor / Tests:
     '_binary_line', '_segment_words', '_save_template_png', '_slug',
+    '_match_score', '_read_name_text', '_levenshtein', '_fuzzy_best_name',
+    '_known_names', '_char_runs',
 ]

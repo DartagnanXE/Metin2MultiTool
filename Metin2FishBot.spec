@@ -128,6 +128,11 @@ a = Analysis(
         # von run_loop/fishingbot importiert (also ohnehin im Graphen) -- hier
         # explizit gepinnt, damit die Abhaengigkeit auch bei Refactors gebundelt bleibt.
         'stop_signal',
+        # Chat-Whitelist: in fishingbot.py via try/except lazy importiert -> die
+        # statische Analyse sieht sie NICHT; ohne Pin fehlen sie in der EXE und die
+        # Whitelist faellt still auf "aus" zurueck. Vorlagen (fishing_chat_templates/)
+        # sind oben als data gebundelt.
+        'fishing_chat', 'fishing_whitelist',
         'telemetry', 'telemetry.hwid', 'telemetry.payload', 'telemetry.client',
         'interface.onboarding', 'interface.ranking_view',
     ] + ctk_hidden + tz_hidden + collect_submodules('pystray')  # pystray laedt sein Backend (pystray._win32) dynamisch -> alle Submodule mitnehmen
