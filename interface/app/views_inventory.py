@@ -579,13 +579,22 @@ class InventoryViewMixin:
         # Lieber 'nicht sicher ob der Scan geklappt hat' als still vertrauen.
         try:
             uncertain = len(inv.uncertain_counts()) if inv is not None else 0
-            if inv is not None and (items == 0 or uncertain
-                                    or (unknown > 4 and unknown > 2 * items)):
+            if inv is not None and items == 0 and unknown > 4:
+                # Grid genuinely OFF: many slots were read but NONE as a known
+                # item -> real misalignment. (Many unknown slots WHILE items ARE
+                # recognised is NORMAL -- they are non-fishing items, deliberately
+                # not in the bag DB; we no longer cry "calibration wrong" then.)
                 self._set_inv_status(t('ui.inventory_scan_uncertain',
-                                       unknown=unknown, uncertain=uncertain),
-                                     AMBER)
-                log.warning(t('ui.inventory_scan_uncertain',
-                              unknown=unknown, uncertain=uncertain))
+                                       unknown=unknown), AMBER)
+                log.warning(t('ui.inventory_scan_uncertain', unknown=unknown))
+            elif inv is not None and uncertain:
+                # Items recognised fine, only some STACK NUMBERS were unsure -- a
+                # mild, honest note, not a scary calibration alarm.
+                self._set_inv_status(
+                    t('ui.inventory_scan_numbers_unsure', uncertain=uncertain),
+                    AMBER)
+                log.warning(t('ui.inventory_scan_numbers_unsure',
+                              uncertain=uncertain))
         except Exception:
             pass
         # Stack-Mengen auf die Management-Bilder schreiben (falls Grid existiert).
