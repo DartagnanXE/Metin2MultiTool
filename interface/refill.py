@@ -16,7 +16,7 @@ and ``F1 F2 F3 F4`` (slots 5-8) -- nothing else. The configured bait key both
 selects the slot to drag INTO and is the key fishing presses to bait the rod.
 """
 
-from inventory.constants import DEFAULT_CALIBRATION
+from inventory.constants import DEFAULT_CALIBRATION, INPUT_SETTLE_S
 from inventory.grid import lattice_from_calibration
 
 try:  # pragma: no cover - numpy present in production
@@ -49,7 +49,7 @@ PAGE_ORDER = ('I', 'II', 'III', 'IV')
 
 # Drag timing (seconds) -- tunable on the live window.
 DRAG_STEPS = 12        # intermediate moves so the game registers the drag
-DRAG_SETTLE = 0.04     # pause after press / before release
+DRAG_SETTLE = INPUT_SETTLE_S   # pause after press / before release (speed knob)
 
 
 def quickslot_index(key):

@@ -37,7 +37,7 @@ exactly like every other click in the bot (fishingbot/puzzle/refill add
 ``wincap.offset_x/y``).
 """
 
-from inventory.constants import DEFAULT_CALIBRATION
+from inventory.constants import DEFAULT_CALIBRATION, INPUT_SETTLE_S
 from inventory.grid import lattice_from_calibration
 
 try:  # pragma: no cover - numpy present in production
@@ -108,20 +108,23 @@ PAGE_ORDER = ('I', 'II', 'III', 'IV')
 # -- timing (seconds; tunable on the live window) ---------------------------
 
 #: Hold time for the bird's-eye-view key ("G") after placing the campfire, so the
-#: top-down camera settles before scanning for the label.
-BIRDS_EYE_HOLD_S = 1.0
+#: top-down camera settles before scanning for the label. RISK SPOT: this is a
+#: real key-HOLD that moves the CAMERA, not just a wait -- at 0.05s the top-down
+#: view may not flip, so if campfire stops finding the "Lagerfeuer" label this is
+#: the FIRST knob to raise (kept as its OWN value, not tied to INPUT_SETTLE_S).
+BIRDS_EYE_HOLD_S = 0.05
 
 #: Settle after the place double-click, before pressing the bird's-eye key.
-PLACE_SETTLE_S = 0.6
+PLACE_SETTLE_S = INPUT_SETTLE_S
 
 #: Settle after a camera-rotate key ("E") press, before re-scanning.
-ROTATE_SETTLE_S = 0.5
+ROTATE_SETTLE_S = INPUT_SETTLE_S
 
 #: How many camera rotations to try while hunting for the label before giving up.
 MAX_ROTATE_ATTEMPTS = 8
 
 #: Settle after a fish drag onto the fire, before the next one.
-GRILL_SETTLE_S = 0.4
+GRILL_SETTLE_S = INPUT_SETTLE_S
 
 
 def _flog(state, key, **fmt):
@@ -464,7 +467,7 @@ def run_campfire(states, *, inp, capture_rgb_fn, scan_fn, offset=(0, 0),
 
 # -- input primitives (pure given an injected api) --------------------------
 
-def drag(api, x1, y1, x2, y2, steps=12, settle=0.04, sleep=None):
+def drag(api, x1, y1, x2, y2, steps=12, settle=INPUT_SETTLE_S, sleep=None):
     """Press-hold-move-release drag from ``(x1,y1)`` to ``(x2,y2)``.
 
     Same contract as :func:`interface.refill.drag` (intermediate moves so the game
@@ -577,7 +580,7 @@ def _switch_page(inp, calib, offset_x, offset_y, page, sleep):
         pt = tabs.get(page)
         if pt and hasattr(inp, 'click'):
             inp.click(x=int(offset_x + pt[0]), y=int(offset_y + pt[1]))
-            sleep(0.2)
+            sleep(INPUT_SETTLE_S)
     except Exception:
         pass
 

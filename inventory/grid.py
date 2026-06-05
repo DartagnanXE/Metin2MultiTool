@@ -31,6 +31,7 @@ from .constants import (
     slot_indices,
 )
 import threading
+import time
 from i18n import t
 
 try:  # pragma: no cover - exercised on machines with numpy
@@ -206,6 +207,59 @@ def reset_align_cache():
         _align_cache = None
 
 
+def export_align_cache():
+    """Serialise the current session lock for CROSS-SESSION reuse (PURE, no IO).
+
+    Returns a JSON-safe ``{key, origin, pitch, count}`` dict, or ``None`` when no
+    MEANINGFUL lock is held (no cache, or a count<=0 empty-bag lock the reuse
+    guard would never trust anyway). The inventory window is fixed per install, so
+    persisting this lets the FIRST scan of the NEXT session skip the ~441-candidate
+    cold sweep. Safe by construction: on import the very same refine-probe +
+    :func:`_cache_reuse_ok` that guard in-session reuse re-validate it, so a window
+    MOVED between sessions collapses the probe count and falls back to the cold
+    sweep -- a stale sidecar can never mislock. The live IO wrapper
+    (:mod:`interface.inventory_runner`) reads/writes the returned dict."""
+    with _align_cache_lock:
+        c = _align_cache
+    if not c or c.get('lattice') is None or c.get('key') is None:
+        return None
+    if int(c.get('count', 0)) <= 0:
+        return None    # empty-bag lock -> _cache_reuse_ok never reuses it anyway
+    try:
+        k = c['key']
+        lat = c['lattice']
+        return {
+            'key': [list(k[0]), list(k[1]), int(k[2]), int(k[3]), list(k[4])],
+            'origin': [int(lat.origin[0]), int(lat.origin[1])],
+            'pitch': [int(lat.pitch[0]), int(lat.pitch[1])],
+            'count': int(c.get('count', 0)),
+        }
+    except Exception:
+        return None
+
+
+def import_align_cache(data):
+    """Seed the session lock from :func:`export_align_cache` output. Never raises.
+
+    Rebuilds the cache key as TUPLES so it matches a live :func:`_cache_key`; a
+    different next-session window/calibration simply yields a non-matching key (no
+    reuse), and a same-shape-but-moved window is caught by the refine-probe. A
+    malformed/foreign payload is ignored (the scan just cold-sweeps as before)."""
+    global _align_cache
+    try:
+        k = data['key']
+        key = (tuple(k[0]), tuple(k[1]), int(k[2]), int(k[3]), tuple(k[4]))
+        lat = GridLattice(
+            origin=(int(data['origin'][0]), int(data['origin'][1])),
+            pitch=(int(data['pitch'][0]), int(data['pitch'][1])),
+        )
+        cnt = int(data.get('count', 0))
+    except Exception:
+        return
+    with _align_cache_lock:
+        _align_cache = {'key': key, 'lattice': lat, 'count': cnt}
+
+
 def _cached_lattice(key):
     """Return the cached ``(lattice, count)`` for ``key`` (or ``None``)."""
     with _align_cache_lock:
@@ -353,6 +407,7 @@ def auto_align(image_bgr, db, calib, radius=AUTO_ALIGN_RADIUS,
 
     tol = int((calib or {}).get('tolerance', DEFAULT_TOLERANCE))
     key = _cache_key(calib, image_bgr)
+    t0 = time.perf_counter()
 
     # SESSION-CACHE fast path: confirm/adjust the previous lock with a tiny refine.
     cached = _cached_lattice(key)
@@ -364,6 +419,8 @@ def auto_align(image_bgr, db, calib, radius=AUTO_ALIGN_RADIUS,
             _store_lattice(key, lat, cnt)
             _log('inventory.grid_locked', origin=lat.origin,
                  pitch=lat.pitch, fit=cnt)
+            _log('inventory.grid_align', mode='cache',
+                 ms=int((time.perf_counter() - t0) * 1000))
             return lat
 
     lat = _auto_align_cold(image_bgr, db, calib, base, tol, radius, row_reach)
@@ -373,6 +430,8 @@ def auto_align(image_bgr, db, calib, radius=AUTO_ALIGN_RADIUS,
         _store_lattice(key, lat, aligned_match_count(image_bgr, db, lat))
     except Exception:
         pass
+    _log('inventory.grid_align', mode='cold',
+         ms=int((time.perf_counter() - t0) * 1000))
     return lat
 
 

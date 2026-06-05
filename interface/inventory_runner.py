@@ -72,6 +72,7 @@ from .inventory_io import (
 # -- soft imports (live deps; module stays importable headless) -------------
 try:  # pragma: no cover - present only on the Windows build/runtime
     import pydirectinput
+    pydirectinput.PAUSE = 0  # teleport speed: no 0.1s pause after each call
 except Exception:  # pragma: no cover
     pydirectinput = None
 
@@ -362,6 +363,57 @@ class _Runner:
         return None
 
 
+# -- cross-session grid-lock persistence ------------------------------------
+# The inventory window is FIXED per install, so the auto_align lock found by the
+# first (cold, ~seconds) sweep is reusable next session. We persist it to a tiny
+# sidecar next to config.json and re-seed inventory.grid's session cache on the
+# FIRST scan of a process -- that scan then skips the cold sweep too. The grid
+# module re-validates the seeded lock with its refine-probe (a MOVED window
+# collapses the count -> cold fallback), so a stale sidecar can never mislock.
+_GRID_LOCK_FILE = 'grid_lock.json'
+_grid_lock_loaded = False
+
+
+def _grid_lock_path():
+    """Sidecar path next to config.json (frozen: %APPDATA%). None on failure."""
+    try:
+        from .config.paths import sibling_path
+        return sibling_path(_GRID_LOCK_FILE)
+    except Exception:
+        return None
+
+
+def _seed_grid_lock_once():
+    """Re-seed grid's session cache from the sidecar ONCE per process. Never raises."""
+    global _grid_lock_loaded
+    if _grid_lock_loaded:
+        return
+    _grid_lock_loaded = True
+    try:
+        import json
+        path = _grid_lock_path()
+        if path and os.path.exists(path):
+            with open(path, 'r', encoding='utf-8') as fh:
+                grid_mod.import_align_cache(json.load(fh))
+    except Exception:
+        pass
+
+
+def _save_grid_lock():
+    """Persist grid's current session lock to the sidecar (best-effort). Never raises."""
+    try:
+        import json
+        data = grid_mod.export_align_cache()
+        if not data:
+            return
+        path = _grid_lock_path()
+        if path:
+            with open(path, 'w', encoding='utf-8') as fh:
+                json.dump(data, fh)
+    except Exception:
+        pass
+
+
 def run_inventory_scan(cfg, previous_map=None, *, log_fn=None, db=None,
                        tracked=KEY_ITEMS, progress_fn=None):
     """Run ONE live I->IV inventory scan; render + diff it; return the new map.
@@ -417,6 +469,10 @@ def run_inventory_scan(cfg, previous_map=None, *, log_fn=None, db=None,
         _emit_line(sink, t('inventory.scan_no_window'))
         from inventory.types import InventoryMap
         return InventoryMap(pages={})
+
+    # Re-seed the grid lock from last session so THIS scan can skip the cold sweep
+    # when the window has not moved (grid re-validates the seed -> safe on a move).
+    _seed_grid_lock_once()
 
     runner.open_window()                       # may raise 'not found' (UI handles)
     hotkey = (cfg or {}).get('inventory', {}).get('hotkey', 'i')
@@ -492,6 +548,8 @@ def run_inventory_scan(cfg, previous_map=None, *, log_fn=None, db=None,
         record_fn=_record_page,
         vectorized=True,
     )
+    # Persist the (now warm) grid lock so next session's first scan is warm too.
+    _save_grid_lock()
 
     # Toggled-shut detection: a hotkey that CLOSED the inventory yields no items
     # and only unknowns (or nothing). Warn clearly instead of dumping garbage.

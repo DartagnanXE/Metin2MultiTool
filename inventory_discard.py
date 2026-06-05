@@ -33,7 +33,7 @@ This module deliberately keeps its OWN copies of :func:`drag` + :func:`_slot_scr
 shares no code with the grill flow and the two stay disjoint.
 """
 
-from inventory.constants import DEFAULT_CALIBRATION, SLOT_PX
+from inventory.constants import DEFAULT_CALIBRATION, SLOT_PX, INPUT_SETTLE_S
 from inventory.grid import lattice_from_calibration
 
 # Diagnose-Logging (soft) -- macht das Wegwerfen in der Live-Console sichtbar; ein
@@ -81,11 +81,12 @@ CONFIRM_YES_OFFSET_FROM_CENTRE = (-48, 16)
 # -- timing (seconds; tunable on the live window) ---------------------------
 
 #: Settle after a discard drag into the world, before clicking the confirm "Ja"
-#: (lets Metin2 raise the "fallen lassen?" dialog).
-DROP_SETTLE_S = 0.3
+#: (lets Metin2 raise the "fallen lassen?" dialog). RISK SPOT: if items are NOT
+#: dropped because "Ja" is clicked before the dialog appears, raise INPUT_SETTLE_S.
+DROP_SETTLE_S = INPUT_SETTLE_S
 
 #: Settle after clicking the confirm "Ja", before the next item.
-CONFIRM_SETTLE_S = 0.3
+CONFIRM_SETTLE_S = INPUT_SETTLE_S
 
 
 def _flog(state, key, **fmt):
@@ -298,7 +299,7 @@ def run_discard(states, *, inp, capture_fn, scan_fn, client_size,
 
 # -- input primitives (pure given an injected api) --------------------------
 
-def drag(api, x1, y1, x2, y2, steps=12, settle=0.04, sleep=None):
+def drag(api, x1, y1, x2, y2, steps=12, settle=INPUT_SETTLE_S, sleep=None):
     """Press-hold-move-release drag from ``(x1,y1)`` to ``(x2,y2)``.
 
     Same contract as :func:`inventory_campfire.drag` (intermediate moves so the
@@ -374,7 +375,7 @@ def _switch_page(inp, calib, offset_x, offset_y, page, sleep):
         pt = tabs.get(page)
         if pt and hasattr(inp, 'click'):
             inp.click(x=int(offset_x + pt[0]), y=int(offset_y + pt[1]))
-            sleep(0.2)
+            sleep(INPUT_SETTLE_S)
     except Exception:
         pass
 

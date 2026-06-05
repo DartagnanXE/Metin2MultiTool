@@ -250,13 +250,22 @@ MARGIN_PRIMARY_MAX_DIST = 30.0
 # Single settle AFTER the full 45-slot hover sweep, so the last glow finishes
 # fading before the re-capture. NOT per-slot (a per-slot sleep would make the
 # sweep slow + jittery).
-HOVER_SETTLE_S = 0.05
+# SPEED KNOB: single tunable for every input settle pause (scan + manage flows).
+# User directive "alles auf 0,05s". If an action mis-fires because the game needs
+# a frame longer, raise THIS one value. Risk spots flagged at each use site:
+# OPEN_SETTLE (panel-open), DROP_SETTLE (discard dialog), BIRDS_EYE_HOLD (camera).
+INPUT_SETTLE_S = 0.05
+
+# Single settle AFTER the full 45-slot hover sweep (last glow finishes fading).
+HOVER_SETTLE_S = INPUT_SETTLE_S
 
 # Settle after clicking an inventory tab, before verifying / capturing it.
-TAB_SETTLE_S = 0.10
+TAB_SETTLE_S = INPUT_SETTLE_S
 
-# Settle after pressing the inventory open hotkey, before the page loop.
-OPEN_SETTLE_S = 0.15
+# Settle after pressing the inventory open hotkey, before the page loop. The
+# panel must be OPEN before the first capture -- if page I ever reads empty,
+# this (via INPUT_SETTLE_S) is the first knob to raise.
+OPEN_SETTLE_S = INPUT_SETTLE_S
 
 
 # -- Tracked key items (the default 'remember + report' set) ---------------

@@ -1,4 +1,5 @@
 import pydirectinput
+pydirectinput.PAUSE = 0  # teleport speed: drop the default 0.1s pause after EVERY call
 import cv2 as cv
 from time import time, sleep
 import random

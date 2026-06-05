@@ -39,6 +39,7 @@ import inventory_discard as discard
 # -- soft imports (live deps; module stays importable headless) -------------
 try:  # pragma: no cover - present only on the Windows build/runtime
     import pydirectinput
+    pydirectinput.PAUSE = 0  # teleport speed: no 0.1s pause after each call
 except Exception:  # pragma: no cover
     pydirectinput = None
 

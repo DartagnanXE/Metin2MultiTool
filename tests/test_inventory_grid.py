@@ -6,6 +6,7 @@ match the DB) with an injected +5px origin drift -- the documented real
 failure -- and must re-lock the true origin. Skipped without numpy/PIL/icons.
 """
 
+import json
 import unittest
 
 from inventory import grid as G
@@ -362,6 +363,62 @@ class TestAutoAlignSessionCache(unittest.TestCase):
             self.assertEqual(calls[0], 1, 'after reset the cold sweep must re-run')
         finally:
             G._auto_align_cold = orig
+
+
+class TestAlignCachePersistence(unittest.TestCase):
+    """export_align_cache / import_align_cache round-trip + safety (headless).
+
+    Backs the cross-session sidecar in interface.inventory_runner: a saved lock
+    must survive JSON, re-seed the session cache, and NEVER be trusted blindly --
+    an empty-bag lock is not persisted, a different window shape is not reused,
+    garbage is ignored. The live moved-window validation is the refine-probe (see
+    test_empty_then_moved_window_does_not_mislock); these pin the serialisation."""
+
+    def setUp(self):
+        G.reset_align_cache()
+
+    def tearDown(self):
+        G.reset_align_cache()
+
+    @staticmethod
+    def _key():
+        return ((633, 244), (761, 500), 9, 5, (601, 800, 3))
+
+    def test_export_none_when_empty(self):
+        self.assertIsNone(G.export_align_cache())
+
+    def test_roundtrip_through_json_reuses_lock(self):
+        G._store_lattice(self._key(),
+                         GridLattice(origin=(635, 246), pitch=(32, 32)), 30)
+        data = json.loads(json.dumps(G.export_align_cache()))   # sidecar round-trip
+        G.reset_align_cache()
+        self.assertIsNone(G._cached_lattice(self._key()))
+        G.import_align_cache(data)
+        got = G._cached_lattice(self._key())
+        self.assertIsNotNone(got)
+        self.assertEqual(got[0].origin, (635, 246))
+        self.assertEqual(got[0].pitch, (32, 32))
+        self.assertEqual(got[1], 30)
+
+    def test_empty_bag_lock_not_persisted(self):
+        # count<=0 is a no-signal lock the reuse guard never trusts -> not exported.
+        G._store_lattice(self._key(),
+                         GridLattice(origin=(635, 246), pitch=(32, 32)), 0)
+        self.assertIsNone(G.export_align_cache())
+
+    def test_import_garbage_is_safe(self):
+        for bad in (None, 'xxx', {}, {'key': 1}, {'key': [1, 2, 3]}):
+            G.import_align_cache(bad)
+        self.assertIsNone(G.export_align_cache())
+
+    def test_other_window_shape_not_reused(self):
+        G._store_lattice(self._key(),
+                         GridLattice(origin=(635, 246), pitch=(32, 32)), 30)
+        data = json.loads(json.dumps(G.export_align_cache()))
+        G.reset_align_cache()
+        G.import_align_cache(data)
+        moved = ((633, 244), (761, 500), 9, 5, (700, 900, 3))   # different size
+        self.assertIsNone(G._cached_lattice(moved))
 
 
 if __name__ == '__main__':
