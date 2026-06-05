@@ -51,9 +51,17 @@ except Exception:  # pragma: no cover
 DIGIT_DIR = 'inventory_digits'
 
 CANON_H = 16          # canonical glyph height for matching
-WHITE_MIN = 150       # min(R,G,B) above which a pixel is "white digit core"
+# Stack digits are rendered SHARP, pure white (~255). Item ICONS, however, have a
+# few silvery/yellow highlight pixels (min(R,G,B) ~150..170) in the number band
+# -- at WHITE_MIN=150 those were mis-read as a (failing) number, so an unstacked
+# fish reported "unreadable" instead of "1". 175 drops the icon highlights (the
+# measured fish noise falls to 0 ink px) while keeping the real white digits
+# unchanged (Worm "12" = 19 ink px at 150 AND 200, sharp -> no thinning). The
+# MIN_INK_PX guard below is the second line of defence against residual noise.
+WHITE_MIN = 175       # min(R,G,B) above which a pixel is "white digit core"
 BAND_TOP = 13         # number band = slot rows BAND_TOP..SLOT_PX-1
 INK_THR = 0.25        # whiteness above which a pixel counts as ink
+MIN_INK_PX = 5        # fewer ink px than this in the band = no digit (icon noise)
 MIN_CELL_W = 2        # a digit cell narrower than this (canonical px) is junk
 MAX_DIGITS = 4        # stack counts are <= 4 digits in practice
 CONF_MIN = 0.46       # weakest-cell NCC to call a read 'confident'
@@ -249,8 +257,11 @@ def read_count(slot_rgb):
         return CountResult(None, 0.0, False, 0)
     band = arr[BAND_TOP:SLOT_PX, :, :3]
     mask = _white_mask(band)
-    if _ink_bbox(mask) is None:
-        return CountResult(1, 1.0, True, 0)        # no number -> single item
+    # No number -> single item. A handful of stray ink pixels are NOT a digit
+    # (item icons keep a few bright spots even after the WHITE_MIN raise), so an
+    # unstacked item is read as 1 instead of a failed decode of icon noise.
+    if int((mask > INK_THR).sum()) < MIN_INK_PX:
+        return CountResult(1, 1.0, True, 0)
     text, weak_score, weak_margin = _decode(mask, templates)
     if not text.isdigit():
         return CountResult(None, float(weak_score), False, 0)
