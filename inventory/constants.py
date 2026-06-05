@@ -282,17 +282,22 @@ DEFAULT_CALIBRATION = {
         'offset': [15, 6],
         'rule': 'brightest of the 4 sample points = open page',
     },
-    # Grid top-left / bottom-right slot centres-of-origin (px in the captured
-    # CLIENT image). This is only a STARTING GUESS -- auto_align re-locks it per
-    # scan within +-AUTO_ALIGN_RADIUS. It is centred on the EMPIRICAL grid
-    # origin measured on the real captures (FischOhneLeuchten -> (633,275),
-    # FischLeuchten -> (632,274)); the original (649,263) guess sat ~16px off
-    # (a full half-pitch), which no small alias-safe search radius could recover.
-    # br = tl + ((COLS-1)*32, (ROWS-1)*32) so lattice_from_calibration derives a
-    # clean 32px pitch on both axes.
+    # Grid top-left slot corner (px in the captured CLIENT image, ~800x601 -- NO
+    # titlebar). STARTING GUESS; auto_align re-locks per scan within
+    # +-AUTO_ALIGN_RADIUS (+ whole-row reach). Measured on the real LIVE client
+    # captures: origin ~(633,244) (FischOhneLeuchten locks (633,243); the user's
+    # live inventory (632,245)).
+    # CRITICAL (fixed): the OLD guess (633,275) was a FULL-WINDOW measurement
+    # (802x632, WITH the ~31px Windows titlebar) -- exactly one titlebar too LOW
+    # for the live client. On a SPARSE bag auto_align still found the true row, but
+    # on a FULL bag the count-maximizing sweep + calibration-proximity tiebreak
+    # locked the phantom one-row-down alias near the wrong 275 (-> ~277), shifting
+    # every slot one row and mis-reading the page. The client-correct 244 makes the
+    # proximity tiebreak land on the true row for full AND sparse bags.
+    # br = tl + ((COLS-1)*32, (ROWS-1)*32) -> clean 32px pitch.
     'grid': {
-        'tl': [633, 275],
-        'br': [761, 531],
+        'tl': [633, 244],
+        'br': [761, 500],
         'cols': COLS,
         'rows': ROWS,
     },

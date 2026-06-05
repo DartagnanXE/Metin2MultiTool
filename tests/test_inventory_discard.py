@@ -187,10 +187,10 @@ class TestSlotScreen(unittest.TestCase):
 
     def test_falls_back_to_calibration_when_no_lattice(self):
         # Without a locked lattice it derives from DEFAULT_CALIBRATION (origin
-        # 633,275). This is the un-aligned path (documented ~1 slot low).
+        # 633,244 -- the live client grid corner). This is the un-aligned path.
         self.assertEqual(
             discard._slot_screen(0, 0, DEFAULT_CALIBRATION, 0, 0),
-            (633 + 16, 275 + 16))
+            (633 + 16, 244 + 16))
 
     def test_offset_added(self):
         lat = GridLattice(origin=(600, 240), pitch=(32, 32))
@@ -306,7 +306,7 @@ class TestRunDiscardOrchestration(unittest.TestCase):
 
     def test_falls_back_to_calibration_lattice_when_none(self):
         # With NO injected lattice the drag source derives from DEFAULT_CALIBRATION
-        # (origin 633,275) -- the run still completes + confirms.
+        # (origin 633,244) -- the run still completes + confirms.
         rec = _Recorder()
         inv = _inv({'I': [_slot('Carp', 0, 0)]})
         res = discard.run_discard(
@@ -315,7 +315,7 @@ class TestRunDiscardOrchestration(unittest.TestCase):
             sleep=_noop_sleep)
         self.assertEqual(res.status, 'done')
         # Drop point uses the calibration origin (633) when no lattice is locked.
-        self.assertEqual(res.drop_point, (633 - 32, 275 + 16))
+        self.assertEqual(res.drop_point, (633 - 32, 244 + 16))
 
     def test_capture_fn_may_be_none(self):
         # The pure flow does not need capture_fn; None must not break it.

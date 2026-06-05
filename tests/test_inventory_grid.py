@@ -39,8 +39,8 @@ class TestGridLatticePure(unittest.TestCase):
 
     def test_lattice_from_calibration_default(self):
         lat = lattice_from_calibration(DEFAULT_CALIBRATION)
-        self.assertEqual(lat.origin, (633, 275))   # grid.tl (empirical centre)
-        # span 761-633=128 over 4 gaps -> pitch 32; 531-275=256 over 8 -> 32.
+        self.assertEqual(lat.origin, (633, 244))   # grid.tl (live client origin)
+        # span 761-633=128 over 4 gaps -> pitch 32; 500-244=256 over 8 -> 32.
         self.assertEqual(lat.pitch, (32, 32))
 
     def test_lattice_from_calibration_degenerate(self):
@@ -153,7 +153,7 @@ class TestAutoAlign(unittest.TestCase):
         try:
             G.np = None
             lat = G.auto_align(object(), self.db, DEFAULT_CALIBRATION)
-            self.assertEqual(lat.origin, (633, 275))
+            self.assertEqual(lat.origin, (633, 244))
         finally:
             G.np = saved
 
