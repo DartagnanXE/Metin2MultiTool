@@ -1,5 +1,5 @@
 import pydirectinput
-pydirectinput.PAUSE = 0  # teleport speed: drop the default 0.1s pause after EVERY call
+pydirectinput.PAUSE = 0.05  # fast, but down->up MUST stay held >~1 frame or the game IGNORES the key/click (PAUSE=0 broke bait/cast + tab-switch); 0.05 = ~3 frames, still 2x faster than the old 0.1
 import cv2 as cv
 from time import time, sleep
 import random

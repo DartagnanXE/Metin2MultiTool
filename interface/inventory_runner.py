@@ -72,7 +72,7 @@ from .inventory_io import (
 # -- soft imports (live deps; module stays importable headless) -------------
 try:  # pragma: no cover - present only on the Windows build/runtime
     import pydirectinput
-    pydirectinput.PAUSE = 0  # teleport speed: no 0.1s pause after each call
+    pydirectinput.PAUSE = 0.05  # down->up needs a hold (~3 frames) or the game ignores tab clicks; 0 made the scan stick on page I
 except Exception:  # pragma: no cover
     pydirectinput = None
 
