@@ -470,6 +470,11 @@ def run_inventory_scan(cfg, previous_map=None, *, log_fn=None, db=None,
         from inventory.types import InventoryMap
         return InventoryMap(pages={})
 
+    # Mouse clicks register fine at 0.05 (proven by the live tab-switch); a prior
+    # fishing run raises PAUSE to 0.1 for the keyboard, so force 0.05 back here so
+    # the (mouse-only) scan stays fast.
+    if pydirectinput is not None:
+        pydirectinput.PAUSE = 0.05
     # Re-seed the grid lock from last session so THIS scan can skip the cold sweep
     # when the window has not moved (grid re-validates the seed -> safe on a move).
     _seed_grid_lock_once()

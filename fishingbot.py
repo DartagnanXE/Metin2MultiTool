@@ -1,5 +1,5 @@
 import pydirectinput
-pydirectinput.PAUSE = 0.05  # fast, but down->up MUST stay held >~1 frame or the game IGNORES the key/click (PAUSE=0 broke bait/cast + tab-switch); 0.05 = ~3 frames, still 2x faster than the old 0.1
+pydirectinput.PAUSE = 0.1  # KEYBOARD needs this hold to register in-game; 0.05 was too short for keys (fishing didn't cast). = pydirectinput default (what v1.1.0 used). Mouse-only flows (scan) lower it per-op to 0.05.
 import cv2 as cv
 from time import time, sleep
 import random
@@ -607,6 +607,12 @@ class FishingBot(FishingDetectMixin):
         # Selbstdiagnose pro Lauf zuruecksetzen.
         self._bite_seen_this_cycle = False
         self._casts_without_bite = 0
+
+        # Tasten (Koeder/Auswerfen) brauchen eine echte Haltezeit, sonst sieht
+        # DirectInput sie nie. Ein vorheriger Inventar-Scan kann PAUSE auf 0,05
+        # gesenkt haben (ok fuer Maus, zu kurz fuer die Tastatur) -> hier den
+        # bewaehrten 0,1-Wert (= v1.1.0-Default) fuer den ganzen Angel-Lauf erzwingen.
+        pydirectinput.PAUSE = 0.1
 
         mouse_x = int(self.FISH_WINDOW_POSITION[0] + self.wincap.offset_x + 200)
         mouse_y = int(self.FISH_WINDOW_POSITION[1] + self.wincap.offset_y + 200)
