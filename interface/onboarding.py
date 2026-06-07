@@ -56,7 +56,7 @@ def open_onboarding(app, on_done=None):
         dlg.title(t('ui.onboarding_title'))
         dlg.configure(fg_color=BG)
         dlg.resizable(False, False)
-        dlg.geometry('420x420')
+        dlg.geometry('494x494')  # mitgewachsen mit widget_scaling 0.85->1.0
         try:
             dlg.transient(app)
         except Exception:

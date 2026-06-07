@@ -35,6 +35,40 @@ Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   faelschlich „126"); Server-Suite **44** gruen. Thread-Timing-Flakiness in den
   Telemetrie-Sender-Tests beseitigt (ereignisgesteuert statt `sleep`).
 
+## [1.1.4] — 2026-06-07
+
+### Behoben / Verbessert (Angel-Chat-Erkennung)
+
+- **3 gemeldete Faenge wurden nicht erkannt:** _Karpfen_ und _Aal_ lieferten
+  `UNKNOWN` (der Glyphen-Atlas kannte die Zeichen `A`/`f` nicht, daher fiel die
+  Fuzzy-Aehnlichkeit unter die Schwelle; bei _Aal_ zusaetzlich fatal, weil der
+  Name nur 3 Buchstaben hat). _Schwarzes Haarfärbemittel_ funktionierte schon,
+  ist jetzt aber stabiler. Aus den gelieferten Chat-Bildern nachtrainiert:
+  3 neue Whole-Name-Templates + die Atlas-Glyphen `A`/`f`/`z`. Die neuen Glyphen
+  verbessern auch bestehende Namen (Spiegelkarpfen, alle Haarfärbemittel lesen
+  jetzt das `f`). Bestehende Templates bleiben byte-identisch.
+- **Sicherheitsnetz gegen stille Luecken:** Neuer Test deckt JEDEN fangbaren
+  Namen (`ITEM_NAMES`) gegen Atlas+Fuzzy ab. Aktuell 41/44 sicher erkennbar;
+  dokumentierte Rest-Luecken (`Ayu`, `Blondes`/`Braunes Haarfärbemittel` —
+  fehlende Glyphen `y`/`B`) degradieren SICHER (UNKNOWN → Fisch wird behalten,
+  nie faelschlich abgebrochen). Ein neuer, nicht erkennbarer Fisch laesst den
+  Test kuenftig sofort anschlagen.
+- Neues Dev-Tool `tools/synthesize_chat_reference.py` (Chat-Crop → 802×632
+  Referenzframe) fuer reproduzierbares Nachtrainieren weiterer Faenge.
+
+### Oberflaeche
+
+- **Schrift im ganzen Interface groesser/besser lesbar:** Die globale
+  Widget-Skalierung wurde von `0.85` (~15% kompakter) auf `1.0` angehoben und der
+  zuvor sehr kleine, graue Abschnitts-Untertitel ("Infos", z.B. _„Scan the
+  inventory and locate tracked items"_) vergroessert. Damit der No-Scroll-Aufbau
+  erhalten bleibt, sind die fixen Fenstergroessen (Hauptfenster + Onboarding-,
+  Effekt- und Fenster-Auswahl-Dialog) proportional mitgewachsen.
+
+Erkennungs-/Template- + reine UI-Skalierungs-Aenderung — KEINE Eingabe-/Timing-
+Aenderung (headless getestet; die optische Schriftgroesse bitte einmal im Spiel
+gegenpruefen).
+
 ## [1.0.4] — 2026-06-01
 
 Grosses UI- und Funktions-Update: komplett neu gestaltete, kompakte Oberflaeche

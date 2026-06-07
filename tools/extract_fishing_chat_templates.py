@@ -75,6 +75,9 @@ _FISH_ITEM_SOURCES = {
     'Spiegelkarpfen.png': ('fish', 'Spiegelkarpfen'),
     'Zander.png': ('fish', 'Zander'),
     'rotes Haarfärbemittel.png': ('item', 'Rotes Haarfärbemittel'),
+    'Karpfen.png': ('fish', 'Karpfen'),
+    'Aal.png': ('fish', 'Aal'),
+    'Schwarzes Haarfärbemittel.png': ('item', 'Schwarzes Haarfärbemittel'),
 }
 
 # Discriminator: which reference's word[4] yields each branch glyph.
@@ -97,6 +100,15 @@ _GLYPH_SOURCES = {
     'thunfisch.png': 'Es sieht aus, als hätte Goldener Thunfisch angebissen.',
     'rotes Haarfärbemittel.png':
         'Es sieht aus, als hinge Rotes Haarfärbemittel am Haken.',
+    # Vom User gelieferte Faenge (Crops -> FischOCR via synthesize_chat_reference).
+    # Der Atlas gewinnt hieraus u.a. 'A' (Aal) und 'z' (Schwarz). 'f' bleibt im
+    # Pixelfont eine klebende Ligatur -> nicht sauber isolierbar; Karpfen wird
+    # daher ueber sein name__-Whole-Template erkannt (Primaerpfad), nicht ueber
+    # den Zeichen-Fuzzy. Der Item-Text rendert "Schwarz" (nicht "Schwarzes").
+    'Karpfen.png': 'Es sieht aus, als hätte Karpfen angebissen.',
+    'Aal.png': 'Es sieht aus, als hätte Aal angebissen.',
+    'Schwarzes Haarfärbemittel.png':
+        'Es sieht aus, als hinge Schwarz Haarfärbemittel am Haken.',
     'nichterkannt.png':
         'Etwas hat angebissen, aber du kannst nicht erkennen, was es ist.',
     'nochnichtsnurköderbefestigt.png':

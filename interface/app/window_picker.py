@@ -67,7 +67,7 @@ class WindowPickerMixin:
             dlg.title(t('ui.pick_window_title'))
             dlg.configure(fg_color=BG)
             dlg.resizable(False, False)
-            dlg.geometry('360x{}'.format(70 + 40 * len(windows)))
+            dlg.geometry('425x{}'.format(82 + 47 * len(windows)))  # *1.18 (scaling 0.85->1.0)
             try:
                 dlg.transient(self)
             except Exception:

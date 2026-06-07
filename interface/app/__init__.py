@@ -105,7 +105,10 @@ class App(
         set_lang(self._cfg['language'])
 
         ctk.set_appearance_mode('dark')
-        ctk.set_widget_scaling(0.85)  # ~15% kompakter
+        ctk.set_widget_scaling(1.0)  # volle Groesse -- Schrift nicht verkleinern
+        # (war 0.85 "~15% kompakter"; Nutzer-Feedback: Schrift/Infos zu klein.
+        # Die FIXEN Fenstergroessen unten + die Dialog-Geometrien sind passend
+        # mitgewachsen, damit der No-Scroll-Aufbau erhalten bleibt.)
         self.title(t('ui.window_title'))
         # FIXE Groesse -> garantiert KEIN Scrollen (ausser der Roadmap-Info-
         # Liste, die bewusst scrollen darf). Hoehe an die HOECHSTE Steuer-Sicht
@@ -113,7 +116,7 @@ class App(
         # kleiner Sicherheitsrand. Die Sichten wurden dichter gesetzt; Fishing/
         # Puzzle verteilen ihre Resthoehe ueber einen flexiblen Zwischenraum,
         # sodass KEINE Sicht leer am Boden wirkt.
-        self.geometry('470x608')
+        self.geometry('555x722')  # 470x608 * (1.0/0.85) + kleiner Puffer
         self.resizable(False, False)
         self.configure(fg_color=BG)
 
@@ -263,7 +266,7 @@ class App(
                      font=ctk.CTkFont(size=14, weight='bold')).grid(
             row=0, column=0, sticky='w')
         ctk.CTkLabel(head, text=sub, text_color=TEXT_FAINT,
-                     font=ctk.CTkFont(size=11)).grid(
+                     font=ctk.CTkFont(size=12)).grid(
             row=0, column=1, sticky='w', padx=(6, 0))
         if badge:
             ctk.CTkLabel(head, text=' ' + badge + ' ', text_color=TEAL_BRIGHT,

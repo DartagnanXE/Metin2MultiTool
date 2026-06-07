@@ -313,7 +313,7 @@ class SettingsEffectsMixin:
             dlg.title(title)
             dlg.configure(fg_color=BG)
             dlg.resizable(False, False)
-            dlg.geometry('340x150')
+            dlg.geometry('400x176')  # mitgewachsen mit widget_scaling 0.85->1.0
             try:
                 dlg.transient(self)
             except Exception:

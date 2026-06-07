@@ -12,6 +12,9 @@ die korrekte Klassifikation. Dateiname == Ground Truth:
   * ``Spiegelkarpfen``      -> Fisch, Name "Spiegelkarpfen"
   * ``Zander``              -> Fisch, Name "Zander"
   * ``rotes Haarfärbemittel`` -> Item, Name "Rotes Haarfärbemittel"
+  * ``Karpfen``             -> Fisch, Name "Karpfen"
+  * ``Aal``                 -> Fisch, Name "Aal"
+  * ``Schwarzes Haarfärbemittel`` -> Item, Name "Schwarzes Haarfärbemittel"
   * ``nichterkannt``        -> NIETE (kein Name)
   * ``nochnichtsnurköderbefestigt`` -> KEIN_BISS (kind == NONE)
 
@@ -50,6 +53,9 @@ _EXPECTED = {
     'Spiegelkarpfen.png': (fc.FISH, 'Spiegelkarpfen'),
     'Zander.png': (fc.FISH, 'Zander'),
     'rotes Haarfärbemittel.png': (fc.ITEM, 'Rotes Haarfärbemittel'),
+    'Karpfen.png': (fc.FISH, 'Karpfen'),
+    'Aal.png': (fc.FISH, 'Aal'),
+    'Schwarzes Haarfärbemittel.png': (fc.ITEM, 'Schwarzes Haarfärbemittel'),
     'nichterkannt.png': (fc.NIETE, None),
     'nochnichtsnurköderbefestigt.png': (fc.NONE, None),
 }
@@ -390,7 +396,8 @@ class TestCharOcrUnits(unittest.TestCase):
         if not self.atlas:
             self.skipTest('kein Glyphen-Atlas gebuendelt')
         names = fc._known_names()
-        for name in ['Kleiner Fisch', 'Süßwassergarnele', 'Lachs', 'Zander']:
+        for name in ['Kleiner Fisch', 'Süßwassergarnele', 'Lachs', 'Zander',
+                     'Karpfen', 'Aal', 'Schwarzes Haarfärbemittel']:
             canvas = _render_name(name, self.atlas)
             self.assertIsNotNone(canvas)
             read = fc._read_name_text(canvas, 0, canvas.shape[1], self.atlas)
@@ -403,8 +410,10 @@ class TestCharOcrUnits(unittest.TestCase):
 @unittest.skipUnless(_shots_present(), 'numpy/PIL oder FischOCR-Screenshots fehlen')
 class TestCharOcrFallbackRealShots(unittest.TestCase):
     """Fallback-Pfad an ECHTEN Shots: name__-Templates ENTFERNT -> nur der
-    Glyphen-Atlas + Fuzzy muessen alle 7 gelabelten Namen erkennen (beweist die
-    Zeichen-OCR auf echten Pixeln inkl. klebender Ligaturen)."""
+    Glyphen-Atlas + Fuzzy muessen JEDEN gelabelten Namen erkennen (beweist die
+    Zeichen-OCR auf echten Pixeln inkl. klebender Ligaturen wie 'f'). Seit der
+    Atlas auch 'A'/'f'/'z' kennt, traegt der Fuzzy-Pfad auch Karpfen/Aal/
+    Schwarzes Haarfärbemittel -- nicht nur das jeweilige name__-Whole-Template."""
 
     def setUp(self):
         fc.reset_template_cache()
@@ -413,7 +422,7 @@ class TestCharOcrFallbackRealShots(unittest.TestCase):
         self.only_glyph = {'disc': full.get('disc', {}), 'name': {},
                            'glyph': full.get('glyph', {})}
 
-    def test_fallback_reads_all_seven_names(self):
+    def test_fallback_reads_all_labelled_names(self):
         for fname, (kind, name) in _EXPECTED.items():
             if name is None:
                 continue                     # Niete/Koeder haben keinen Namen
@@ -424,6 +433,76 @@ class TestCharOcrFallbackRealShots(unittest.TestCase):
             self.assertEqual(res.name, name,
                              '%s: Fuzzy las %r' % (fname, res.name))
             self.assertTrue(res.confident, fname)
+
+
+@unittest.skipUnless(_HAS_DEPS, 'numpy/PIL fehlen')
+class TestCatchableNameCoverage(unittest.TestCase):
+    """SICHERHEITS-NETZ gegen STILLE Erkennungs-Luecken (genau der Bug-Typ, der
+    Karpfen/Aal/Schwarz traf): JEDER fangbare Name aus
+    ``interface.inventory_manage.ITEM_NAMES`` (+ Chat-Sonderfaelle) muss vom
+    gebuendelten Glyphen-Atlas + Fuzzy zuverlaessig auf SICH SELBST abgebildet
+    werden -- sonst kann die Angel-Whitelist diesen Fang NIE greifen.
+
+    CI-safe: synthetischer Render aus den geshippten ``glyph__``-PNGs, kein
+    Screenshot noetig. Namen, die OHNE weiteren Chat-Screenshot nicht sicher
+    lesbar sind (fehlendes Atlas-Glyph trifft einen kurzen/mehrdeutigen Namen),
+    stehen dokumentiert in :data:`KNOWN_GAPS`. Ein NEUER Ausfall AUSSERHALB dieser
+    Liste laesst den Test anschlagen -> eine kuenftig hinzugefuegte, nicht
+    erkennbare Fischart wird sofort sichtbar (statt still UNKNOWN zu bleiben).
+    Alle Luecken degradieren SICHER: UNKNOWN -> Fisch wird behalten, nie
+    faelschlich abgebrochen."""
+
+    # Name -> Grund. Nur mit einem Chat-Screenshot schliessbar, der das fehlende
+    # Glyph zeigt (dann via tools/synthesize_chat_reference.py + Extractor
+    # nachtrainieren und hier streichen).
+    KNOWN_GAPS = {
+        'Ayu': "Atlas-Glyph 'y' fehlt -> 3-Buchstaben-Name unter sim-Gate",
+        'Blondes Haarfärbemittel': "Großbuchstabe 'B' fehlt -> Margin vs. Braunes <0.10",
+        'Braunes Haarfärbemittel': "Großbuchstabe 'B' fehlt -> Margin vs. Blondes <0.10",
+    }
+
+    def setUp(self):
+        fc.reset_template_cache()
+        fc.reset_known_names_cache()
+        self.atlas = fc._load_templates().get('glyph', {})
+
+    def _catchable_names(self):
+        try:
+            from interface.inventory_manage import ITEM_NAMES
+        except Exception:
+            self.skipTest('interface.inventory_manage fehlt')
+        names = {de for _en, de in ITEM_NAMES.values()}
+        names.update({'Goldener Thunfisch', 'Rotes Haarfärbemittel'})
+        return sorted(names)
+
+    def _recognisable(self, name):
+        canvas = _render_name(name, self.atlas)
+        if canvas is None:
+            return False
+        read = fc._read_name_text(canvas, 0, canvas.shape[1], self.atlas)
+        bn, sim, mg = fc._fuzzy_best_name(read, fc._known_names())
+        return (bn == name and sim >= fc.NAME_FUZZY_MIN_SIM
+                and mg >= fc.NAME_FUZZY_MIN_MARGIN)
+
+    def test_no_undocumented_recognition_gap(self):
+        if not self.atlas:
+            self.skipTest('kein Glyphen-Atlas gebuendelt')
+        new_gaps = [n for n in self._catchable_names()
+                    if not self._recognisable(n) and n not in self.KNOWN_GAPS]
+        self.assertEqual(
+            new_gaps, [],
+            'Neue blinde Stelle(n) -- die Whitelist kann diese Faenge nie '
+            'greifen:\n  ' + '\n  '.join(new_gaps)
+            + '\nChat-Screenshot liefern + via tools/synthesize_chat_reference.py '
+              'nachtrainieren, oder (mit Grund) zu KNOWN_GAPS hinzufuegen.')
+
+    def test_user_reported_three_fish_covered(self):
+        # Harter Regression-Anker fuer genau die vom User gemeldeten Faenge.
+        if not self.atlas:
+            self.skipTest('kein Glyphen-Atlas gebuendelt')
+        for name in ('Karpfen', 'Aal', 'Schwarzes Haarfärbemittel'):
+            self.assertTrue(self._recognisable(name),
+                            '%s nicht mehr ueber Atlas+Fuzzy erkennbar' % name)
 
 
 if __name__ == '__main__':

@@ -9,8 +9,8 @@ import version
 
 
 class TestVersionConstant(unittest.TestCase):
-    def test_version_is_113(self):
-        self.assertEqual(version.__version__, '1.1.3')
+    def test_version_is_114(self):
+        self.assertEqual(version.__version__, '1.1.4')
 
 
 class TestVersionTuple(unittest.TestCase):
