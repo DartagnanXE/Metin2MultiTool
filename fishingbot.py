@@ -83,10 +83,21 @@ class FishingBot(FishingDetectMixin):
                      2: 269,                    # 269 (Feld 2, mitte: Aufschneiden)
                      3: 269 + GOLDEN_TUNA_DY}   # 301 (Feld 3, unten: Koeder)
 
-    # Nach dem Options-Klick erscheint ein Bestaetigungs-Dialog mit EINEM
-    # OK-Knopf. GEMESSEN full-frame (FischOCR/GoldenerThunfischAuswahlbestaetigen
-    # .png): (400,277) -> CLIENT (399,246).
-    GOLDEN_TUNA_CONFIRM = (399, 246)
+    # Nach dem Options-Klick antwortet der SERVER mit einem Bestaetigungs-
+    # Dialog mit EINEM OK-Knopf (z.B. die Freilassen-Bonus-Meldung). PRAEZISE
+    # NACHGEMESSEN auf FischOCR/GoldenerThunfischAuswahlbestaetigen.png: Knopf-
+    # Bounding-Box full-frame x 388..420, y 271..291 -> Mitte (404,281) ->
+    # CLIENT (403,250) (dort liegt das weisse "OK"-Glyph; der alte Wert
+    # (399,246) traf nur den Knopfrand).
+    GOLDEN_TUNA_CONFIRM = (403, 250)
+
+    # Wie lange nach dem Options-Klick auf das Bestaetigungs-Fenster gewartet
+    # wird (Sekunden). Das Fenster kommt erst mit der SERVER-Antwort -- der
+    # alte Sofort-Klick 0.1s nach dem Options-Klick feuerte praktisch immer,
+    # BEVOR es existierte (-> Dialog blieb offen, Bot haengte). Jetzt klickt
+    # der Loop OK erst, wenn detect_golden_confirm den Dialog WIRKLICH sieht
+    # (Template der Knopf-Leiste), innerhalb dieses Zeitfensters.
+    GOLDEN_CONFIRM_WAIT_S = 10.0
 
     # set position of the fish windows
     # this value can be diferent by the sizes of the game window
@@ -173,6 +184,10 @@ class FishingBot(FishingDetectMixin):
 
     # Golden-Tuna: welches der 3 Dialogfelder geklickt wird (Default 3 = Koeder).
     golden_tuna_action = 3
+
+    # Deadline (time()), bis zu der nach einem Golden-Tuna-Options-Klick auf
+    # den Bestaetigungs-Dialog gewartet wird. 0.0 = nichts scharf.
+    _golden_confirm_until = 0.0
 
     # Angel-Whitelist (opt-in). Default AUS -> angelt ALLES -> byte-stabil.
     #   * whitelist_enabled: nur True schaltet die Pruefung scharf.
@@ -655,15 +670,30 @@ class FishingBot(FishingDetectMixin):
             mouse_x = int(ox + self.GOLDEN_TUNA_X)
             mouse_y = int(oy + self.GOLDEN_TUNA_Y[field])
             pydirectinput.click(x=mouse_x, y=mouse_y)
-            ok_x = int(ox + self.GOLDEN_TUNA_CONFIRM[0])
-            ok_y = int(oy + self.GOLDEN_TUNA_CONFIRM[1])
-            pydirectinput.click(x=ok_x, y=ok_y)
+            # Bestaetigungs-Fenster SCHARF schalten statt blind zu klicken: es
+            # kommt erst mit der Server-Antwort (der alte Sofort-Klick feuerte
+            # vorher ins Leere -> Dialog blieb offen). Solange das Options-
+            # Fenster noch steht, verlaengert sich das Zeitfenster pro Frame.
+            self._golden_confirm_until = time() + self.GOLDEN_CONFIRM_WAIT_S
             if time() - getattr(self, '_last_daily_log', 0) > 3:
                 self._last_daily_log = time()
                 _flog(self.state, t('fishing.golden_tuna_clicked'),
                       field=field, x=mouse_x, y=mouse_y)
-                _flog(self.state, t('fishing.golden_tuna_confirmed',
-                                    x=ok_x, y=ok_y))
+        elif time() < getattr(self, '_golden_confirm_until', 0.0):
+            # Optionen geklickt, Fenster zu -> auf den Bestaetigungs-Dialog
+            # warten und OK erst klicken, wenn er WIRKLICH im Frame steht
+            # (Template-Match der Knopf-Leiste; Klick auf die gemessene Knopf-
+            # Mitte). Retry-sicher: steht er im naechsten Frame noch, wird
+            # erneut geklickt; nach dem Schliessen laeuft das Fenster ab.
+            if self.detect_golden_confirm(screenshot):
+                ox, oy = self.wincap.offset_x, self.wincap.offset_y
+                ok_x = int(ox + self.GOLDEN_TUNA_CONFIRM[0])
+                ok_y = int(oy + self.GOLDEN_TUNA_CONFIRM[1])
+                pydirectinput.click(x=ok_x, y=ok_y)
+                if time() - getattr(self, '_last_confirm_log', 0) > 3:
+                    self._last_confirm_log = time()
+                    _flog(self.state, t('fishing.golden_tuna_confirmed',
+                                        x=ok_x, y=ok_y))
 
         # Verify total time
 

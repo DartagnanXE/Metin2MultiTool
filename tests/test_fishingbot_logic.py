@@ -173,8 +173,10 @@ class TestGoldenTunaGeometry(unittest.TestCase):
         self.assertEqual(y[3] - y[2], fishingbot.FishingBot.GOLDEN_TUNA_DY)
 
     def test_confirm_ok_position(self):
-        # (400, 277) full-frame - (1, 31) -> (399, 246) client.
-        self.assertEqual(fishingbot.FishingBot.GOLDEN_TUNA_CONFIRM, (399, 246))
+        # Knopf-Box full-frame x 388..420, y 271..291 -> Mitte (404, 281)
+        # -> CLIENT (403, 250) (nachgemessen; der alte Wert (399,246) traf
+        # nur den Knopfrand). Konsistenz-Pin gegen versehentliches Verstellen.
+        self.assertEqual(fishingbot.FishingBot.GOLDEN_TUNA_CONFIRM, (403, 250))
 
 
 class TestMatchTemplateMax(unittest.TestCase):
