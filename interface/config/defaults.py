@@ -20,6 +20,10 @@ COLOR_PATCHES = (3, 5)
 # wird. 1 = Freilassen, 2 = Aufschneiden, 3 = Als Koeder benutzen (Default).
 GOLDEN_TUNA_ACTIONS = (1, 2, 3)
 
+# Zeitlimit-Aktionen (fishing.timer_action): Stoppen ODER Inventar-Cleanup
+# mit Auto-Neustart (siehe DEFAULTS['fishing']['timer_action']).
+TIMER_ACTIONS = ('stop', 'cleanup')
+
 # Erlaubte Sonderpunkt-Schluessel fuer ``mark_keypoints`` (Overrides der
 # geometry-Defaults). Jeder Wert ist ein [x, y]-Integer-Paar (Referenzkoordinate
 # auf dem 260x170-Board). Unbekannte Schluessel werden bei der Validierung
@@ -97,6 +101,12 @@ DEFAULTS = {
         'start_game_time': 2.0,
         'stop_after_enabled': False,
         'stop_after_minutes': 0,
+        # Was beim Ablauf des Zeitlimits passiert (entweder/oder):
+        #   'stop'    = Bot stoppt (historisches Verhalten, Default/byte-stabil)
+        #   'cleanup' = Bot stoppt -> Inventar-Offen-Check -> Scan -> Managen
+        #               (Grillen/Wegwerfen laut Markierungen) -> nach 40s-
+        #               Countdown startet das Angeln automatisch neu.
+        'timer_action': 'stop',
         'golden_tuna_action': 3,
         'bait_key': '2',          # In-Game-Taste, die Koeder wirft
         'cast_key': '1',          # In-Game-Taste, die die Angel auswirft

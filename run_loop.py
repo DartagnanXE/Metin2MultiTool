@@ -597,6 +597,12 @@ class RunLoop:
         #        kann, z. B. ohne win32). Nur relevant, solange ein Bot laeuft.
         bot_active = self.fishbot.botting or self.puzzlebot.botting
         if self.stop_signal.stopped:
+            # Stop-Signal bricht auch einen wartenden Inventar-Cleanup ab
+            # (Countdown/Auto-Neustart) -- der Nutzer will ALLES anhalten.
+            try:
+                self.app._cancel_timer_cleanup()
+            except Exception:
+                pass
             # Das Signal wurde gesetzt (Daemon-F6 ODER Button-Stop). Es hat seinen
             # Zweck (schwere Op abbrechen + botting raeumen) erfuellt -> hier
             # konsumieren. NUR wenn die Stop-TASTE die Quelle war (``_hotkey_fired``)
@@ -622,14 +628,35 @@ class RunLoop:
                 and (self.fishbot.botting or self.puzzlebot.botting)
                 and time.time() > self._stop_deadline):
             log.event('-', t('run.stop_time_limit_reached'))
+            fishing_was_active = self.fishbot.botting
             self.fishbot.botting = False
             self.puzzlebot.botting = False
             self._stop_deadline = None
             stop_reason = t('run.reason_time_limit_reached')
+            # ZEITLIMIT-AKTION 'cleanup' (nur Angel-Modus): statt endgueltig zu
+            # stoppen den Inventar-Cleanup-Ablauf anstossen (Inventar sicher
+            # oeffnen -> Scan -> Markierungen anwenden -> 40s-Countdown ->
+            # Auto-Neustart; siehe views_inventory._start_timer_cleanup). Der
+            # after()-Aufruf laeuft erst NACH diesem Tick, wenn set_running
+            # (Schritt 3) den Leerlauf bereits gespiegelt hat. Hat bei
+            # gleichzeitig gesetztem close_on_timer_expire VORRANG (Cleanup
+            # impliziert Weiterlaufen). Strikt defensiv: nie den Tick kippen.
+            cleanup_armed = False
+            try:
+                cfg_f = self.controller.current_config()['fishing']
+                if (fishing_was_active
+                        and cfg_f.get('timer_action', 'stop') == 'cleanup'):
+                    cleanup_armed = True
+                    stop_reason = t('run.reason_time_limit_cleanup')
+                    self.app.after(300, self.app._start_timer_cleanup)
+            except Exception:
+                pass
             # Optional die App beenden statt nur stoppen (Setting #4). Default aus
             # -> reiner Stop -> byte-stabil. Strikt defensiv: nie den Tick kippen.
+            # Bei aktivem Cleanup uebersprungen (Cleanup impliziert Weiterlaufen).
             try:
-                if self.controller.current_config()['window']['close_on_timer_expire']:
+                if (not cleanup_armed
+                        and self.controller.current_config()['window']['close_on_timer_expire']):
                     log.section(t('run.closing_timer_expired'))
                     try:
                         cfgmod.save(self.controller.current_config())

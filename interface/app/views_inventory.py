@@ -8,6 +8,11 @@ Mixin for :class:`interface.app.App`. Holds only methods (no
 
 from interface.app._common import *  # noqa: F401,F403
 
+# Zeitlimit-Aktion 'cleanup': Sekunden vom Cleanup-START bis zum Auto-Neustart
+# des Angelns. Der Countdown laeuft sichtbar im Top-Timer; der Neustart wartet
+# zusaetzlich auf das Ende von Scan/Grillen/Wegwerfen (wer spaeter ist).
+CLEANUP_RESTART_S = 40
+
 
 class InventoryViewMixin:
     def _build_inventory_view(self, _parent):
@@ -736,5 +741,103 @@ class InventoryViewMixin:
             self._inv_scan_btn.configure(text=t('ui.inventory_scan_btn'))
         except Exception:
             pass
+
+    # -- Timer-Cleanup (Zeitlimit-Aktion 'cleanup') ------------------------
+
+    def _start_timer_cleanup(self):
+        """Startet den Inventar-Cleanup-Ablauf nach abgelaufenem Zeitlimit.
+
+        Vom RunLoop via ``after()`` aufgerufen, NACHDEM der Lauf gestoppt und
+        der Leerlauf ins UI gespiegelt wurde. Reine after()-State-Machine auf
+        dem GUI-Thread, die die BESTEHENDEN, einzeln abgesicherten Worker
+        wiederverwendet (kein neues Threading):
+
+          1. Inventar-Scan (:meth:`_on_scan_inventory` -- prueft Fenster +
+             Groesse, stellt via Offen-Probe sicher dass der Beutel offen ist),
+          2. danach Markierungen anwenden (:meth:`_on_inv_manage_apply` --
+             startet Grillen + Wegwerfen sequenziell; ohne Markierungen no-op),
+          3. Auto-Neustart des Angelns, sobald der 40s-Countdown abgelaufen IST
+             UND alle Worker fertig sind (wer spaeter ist, gewinnt).
+
+        Der Countdown laeuft sichtbar im Top-Timer (_tick_timer). Abbruch:
+        Stop-Hotkey (RunLoop ruft :meth:`_cancel_timer_cleanup`) oder ein
+        manueller Start (der Tick erkennt ``controller.running``). Wirft nie.
+        """
+        if getattr(self, '_inv_cleanup_active', False) or self.controller.running:
+            return
+        self._inv_cleanup_active = True
+        self._inv_cleanup_managed = False
+        self._inv_cleanup_restart_at = time.time() + CLEANUP_RESTART_S
+        try:
+            log.section(t('run.cleanup_started'))
+        except Exception:
+            pass
+        try:
+            self._on_scan_inventory()
+        except Exception:
+            pass
+        try:
+            self.after(500, self._cleanup_tick)
+        except Exception:
+            self._inv_cleanup_active = False
+
+    def _cleanup_tick(self):
+        """Treibt den Cleanup voran (alle 500ms, GUI-Thread). Wirft nie."""
+        try:
+            if not getattr(self, '_inv_cleanup_active', False):
+                return
+            # Manueller Start waehrend des Cleanups -> Nutzerwille gewinnt,
+            # Cleanup beenden (kein Auto-Neustart obendrauf).
+            if self.controller.running:
+                self._inv_cleanup_active = False
+                try:
+                    log.event('-', t('run.cleanup_aborted_running'))
+                except Exception:
+                    pass
+                return
+            # Phase 1: auf das Scan-Ende warten.
+            if getattr(self, '_inv_scanning', False):
+                self.after(500, self._cleanup_tick)
+                return
+            # Phase 2: Markierungen genau EINMAL anwenden (startet die
+            # Grill-/Wegwerf-Worker; ohne Markierungen loggt es nur).
+            if not getattr(self, '_inv_cleanup_managed', False):
+                self._inv_cleanup_managed = True
+                try:
+                    self._on_inv_manage_apply()
+                except Exception:
+                    pass
+                self.after(500, self._cleanup_tick)
+                return
+            # Phase 3: warten bis Worker fertig UND Countdown abgelaufen.
+            busy = (getattr(self, '_campfire_running', False)
+                    or getattr(self, '_discard_running', False))
+            left = getattr(self, '_inv_cleanup_restart_at', 0) - time.time()
+            if busy or left > 0:
+                self.after(500, self._cleanup_tick)
+                return
+            # Phase 4: Auto-Neustart (Modus ist unveraendert 'fishing').
+            self._inv_cleanup_active = False
+            try:
+                log.event('-', t('run.cleanup_restart'))
+            except Exception:
+                pass
+            self.controller.on_start_stop()
+        except Exception:
+            self._inv_cleanup_active = False
+
+    def _cancel_timer_cleanup(self):
+        """Bricht einen laufenden Cleanup ab (Stop-Hotkey). Wirft nie.
+
+        Beendet nur die State-Machine (kein Auto-Neustart mehr); ein bereits
+        laufender Grill-/Wegwerf-Worker beendet seinen aktuellen Schritt selbst
+        (deren eigene Abbruch-Logik bleibt zustaendig).
+        """
+        if getattr(self, '_inv_cleanup_active', False):
+            self._inv_cleanup_active = False
+            try:
+                log.event('-', t('run.cleanup_aborted_running'))
+            except Exception:
+                pass
 
     # -- Config -> Widgets -----------------------------------------------

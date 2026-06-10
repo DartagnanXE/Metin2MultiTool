@@ -72,6 +72,27 @@ class FishingPuzzleConsoleViewsMixin:
             0, str(self._cfg['fishing']['stop_after_minutes']))
         self.stop_after_entry.bind('<KeyRelease>', self._on_stop_minutes)
 
+        # Zeitlimit-AKTION (entweder/oder) direkt unter der Stop-after-Zeile:
+        # STOPPEN (historisch) ODER INVENTAR-CLEANUP (stoppen -> Inventar
+        # sicherstellen/scannen/managen -> 40s-Countdown -> Auto-Neustart).
+        # Sprachabhaengige Labels -> value<->label-Dicts wie bei Detection.
+        timer_action_pairs = [
+            ('stop', t('ui.timer_action_stop')),
+            ('cleanup', t('ui.timer_action_cleanup')),
+        ]
+        self._timer_action_v2l = {v: l for v, l in timer_action_pairs}
+        self._timer_action_l2v = {l: v for v, l in timer_action_pairs}
+        current_action = self._cfg['fishing'].get('timer_action', 'stop')
+        self.timer_action_seg = SegmentedRow(
+            stop_row, label='',
+            values=[l for _v, l in timer_action_pairs],
+            default=self._timer_action_v2l.get(
+                current_action, t('ui.timer_action_stop')),
+            command=self._on_timer_action_change,
+            info=t('ui.timer_action_help'))
+        self.timer_action_seg.grid(row=1, column=0, columnspan=3,
+                                   sticky='ew', pady=(4, 0))
+
         # Golden-Tuna-Aktion: Labels '1'/'2'/'3' -> int-Werte (byte-stabil).
         # Golden-Tuna-Hilfe = VERIFIZIERTE Wiki-Fakten (keine erfundenen Zahlen);
         # ersetzt den alten knappen Hilfetext. Default bleibt 3 (Nutzer entscheidet).

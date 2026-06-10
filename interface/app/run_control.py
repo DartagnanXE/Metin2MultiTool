@@ -26,6 +26,12 @@ class RunControlMixin:
         self._cfg = self.controller.update_config(
             'fishing', 'stop_after_minutes', minutes)
 
+    def _on_timer_action_change(self, label):
+        """Zeitlimit-Aktion (entweder/oder): 'stop' | 'cleanup' in die Config."""
+        value = getattr(self, '_timer_action_l2v', {}).get(label, 'stop')
+        self._cfg = self.controller.update_config(
+            'fishing', 'timer_action', value)
+
     def _on_golden_tuna_change(self, label):
         try:
             action = int(label)
@@ -76,13 +82,28 @@ class RunControlMixin:
                          .get('controls', {}).get('stop_hotkey', 'f6')).upper()
             except Exception:
                 sk = 'F6'
+            # STOP ist in JEDER Ansicht bedienbar (laufender Bot muss immer
+            # anhaltbar sein).
             self.hero_btn.configure(
                 text='■  ' + t(key) + '   [' + sk + ']', fg_color=DANGER,
-                hover_color=DANGER_HOVER, text_color='#fff')
+                hover_color=DANGER_HOVER, text_color='#fff', state='normal')
         else:
-            self.hero_btn.configure(text='▶  ' + t('ui.hero_start'),
-                                    fg_color=TEAL, hover_color=TEAL_HOVER,
-                                    text_color=INK)
+            # START nur in Fishing/Puzzle: dort ist eindeutig, WAS gestartet
+            # wird (der Ansichtswechsel setzt den XOR-Modus). In Inventar/
+            # Rangliste/Roadmap/Console/Einstellungen ist der Knopf ausgegraut
+            # -- das Programm wuesste sonst nicht, welcher Modus gemeint ist.
+            startable = getattr(self, '_active_view',
+                                'fishing') in ('fishing', 'puzzle')
+            if startable:
+                self.hero_btn.configure(text='▶  ' + t('ui.hero_start'),
+                                        fg_color=TEAL, hover_color=TEAL_HOVER,
+                                        text_color=INK, state='normal')
+            else:
+                self.hero_btn.configure(text='▶  ' + t('ui.hero_start'),
+                                        fg_color=PANEL_LIGHT,
+                                        hover_color=PANEL_LIGHT,
+                                        text_color=TEXT_FAINT,
+                                        state='disabled')
 
         # Rail-Lauf-Punkte.
         self._update_running_dots(running, mode)
@@ -91,7 +112,7 @@ class RunControlMixin:
         for slider in (self.bait_slider, self.throw_slider, self.start_slider):
             slider.set_enabled(not running)
         for seg in (self.golden_tuna_seg, self.detection_seg,
-                    self.color_seg, self.solver_seg):
+                    self.color_seg, self.solver_seg, self.timer_action_seg):
             seg.set_enabled(not running)
         state = 'normal' if not running else 'disabled'
         self.stop_after_chk.configure(state=state)
@@ -138,7 +159,18 @@ class RunControlMixin:
             fishing = self._cfg['fishing']
             limit_on = (fishing['stop_after_enabled']
                         and fishing['stop_after_minutes'] > 0)
-            if running:
+            # Inventar-Cleanup aktiv (Zeitlimit-Aktion 'cleanup', Bot gestoppt):
+            # der Top-Timer zeigt den NEUSTART-Countdown, damit klar ist, was
+            # gerade passiert. Laufen Grillen/Wegwerfen ueber 00:00 hinaus,
+            # bleibt die Anzeige bei 00:00 stehen (Neustart folgt direkt danach;
+            # der Tooltip erklaert das).
+            if getattr(self, '_inv_cleanup_active', False) and not running:
+                left = max(0, getattr(self, '_inv_cleanup_restart_at', 0)
+                           - time.time())
+                self.timer_val.configure(text=_mmss(left))
+                self.timer_lbl.configure(text=t('ui.timer_cleanup'))
+                self._timer_tip(t('ui.timer_tip_cleanup'))
+            elif running:
                 elapsed = time.time() - self._run_started_at
                 if limit_on:
                     left = max(0, fishing['stop_after_minutes'] * 60 - elapsed)

@@ -28,6 +28,7 @@ from .defaults import (
     KEYPOINT_KEYS,
     OVERLAY_OPACITY_MAX,
     OVERLAY_OPACITY_MIN,
+    TIMER_ACTIONS,
     PUZZLE_DELAY_MAX,
     PUZZLE_DELAY_MIN,
     SOLVER_MODES,
@@ -216,6 +217,10 @@ def validate(cfg):
             fishing.get('stop_after_enabled', False))
         minutes = _coerce_int(fishing.get('stop_after_minutes'), 0)
         fishing['stop_after_minutes'] = minutes if minutes >= 0 else 0
+        # Zeitlimit-Aktion: nur die bekannten Werte; alles andere -> 'stop'
+        # (Default, byte-stabiles historisches Verhalten).
+        if fishing.get('timer_action') not in TIMER_ACTIONS:
+            fishing['timer_action'] = DEFAULTS['fishing']['timer_action']
         action = _coerce_int(fishing.get('golden_tuna_action'),
                              DEFAULTS['fishing']['golden_tuna_action'])
         fishing['golden_tuna_action'] = (
