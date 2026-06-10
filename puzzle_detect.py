@@ -92,7 +92,12 @@ class PuzzleDetectMixin:
                 return 5
             elif b > 240 and b < 260 and g > 240 and g < 260 and r > 20 and r < 30:
                 return 3
-            elif b > 240 and b < 260 and g > 100 and g < 115 and r > -10 and r < 10:
+            # BLAU: g-Fenster bewusst breit (60..130 statt 100..115). LIVE
+            # GEMESSEN 2026-06-10: der blaue Stein las (b=255, g=74, r=0) und
+            # fiel mit dem alten 100..115-Fenster durch -> Stein wurde sofort
+            # verworfen. Kollisionsfrei: kein anderes Fenster hat b>240 UND
+            # r<10 (Typ 3 braucht g 240..260).
+            elif b > 240 and b < 260 and g > 60 and g < 130 and r > -10 and r < 10:
                 return 2
             elif b > 50 and b < 60 and g > 235 and g < 255 and r > 250 and r < 260:
                 return 6
@@ -110,6 +115,37 @@ class PuzzleDetectMixin:
                 best_dist = dist
                 best_type = piece_type
         return best_type
+
+    def _classify_piece_tolerant(self, bgr, tol=40):
+        """Letzte-Instanz-Klassifikation: Typ, wenn (b,g,r) in der per-Kanal-
+        Toleranz GENAU EINES Referenz-Zentroids liegt, sonst None.
+
+        Einsatz im 'single'-Modus direkt NACH den strikten Fenstern (jeder
+        Lese-Versuch): die Fenster bleiben der byte-stabile Normalpfad; dieser
+        Fallback erkennt einen GERENDERTEN Stein, dessen Farbton aus dem engen
+        Fenster gedriftet ist (live 2026-06-10: Blau las (255,74,0)), sofort --
+        statt ihn nach Retry-Ablauf zu verwerfen. Sicher per Konstruktion:
+        jedes Zentroid hat
+        einen Kanal >= 160, ein dunkler Hintergrund-/Garbage-Pixel (alle
+        Kanaele ~<=110) trifft also keines; und mit tol=40 sind die sechs
+        Zentroide kanalweise disjunkt (kleinste Einzelkanal-Luecke 85, Paar
+        Orange/Gelb -- 85 > 2*40; bei 45 wuerden genau diese beiden
+        ueberlappen, vom Invarianten-Test gefangen). Auch jeder Einblend-Pfad
+        t*ref ist durchgerechnet: bei tol=40 kann ein halb gerenderter Stein
+        keinen FREMDEN Zentroid treffen (die Kanal-Bedingungen widersprechen
+        sich jeweils). Der Eindeutigkeits-Check bleibt als Belt-and-Suspenders.
+        Gleiche Metrik wie :meth:`_is_valid_piece_color`, bewusst eigenes tol
+        (45 dort = Board-Diagnose, hier 40 = Klassifikation).
+        """
+        b, g, r = bgr
+        if deluxe.is_magenta(b, g, r):
+            return deluxe.DELUXE_PIECE_TYPE
+        hits = [piece_type for piece_type, ref in self.PIECE_REF_BGR.items()
+                if (abs(b - ref[0]) <= tol and abs(g - ref[1]) <= tol
+                    and abs(r - ref[2]) <= tol)]
+        if len(hits) == 1:
+            return hits[0]
+        return None
 
     def _is_valid_piece_color(self, b, g, r, tol=45):
         """True, wenn (b,g,r) nahe einer der 6 ECHTEN Steinfarben ODER dem

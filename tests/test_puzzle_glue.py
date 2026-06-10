@@ -375,5 +375,112 @@ class TestCellClickHelpers(unittest.TestCase):
         self.assertEqual(args, self._expected(bot, 2, 4))
 
 
+class TestColorReadRetry(unittest.TestCase):
+    """State 4 liest die Stein-Farbe WIEDERHOLT (frisches Capture pro Frame)
+    statt einen zu frueh gelesenen Hintergrund-Frame sofort zu verwerfen.
+
+    Live-Befund 2026-06-10: ~0.1-0.3s nach dem Stein-Holen war der Stein oft
+    noch nicht gerendert -> der Einmal-Read las Hintergrund-Grau, new_piece
+    wurde None und JEDER Stein ging sofort in den Verwerfen-Pfad (State 7/8).
+    """
+
+    def _bot(self, crop, retry_until):
+        bot = puzzle.PuzzleBot.__new__(puzzle.PuzzleBot)
+        bot.board_size = puzzle.PuzzleBot.PUZZLE_WINDOW_SIZE
+        bot.key_points = {}
+        bot.puzzle_offset = (270, 227)
+        bot.wincap = _FakeWincap(1000, 500)
+        bot.color_mode = 'single'
+        bot.state = 4
+        bot.timer_action = 0.0            # timep laengst abgelaufen
+        bot.new_piece = 'sentinel'
+        bot._color_read_announced = False
+        bot._color_retry_until = retry_until
+        bot.get_image = lambda: crop      # statt Live-Capture
+        return bot
+
+    def _black_crop(self):
+        w, h = puzzle.PuzzleBot.PUZZLE_WINDOW_SIZE
+        return np.zeros((h, w, 3), dtype=np.uint8)
+
+    def _blue_crop(self):
+        import geometry
+        crop = self._black_crop()
+        x, y = geometry.color_sample(puzzle.PuzzleBot.PUZZLE_WINDOW_SIZE)
+        crop[y, x] = (255, 74, 0)         # live gemessenes Stein-Blau (BGR)
+        return crop
+
+    def test_miss_during_retry_stays_in_state4(self):
+        from time import time as _now
+        bot = self._bot(self._black_crop(), retry_until=_now() + 60)
+        bot.runHack()
+        self.assertEqual(bot.state, 4)            # kein Verwerfen-Uebergang
+        self.assertEqual(bot.new_piece, 'sentinel')  # nichts ueberschrieben
+
+    def test_miss_after_deadline_falls_through_to_discard_path(self):
+        bot = self._bot(self._black_crop(), retry_until=0.0)  # abgelaufen
+        bot.runHack()
+        self.assertEqual(bot.state, 5)
+        self.assertIsNone(bot.new_piece)          # bestehender Verwerfen-Pfad
+
+    def test_blue_piece_detected_during_retry(self):
+        # Deckt zugleich das verbreiterte BLAU-Fenster (g 60..130) end-to-end:
+        # (255, 74, 0) fiel mit dem alten 100..115-Fenster durch.
+        from time import time as _now
+        bot = self._bot(self._blue_crop(), retry_until=_now() + 60)
+        bot.runHack()
+        self.assertEqual(bot.state, 5)
+        self.assertEqual(bot.new_piece, 2)
+
+
+class TestClassifyPieceTolerant(unittest.TestCase):
+    """Toleranz-Fallback: eindeutiger Zentroid-Treffer oder None."""
+
+    def _bot(self):
+        bot = puzzle.PuzzleBot.__new__(puzzle.PuzzleBot)
+        return bot
+
+    def test_drifted_blue_classifies(self):
+        # Live gemessen 2026-06-10; lag ausserhalb des alten engen Fensters.
+        self.assertEqual(self._bot()._classify_piece_tolerant((255, 74, 0)), 2)
+
+    def test_drifted_orange_classifies(self):
+        # Nahe Zentroid 1 (25,160,250), aber ausserhalb des g>150-Fensters.
+        self.assertEqual(self._bot()._classify_piece_tolerant((25, 135, 250)), 1)
+
+    def test_dark_background_is_none(self):
+        self.assertIsNone(self._bot()._classify_piece_tolerant((31, 34, 36)))
+
+    def test_mid_gray_garbage_is_none(self):
+        self.assertIsNone(self._bot()._classify_piece_tolerant((100, 100, 100)))
+
+    def test_magenta_is_deluxe(self):
+        import deluxe
+        # Ein Magenta-Wert aus dem Deluxe-Fenster -> Typ 7, nie einer der 6.
+        b, g, r = 230, 30, 230
+        if deluxe.is_magenta(b, g, r):
+            self.assertEqual(self._bot()._classify_piece_tolerant((b, g, r)),
+                             deluxe.DELUXE_PIECE_TYPE)
+
+
+class TestTolerantFallbackWiring(TestColorReadRetry):
+    """Ein gedrifteter (gerenderter) Stein wird SOFORT erkannt -- noch
+    waehrend des Retry-Fensters, ohne die 2s abzuwarten."""
+
+    def _drifted_crop(self):
+        import geometry
+        crop = self._black_crop()
+        x, y = geometry.color_sample(puzzle.PuzzleBot.PUZZLE_WINDOW_SIZE)
+        crop[y, x] = (25, 135, 250)   # nahe Zentroid 1, ausserhalb Fenster
+        return crop
+
+    def test_drifted_piece_recognized_during_retry(self):
+        from time import time as _now
+        bot = self._bot(self._drifted_crop(), retry_until=_now() + 60)
+        bot.runHack()
+        self.assertEqual(bot.state, 5)
+        self.assertEqual(bot.new_piece, 1)
+
+
 if __name__ == '__main__':
     unittest.main()

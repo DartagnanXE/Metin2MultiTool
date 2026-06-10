@@ -42,7 +42,10 @@ PIECE_REF_BGR = {
 
 def classify_single(bgr):
     """Spiegelt den 'single'-Zweig von _classify_piece (die sechs engen
-    BGR-Fenster) -- bit-identisch zum urspruenglichen get_new_piece_color."""
+    BGR-Fenster). BEWUSSTE ABWEICHUNG vom Ur-Original (2026-06-10): das
+    BLAU-Fenster (Typ 2) wurde von g 100..115 auf g 60..130 verbreitert --
+    live gemessen las der blaue Stein (255, 74, 0) und fiel durch. Sonst
+    bit-identisch zum urspruenglichen get_new_piece_color."""
     b, g, r = bgr
     if b > 35 and b < 40 and g > 60 and g < 70 and r > 240 and r < 260:
         return 4
@@ -52,7 +55,7 @@ def classify_single(bgr):
         return 5
     elif b > 240 and b < 260 and g > 240 and g < 260 and r > 20 and r < 30:
         return 3
-    elif b > 240 and b < 260 and g > 100 and g < 115 and r > -10 and r < 10:
+    elif b > 240 and b < 260 and g > 60 and g < 130 and r > -10 and r < 10:
         return 2
     elif b > 50 and b < 60 and g > 235 and g < 255 and r > 250 and r < 260:
         return 6
@@ -97,17 +100,31 @@ def original_get_new_piece_color(b, g, r):
 
 
 class TestSingleModeByteStable(unittest.TestCase):
-    """'single' muss bit-identisch zur Original-Klassifikation bleiben."""
+    """'single' bleibt bit-identisch zum Original -- AUSSER der bewussten
+    Blau-Fenster-Verbreiterung (g 100..115 -> 60..130, 2026-06-10)."""
 
-    def test_full_bgr_sweep_identical(self):
+    def test_full_bgr_sweep_identical_outside_blue_widening(self):
         # Grobe, aber vollstaendige Abdeckung des BGR-Wuerfels (Schrittweite 5).
-        # Jede Abweichung waere eine Regression im Default-Verhalten.
+        # Einzige erlaubte Abweichung: das verbreiterte BLAU-Fenster (Typ 2);
+        # dort muss classify_single 2 liefern, wo das Original None lieferte.
         for b in range(0, 256, 5):
             for g in range(0, 256, 5):
                 for r in range(0, 256, 5):
-                    if classify_single((b, g, r)) != original_get_new_piece_color(b, g, r):
-                        self.fail('single-Klassifikation weicht ab bei '
-                                  'BGR=({}, {}, {})'.format(b, g, r))
+                    got = classify_single((b, g, r))
+                    orig = original_get_new_piece_color(b, g, r)
+                    if got == orig:
+                        continue
+                    in_widened_blue = (240 < b < 260 and 60 < g < 130
+                                       and -10 < r < 10)
+                    if not (in_widened_blue and got == 2 and orig is None):
+                        self.fail('single-Klassifikation weicht unerlaubt ab '
+                                  'bei BGR=({}, {}, {}): {} vs {}'
+                                  .format(b, g, r, got, orig))
+
+    def test_live_measured_blue_classifies(self):
+        # Der live gemessene blaue Stein (2026-06-10), der mit dem alten
+        # Fenster durchfiel und sofort verworfen wurde.
+        self.assertEqual(classify_single((255, 74, 0)), 2)
 
     def test_each_reference_centroid_hits_its_type_in_single(self):
         # Die Zentroide liegen bewusst in den engen Fenstern -> 'single' muss
@@ -119,6 +136,39 @@ class TestSingleModeByteStable(unittest.TestCase):
     def test_black_is_unclassified_in_single(self):
         # Schwarz/Garbage (alle Kanaele 0) trifft keines der sechs Fenster.
         self.assertIsNone(classify_single((0, 0, 0)))
+
+
+class TestTolerantCentroidsDisjoint(unittest.TestCase):
+    """Invariante des Toleranz-Fallbacks (_classify_piece_tolerant, tol=40):
+    KEINE BGR-Farbe kann zwei Zentroiden gleichzeitig treffen, und dunkle
+    Hintergrund-/Garbage-Pixel treffen keines. Bricht dieser Test, wurde ein
+    Zentroid verschoben/ergaenzt und die Toleranz ist nicht mehr beweisbar
+    verwechslungsfrei -> tol senken oder Zentroide pruefen."""
+
+    TOL = 40
+
+    # HISTORIE: tol=45 fiel hier durch -- Orange(1)/Gelb(6) haben nur 85
+    # Kanal-Luecke (85 < 2*45). 40 ist der groesste sichere Wert in 5er-Schritten.
+
+    def test_no_colour_hits_two_centroids(self):
+        # Paarweise: zwei Wuerfel [ref +- tol]^3 schneiden sich nur, wenn ALLE
+        # drei Kanal-Abstaende <= 2*tol sind. Direkt ueber die Paare bewiesen
+        # (aequivalent zum vollen BGR-Sweep, aber exakt statt Schrittweite).
+        refs = list(PIECE_REF_BGR.items())
+        for i in range(len(refs)):
+            for j in range(i + 1, len(refs)):
+                (t1, r1), (t2, r2) = refs[i], refs[j]
+                max_gap = max(abs(r1[k] - r2[k]) for k in range(3))
+                self.assertGreater(
+                    max_gap, 2 * self.TOL,
+                    'Zentroide {} und {} ueberlappen bei tol={}'.format(
+                        t1, t2, self.TOL))
+
+    def test_dark_pixels_hit_no_centroid(self):
+        # Jedes Zentroid hat einen Kanal >= 160 -> alle Kanaele <= 110 koennen
+        # nie innerhalb tol=40 liegen (160 - 110 = 50 > 40).
+        for ref in PIECE_REF_BGR.values():
+            self.assertGreaterEqual(max(ref), 160)
 
 
 class TestMultiModeNearestColor(unittest.TestCase):

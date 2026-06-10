@@ -29,6 +29,15 @@ FINISH_AFTER_DISCARDS = 3
 # Bedarf hier feinjustieren.
 PUZZLE_STEP_DELAY = 0.1
 
+# Wie lange State 4 die Stein-Farbe WIEDERHOLT liest, bevor ein Nicht-Treffer
+# als "ungueltiger Stein" verworfen wird (Sekunden). LIVE GEMESSEN 2026-06-10:
+# ~0.1-0.3s nach dem Holen ist der Stein oft noch nicht gerendert -> der alte
+# EINMAL-Read las das Hintergrund-Grau (31,34,36) bzw. einen Uebergangsframe
+# und der Bot warf jeden Stein sofort weg. Jeder Frame liest ein FRISCHES
+# Capture; 2s decken Render-/Animations-Verzoegerung mit grossem Polster ab,
+# ohne den Treffer-Pfad zu verlangsamen (Erfolg beendet die Schleife sofort).
+PIECE_COLOR_RETRY_S = 2.0
+
 
 fish_jigsaw_chest = cv.imread(resource_path("images/fish_jigsaw_chest.png"))
 
@@ -120,6 +129,10 @@ class PuzzleBot(PuzzleDetectMixin):
     get_piece_time = 2
 
     new_piece = None
+
+    # Farb-Lese-Retry (State 4): Deadline + Einmal-Log-Flagge pro Lese-Zyklus.
+    _color_retry_until = 0.0
+    _color_read_announced = False
 
     state = 0
 
@@ -268,7 +281,7 @@ class PuzzleBot(PuzzleDetectMixin):
     def throw_pice(self):
         self._click_board_point(geometry.confirm_point, 'confirm', 'right')
 
-    def get_new_piece_color(self, crop_image):
+    def get_new_piece_color(self, crop_image, quiet=False):
 
         x, y = geometry.color_sample(self.board_size, self.key_points.get('color'))
 
@@ -294,13 +307,34 @@ class PuzzleBot(PuzzleDetectMixin):
                       piece_type=piece_type, x=x, y=y)
             return piece_type
 
+        # Toleranz-Klassifikation ('single'-Modus, JEDER Versuch): bevor ein
+        # GERENDERTER Stein wegen Farbton-Drift in den Retry/Verwerfen-Pfad
+        # faellt, gegen die 6 Zentroide mit +-40/Kanal pruefen -- eindeutig
+        # oder gar nicht. Verwechslung ist konstruktiv UNMOEGLICH (kleinste
+        # Einzelkanal-Luecke zweier Zentroide = 85 > 2*40) und Hintergrund/
+        # Garbage trifft nie (jedes Zentroid hat einen Kanal >= 160); auch ein
+        # halb eingeblendeter Stein kann nur SEINEM Zentroid nahekommen (die
+        # Kanal-Verhaeltnisse bleiben beim Fade erhalten). Drift wird damit
+        # SOFORT erkannt statt erst nach abgelaufenem Retry -> schneller UND
+        # robuster; die strikten Fenster bleiben der byte-stabile Normalpfad.
+        if self.color_mode != 'multi':
+            fallback = self._classify_piece_tolerant((b, g, r))
+            if fallback is not None:
+                log.event(self.state, t('puzzle.piece_color_tolerant_fallback'),
+                          piece_type=fallback, b=b, g=g, r=r)
+                return fallback
+
         # Keine der 6 engen BGR-Ranges getroffen -> None (Solver faengt das ab).
         # Echte BGR-Werte protokollieren, damit der Nutzer Schwarz/Garbage
         # (Position/Aufloesung falsch) von plausibler Farbe (Range-Drift)
-        # unterscheiden kann.
-        log.event(self.state, t('puzzle.piece_color_not_detected'), x=x, y=y, b=b, g=g, r=r)
-        log.snapshot('PIECE_COLOR_MISS', bgr=(b, g, r), screen_xy=(x, y),
-                     extra='keine der 6 BGR-Ranges getroffen -> new_piece=None')
+        # unterscheiden kann. ``quiet`` unterdrueckt die Miss-Zeilen waehrend
+        # der Retry-Schleife in State 4 (der Stein ist nach dem Holen oft noch
+        # nicht gerendert -> jeder Zwischenframe wuerde sonst Log-Spam) -- der
+        # LETZTE Versuch laeuft mit quiet=False und loggt den Miss vollstaendig.
+        if not quiet:
+            log.event(self.state, t('puzzle.piece_color_not_detected'), x=x, y=y, b=b, g=g, r=r)
+            log.snapshot('PIECE_COLOR_MISS', bgr=(b, g, r), screen_xy=(x, y),
+                         extra='keine der 6 BGR-Ranges getroffen -> new_piece=None')
         return None
 
     # -- Force Deluxe (V3-Reservat) ---------------------------------------
@@ -658,14 +692,30 @@ class PuzzleBot(PuzzleDetectMixin):
                 self.state = 4
                 self.timer_action = time()
                 pydirectinput.moveTo(mouse_x, mouse_y)
+                # Farb-Lese-Retry scharf schalten: bis zu dieser Deadline wird
+                # in State 4 pro Frame neu gelesen statt sofort zu verwerfen
+                # (der Stein ist nach dem Holen oft noch nicht gerendert).
+                self._color_retry_until = time() + PIECE_COLOR_RETRY_S
+                self._color_read_announced = False
 
         if self.state == 4:
 
             if time() - self.timer_action > timep:
-                log.event(self.state, t('puzzle.read_piece_color'))
+                if not self._color_read_announced:
+                    log.event(self.state, t('puzzle.read_piece_color'))
+                    self._color_read_announced = True
+                retrying = time() < self._color_retry_until
+                piece = self.get_new_piece_color(crop_image, quiet=retrying)
+                if piece is None and retrying:
+                    # Noch kein Treffer, Deadline laeuft -> naechster Frame
+                    # liest ein FRISCHES Capture. Kein State-Wechsel, kein
+                    # Verwerfen, kein Log-Spam (quiet). Erst nach Ablauf der
+                    # Deadline geht ein echter Miss (voll geloggt) in den
+                    # bestehenden Verwerfen-Pfad.
+                    return None
                 self.state = 5
                 self.timer_action = time()
-                self.new_piece = self.get_new_piece_color(crop_image)
+                self.new_piece = piece
 
         if self.state == 5:
             if time() - self.timer_action > timep:
