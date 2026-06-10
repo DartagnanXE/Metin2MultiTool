@@ -116,7 +116,8 @@ class App(
         # kleiner Sicherheitsrand. Die Sichten wurden dichter gesetzt; Fishing/
         # Puzzle verteilen ihre Resthoehe ueber einen flexiblen Zwischenraum,
         # sodass KEINE Sicht leer am Boden wirkt.
-        self.geometry('555x722')  # 470x608 * (1.0/0.85) + kleiner Puffer
+        self.geometry('555x778')  # +1 Item-Reihe Hoehe, damit die Inventar-Sicht
+        # (5 Reihen Item-Grid + 'Inventar managen') bei scaling 1.0 voll passt
         self.resizable(False, False)
         self.configure(fg_color=BG)
 

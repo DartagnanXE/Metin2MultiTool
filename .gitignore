@@ -164,3 +164,9 @@ server/.env
 # PyInstaller-Specs sind aber handgepflegter, ESSENZIELLER Quellcode:
 !Metin2FishBot.spec
 !Metin2FishBot_onefile.spec
+dist_release/
+dist_speed/
+dist_v112/
+dist_v113/
+grid_lock.json
+NOTES.md

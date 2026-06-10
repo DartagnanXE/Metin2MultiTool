@@ -3,7 +3,88 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
-## [Unreleased] — Run-1 Haertung (Statistik/Ranking/Telemetrie-Server)
+## [1.1.5] — 2026-06-10
+
+### Neu
+
+- **Zeitlimit-Aktion „Inventar-Cleanup" (entweder/oder):** Beim „Stoppen nach
+  Zeit (Min.)" lässt sich jetzt wählen, was nach Ablauf passiert: **Stoppen**
+  (wie bisher) ODER **Inventar-Cleanup** — der Bot stoppt, stellt sicher, dass
+  das Inventar offen ist (neue Offen-Erkennung), scannt es, wendet die
+  Behalten/Entfernen/Lagerfeuer-Markierungen an (grillen + wegwerfen) und
+  startet das Angeln nach einem sichtbaren **40-Sekunden-Countdown** im
+  Top-Timer automatisch neu — der Zeit-Timer beginnt dann von vorn
+  (Dauerbetrieb mit periodischem Aufräumen). Abbruch jederzeit per Stop-Hotkey
+  oder manuellem Start.
+- **Start-Knopf kontextabhängig:** Starten ist nur noch in den Ansichten
+  *Fishing* und *Puzzle* möglich (dort ist eindeutig, was gestartet wird) — in
+  Inventar/Rangliste/Roadmap/Console/Einstellungen ist der Start-Knopf
+  ausgegraut. Stoppen bleibt bei laufendem Bot in jeder Ansicht möglich.
+
+### Behoben
+
+- **Puzzle: Steine wurden sofort verworfen statt gesetzt (User-Report):** Der
+  Bot las die Stein-Farbe genau EINMAL, ~0,1–0,3 s nach dem Holen — da war der
+  Stein oft noch nicht gerendert (Log: Hintergrund-Grau b=31 g=34 r=36 am
+  Sample-Punkt) → `new_piece=None` → sofortiges Wegwerfen, bei jedem Stein.
+  Jetzt liest State 4 bis zu 2 s lang pro Frame ein frisches Capture nach
+  (Erfolg beendet die Schleife sofort; erst nach Ablauf greift der bisherige
+  Verwerfen-Pfad, voll geloggt). Zusätzlich war das BLAU-Fenster zu eng: der
+  live gemessene blaue Stein (255,74,0) fiel mit g 100–115 durch → auf
+  g 60–130 verbreitert (kollisionsfrei; kein anderes Fenster hat b>240 und
+  r<10). On top: **Toleranz-Klassifikation** als zweite Stufe (±40/Kanal gegen
+  die 6 Referenz-Zentroide, eindeutig oder gar nicht) — erkennt JEDEN künftig
+  gedrifteten Farbton sofort, beweisbar verwechslungsfrei (kleinste Kanal-Lücke
+  zweier Steinfarben 85 > 2×40; Invarianten-Test pinnt das, bei 45 hätten
+  Orange/Gelb überlappt) und Hintergrund/Garbage trifft konstruktiv nie. Neue
+  Tests: `TestColorReadRetry` + `TestClassifyPieceTolerant` +
+  `TestTolerantFallbackWiring` (test_puzzle_glue), Disjunktheits-Invariante +
+  Sweep-Kontrakt in test_color_sampling.
+- **Goldener Thunfisch: Bestätigungs-Fenster wurde nie geklickt (Bot hing):**
+  Nach dem Options-Klick (z. B. Freilassen) antwortet der Server mit einem
+  zweiten Fenster mit OK-Knopf. Der alte Code klickte OK blind 0,1 s nach dem
+  Options-Klick — praktisch immer BEVOR das Fenster existierte; und da dieses
+  Fenster die Bildecken nicht schwärzt, sah die Tagesbelohnungs-Erkennung es
+  nie → Dialog blieb offen. Jetzt: eigene Erkennung des Bestätigungs-Dialogs
+  (Template-Match der Knopf-Leiste, beidseitig des OK-Knopfs, hover-sicher;
+  Selbst-Match 0.0 vs. nächster Negativfall ≥27) und OK-Klick erst, wenn der
+  Dialog wirklich im Frame steht (bis 10 s Wartefenster, retry-sicher).
+  OK-Position präzise nachgemessen: Client (403,250) Knopf-Mitte (alt 399,246
+  = Knopfrand). Templates `images/golden_confirm_bar_{l,r}.png`, Referenz
+  `FischOCR/GoldenerThunfischAuswahlbestätigen.png`; neue Tests
+  `tests/test_golden_confirm.py`.
+
+- **„Bot laeuft los" bei Scan/Manage (Klick in die Landschaft):** Die
+  Inventar-Taste ist ein TOGGLE — war der Beutel schon offen (z. B. direkt nach
+  einem Scan, der ihn absichtlich offen laesst), schloss der blinde
+  Oeffnen-Druck ihn wieder, und die folgenden Tab-Klicks bzw. Drag-Quellen
+  landeten als Links-Klicks in der 3D-Welt → der Charakter lief los. Alle drei
+  Live-Fluesse (Scan, Lagerfeuer-Braten, Wegwerfen) pruefen den Offen-Status
+  jetzt VOR jedem Tastendruck und bei Misserfolg brechen sie ab, BEVOR
+  irgendetwas geklickt wird (`inventory.scan_not_open` /
+  `campfire.status_not_open` / `discard.status_not_open`).
+
+### Neu
+
+- **Selbststaendige Offen-Erkennung (`inventory/open_probe.py`):** Template-
+  Match der vier Seiten-Reiter (I–IV) an den kalibrierten Positionen — die je
+  eine AKTIVE (hellere) Seite matcht ihr Inaktiv-Template nicht, die anderen
+  drei matchen pixelgenau. Regel „≥3 von 4 matchen = offen". Vermessen auf
+  echten Captures: offen 0.0–0.6 MAD (inaktiv) vs. 39–53 (aktiv) vs. 26–69
+  (geschlossen/Landschaft); adversarialer Sweep mit 73.170 Platzierungen ueber
+  die Landschaft: **0 Falsch-Offen**. Templates gebuendelt unter
+  `inventory_tab_templates/` (beide .spec-Dateien), Extraktor
+  `tools/extract_tab_templates.py`.
+- **Toggle-Selbstheilung:** Liest ein offener Beutel wegen Tooltip/Cursor auf
+  der Tab-Reihe faelschlich „zu", schliesst Druck 1 ihn sauber und Druck 2
+  oeffnet ihn verifiziert wieder (max. 2 Druecke, Cursor wird vor jeder Probe
+  geparkt).
+- **Test-Fenster zeichnet die Tab-Reihe** (echte Templates), damit der Scan
+  gegen das Fake-Inventar weiterhin funktioniert; neue Testdatei
+  `tests/test_inventory_open_probe.py` (Synthese + echte Open-/Closed-Shots
+  inkl. Seite-II-aktiv).
+
+## [1.1.5] — Run-1 Haertung (Statistik/Ranking/Telemetrie-Server, Teil desselben Releases)
 
 ### Behoben
 
