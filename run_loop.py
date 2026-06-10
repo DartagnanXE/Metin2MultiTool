@@ -140,6 +140,14 @@ class RunLoop:
         # UI-Sync.
         self.controller.on_start = self.on_start
         self.controller.on_stop = self.on_stop
+        # Manage-Abbruch-Seam: das Stop-Signal (F6) setzt zusaetzlich die
+        # Abbruch-Flagge der Inventar-Worker (Grillen/Wegwerfen stoppen nach
+        # dem aktuellen Item). Direkt als Callback registriert, weil der Tick
+        # das Signal sofort konsumiert -- ein Polling der Worker kaeme zu spaet.
+        try:
+            self.stop_signal.add_callback(self.app._request_manage_abort)
+        except Exception:
+            pass
         # Stop-Hotkey-Daemon starten: pollt F6 auf EIGENEM High-Frequency-Thread
         # und setzt bei Druck das Stop-Signal -> der ``_on_stop_signal``-Callback
         # raeumt SOFORT botting beider Bots, voellig unabhaengig davon, was der

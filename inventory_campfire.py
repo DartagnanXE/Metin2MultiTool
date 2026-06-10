@@ -298,7 +298,7 @@ class CampfireResult:
     Not a dataclass to stay import-light + Py-version-proof; treated read-only.
 
     :ivar status: ``'done'`` / ``'no_campfire_item'`` / ``'label_not_found'`` /
-        ``'no_fish'`` / ``'not_open'`` / ``'error'``.
+        ``'no_fish'`` / ``'not_open'`` / ``'aborted'`` / ``'error'``.
     :ivar grilled: list of ``(page, row, col, name)`` actually dragged.
     :ivar fire_point: the world ``(x, y)`` the fish were dropped on (or ``None``).
     :ivar label_score: the best label match score seen (diagnostic).
@@ -368,7 +368,8 @@ def locate_fire(capture_rgb_fn, *, template=None, rotate_fn=None,
 
 def run_campfire(states, *, inp, capture_rgb_fn, scan_fn, offset=(0, 0),
                  calib=DEFAULT_CALIBRATION, sleep=None, template=None,
-                 birds_eye_key='g', rotate_key='e', lattice=None):
+                 birds_eye_key='g', rotate_key='e', lattice=None,
+                 abort_fn=None):
     """Full grill flow: place the campfire, find the fire, drag the fish on.
 
     All live dependencies are INJECTED so the orchestration is headless-testable
@@ -447,8 +448,20 @@ def run_campfire(states, *, inp, capture_rgb_fn, scan_fn, offset=(0, 0),
               score=round(score, 3))
 
         # 5) Grill: drag each campfire fish from its slot onto the fire.
+        # ``abort_fn`` (optional) wird VOR jedem Fisch geprueft: F6 bzw. der
+        # Cleanup-Cutoff stoppen sauber NACH dem aktuellen Drag -> Status
+        # 'aborted' mit dem bisherigen Stand.
         grilled = []
         for (page, row, col, name) in targets:
+            try:
+                if abort_fn is not None and abort_fn():
+                    _flog('-', 'campfire.aborted', count=len(grilled))
+                    return CampfireResult('aborted', grilled=grilled,
+                                          fire_point=fire,
+                                          label_score=score,
+                                          rotations=rotations)
+            except Exception:
+                pass
             _switch_page(inp, calib, ox, oy, page, sleep)
             fx, fy = _slot_screen(row, col, calib, ox, oy, lattice=lattice)
             drag(inp, fx, fy, fire_screen[0], fire_screen[1], sleep=sleep)
@@ -484,11 +497,23 @@ def drag(api, x1, y1, x2, y2, steps=12, settle=INPUT_SETTLE_S, sleep=None):
         api.mouseDown()
         sleep(settle)
         n = max(1, int(steps))
-        for i in range(1, n + 1):
-            x = x1 + (x2 - x1) * i // n
-            y = y1 + (y2 - y1) * i // n
-            api.moveTo(int(x), int(y))
-            sleep(settle / n)
+        old_pause = getattr(api, 'PAUSE', None)
+        try:
+            # Reine MOVES brauchen keinen per-Call-Hold (nur Down->Up braucht
+            # ihn) -- mit dem globalen PAUSE=0.05 kostete der 12-Schritt-Pfad
+            # allein ~0.6s pro Item (Live-Log: ~1.3s/Item Wegwerf-Takt). Der
+            # Hover-Sweep faehrt aus demselben Grund laengst mit PAUSE=0.
+            api.PAUSE = 0
+            for i in range(1, n + 1):
+                x = x1 + (x2 - x1) * i // n
+                y = y1 + (y2 - y1) * i // n
+                api.moveTo(int(x), int(y))
+                sleep(settle / n)
+        finally:
+            try:
+                api.PAUSE = old_pause
+            except Exception:
+                pass
         sleep(settle)
     finally:
         try:

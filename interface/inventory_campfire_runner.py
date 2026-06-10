@@ -174,8 +174,28 @@ def _ensure_open(wincap, offset, hotkey, calib):
     return ok
 
 
+def _restore_page(offset, calib, page):
+    """Klickt die VOR dem Lauf aktive Inventar-Seite wieder an (+ Cursor-Park).
+
+    Der Lauf wandert durch die Tabs und endet sonst auf der letzten Arbeits-
+    Seite; der Nutzer findet sein Inventar so wieder vor, wie er es offen
+    hatte (User-Wunsch 2026-06-10). Best-effort; wirft nie.
+    """
+    if pydirectinput is None or not page:
+        return
+    pt = ((calib or {}).get('tabs', {}) or {}).get(page)
+    if not pt:
+        return
+    try:
+        pydirectinput.click(x=int(offset[0] + pt[0]),
+                            y=int(offset[1] + pt[1]))
+    except Exception:
+        return
+    _park_cursor(offset, calib)
+
+
 def run_campfire_grill(cfg, states, *, log_fn=None, db=None,
-                       calib=DEFAULT_CALIBRATION):
+                       calib=DEFAULT_CALIBRATION, abort_fn=None):
     """Open the window + inventory and grill every CAMPFIRE-marked fish.
 
     :param cfg: current config dict (reads ``inventory.hotkey`` to open the bag,
@@ -221,6 +241,12 @@ def run_campfire_grill(cfg, states, *, log_fn=None, db=None,
     # closed -- the common trigger was Scan (leaves the bag open) -> Manage
     # (blind press CLOSED it) -> tool double-click / drag into the 3D world.
     hotkey = (cfg or {}).get('inventory', {}).get('hotkey', 'i')
+    prev_page = None
+    try:
+        from inventory.grid import active_page as _active_page
+        prev_page = _active_page(wincap.get_screenshot(), calib)
+    except Exception:
+        pass
     if not _ensure_open(wincap, offset, hotkey, calib):
         _emit('-', 'campfire.status_not_open')
         return campfire.CampfireResult('not_open')
@@ -267,10 +293,12 @@ def run_campfire_grill(cfg, states, *, log_fn=None, db=None,
     _emit('0', 'campfire.started')
     result = campfire.run_campfire(
         states,
+        abort_fn=abort_fn,
         inp=pydirectinput,
         capture_rgb_fn=capture_rgb_fn,
         scan_fn=scan_fn,
         offset=offset,
         calib=calib,
         lattice=locked)
+    _restore_page(offset, calib, prev_page)
     return result

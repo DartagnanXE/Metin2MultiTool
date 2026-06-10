@@ -9,9 +9,11 @@ Mixin for :class:`interface.app.App`. Holds only methods (no
 from interface.app._common import *  # noqa: F401,F403
 
 # Zeitlimit-Aktion 'cleanup': Sekunden vom Cleanup-START bis zum Auto-Neustart
-# des Angelns. Der Countdown laeuft sichtbar im Top-Timer; der Neustart wartet
-# zusaetzlich auf das Ende von Scan/Grillen/Wegwerfen (wer spaeter ist).
-CLEANUP_RESTART_S = 40
+# des Angelns. Der Countdown laeuft sichtbar im Top-Timer. Laeuft bei 00:00
+# noch ein Grill-/Wegwerf-Worker, wird er AKTIV gestoppt (Abbruch nach dem
+# aktuellen Item -- User-Spez: "30 sec danach managen stoppen falls noch
+# aktiv und fishing wieder starten"); der Neustart folgt, sobald er steht.
+CLEANUP_RESTART_S = 30
 
 
 class InventoryViewMixin:
@@ -104,7 +106,10 @@ class InventoryViewMixin:
                          text_color=AMBER, font=ctk.CTkFont(size=11)).grid(
                 row=0, column=0, sticky='w')
             return
-        PX, COLS = self._inv_manage_px, 9
+        # 8 Spalten statt 9: mit 9 wurde die letzte Spalte rechts vom
+        # Kartenrand abgeschnitten (Nutzer-Screenshot 2026-06-10) -- eine
+        # Reihe mehr passt, eine Spalte mehr nicht.
+        PX, COLS = self._inv_manage_px, 8
         flame = im.make_flame(PX)
         for i, name in enumerate(items):
             keep, remove, fire = im.variants(name, PX, flame=flame)
@@ -129,12 +134,13 @@ class InventoryViewMixin:
             except Exception:
                 pass
 
-        ctk.CTkButton(
+        self._inv_manage_apply_btn = ctk.CTkButton(
             body, text=t('ui.inv_manage_apply'), height=34, corner_radius=10,
             font=ctk.CTkFont(size=13, weight='bold'),
             fg_color=TEAL, hover_color=TEAL_HOVER, text_color=INK,
-            command=self._on_inv_manage_apply).grid(
-            row=2, column=0, sticky='ew', pady=(6, 0))
+            command=self._on_inv_manage_apply)
+        self._inv_manage_apply_btn.grid(row=2, column=0, sticky='ew',
+                                        pady=(6, 0))
 
     def _update_inv_manage_counts(self, inv):
         """Nach einem Scan: die erkannte Stack-Menge pro Item als Zahl in ALLE 3
@@ -251,6 +257,8 @@ class InventoryViewMixin:
             self.flash_saved()
         except Exception:
             pass
+        # Frischer Lauf -> Abbruch-Flagge zuruecksetzen (F6 setzt sie wieder).
+        self._inv_manage_abort = False
         # Lagerfeuer-Braten anstossen (nur wenn Fische dafuer markiert sind).
         if campfire:
             self._start_campfire_grill(dict(st))
@@ -260,6 +268,8 @@ class InventoryViewMixin:
         # sofort. Beide idle-gated + defensiv.
         if remove:
             self._start_item_discard(dict(st))
+        # Knopf in den Lauf-Zustand schalten (zeigt 'laeuft ... F6 stoppt').
+        self._sync_manage_button()
 
     def _start_campfire_grill(self, states):
         """Startet das Lagerfeuer-Braten auf einem Daemon-Thread (UI nie blocken).
@@ -297,7 +307,9 @@ class InventoryViewMixin:
         def _worker():
             try:
                 from interface import inventory_campfire_runner as cr
-                res = cr.run_campfire_grill(cfg, states)
+                res = cr.run_campfire_grill(
+                    cfg, states,
+                    abort_fn=lambda: getattr(self, '_inv_manage_abort', False))
                 self.after(0, lambda r=res: self._campfire_grill_done(r))
             except Exception as exc:
                 self.after(0, lambda e=exc: self._campfire_grill_failed(e))
@@ -308,6 +320,7 @@ class InventoryViewMixin:
     def _campfire_grill_done(self, res):
         """Braten fertig (GUI-Thread): Praeferenz freigeben, Status setzen."""
         self._campfire_running = False
+        self._sync_manage_button()
         try:
             self._clear_preferred_hwnd()
         except Exception:
@@ -327,6 +340,7 @@ class InventoryViewMixin:
     def _campfire_grill_failed(self, exc):
         """Braten fehlgeschlagen (GUI-Thread): Praeferenz freigeben, loggen."""
         self._campfire_running = False
+        self._sync_manage_button()
         try:
             self._clear_preferred_hwnd()
         except Exception:
@@ -386,7 +400,9 @@ class InventoryViewMixin:
                 while getattr(self, '_campfire_running', False):
                     time.sleep(0.1)
                 from interface import inventory_discard_runner as dr
-                res = dr.run_discard_items(cfg, states)
+                res = dr.run_discard_items(
+                    cfg, states,
+                    abort_fn=lambda: getattr(self, '_inv_manage_abort', False))
                 self.after(0, lambda r=res: self._item_discard_done(r))
             except Exception as exc:
                 self.after(0, lambda e=exc: self._item_discard_failed(e))
@@ -397,6 +413,7 @@ class InventoryViewMixin:
     def _item_discard_done(self, res):
         """Wegwerfen fertig (GUI-Thread): Praeferenz freigeben, Status setzen."""
         self._discard_running = False
+        self._sync_manage_button()
         try:
             self._clear_preferred_hwnd()
         except Exception:
@@ -416,6 +433,7 @@ class InventoryViewMixin:
     def _item_discard_failed(self, exc):
         """Wegwerfen fehlgeschlagen (GUI-Thread): Praeferenz freigeben, loggen."""
         self._discard_running = False
+        self._sync_manage_button()
         try:
             self._clear_preferred_hwnd()
         except Exception:
@@ -742,6 +760,37 @@ class InventoryViewMixin:
         except Exception:
             pass
 
+    def _sync_manage_button(self):
+        """Spiegelt den Grill-/Wegwerf-Lauf in den "Inventar managen"-Knopf.
+
+        Laeuft mindestens ein Worker: Knopf gesperrt + 'laeuft ... [F6] stoppt'
+        (der Nutzer sieht, DASS etwas laeuft und WIE er es abbricht). Im
+        Leerlauf: normaler Apply-Knopf. Wirft nie (Knopf existiert evtl. noch
+        nicht, wenn die View nie gebaut wurde).
+        """
+        try:
+            busy = (getattr(self, '_campfire_running', False)
+                    or getattr(self, '_discard_running', False))
+            if busy:
+                self._inv_manage_apply_btn.configure(
+                    state='disabled', text=t('ui.inv_manage_running'),
+                    fg_color=PANEL_LIGHT, text_color=TEXT_FAINT)
+            else:
+                self._inv_manage_apply_btn.configure(
+                    state='normal', text=t('ui.inv_manage_apply'),
+                    fg_color=TEAL, text_color=INK)
+        except Exception:
+            pass
+
+    def _request_manage_abort(self):
+        """Setzt die Abbruch-Flagge der Grill-/Wegwerf-Worker (F6-Callback).
+
+        Vom Stop-Signal (Hotkey-Daemon-Thread!) gerufen -- setzt deshalb NUR
+        ein bool (thread-sicher); die Worker pruefen es vor jedem Item und
+        beenden mit Status 'aborted'. Wirft nie.
+        """
+        self._inv_manage_abort = True
+
     # -- Timer-Cleanup (Zeitlimit-Aktion 'cleanup') ------------------------
 
     def _start_timer_cleanup(self):
@@ -767,6 +816,8 @@ class InventoryViewMixin:
             return
         self._inv_cleanup_active = True
         self._inv_cleanup_managed = False
+        self._inv_cleanup_cutoff_fired = False
+        self._inv_manage_abort = False
         self._inv_cleanup_restart_at = time.time() + CLEANUP_RESTART_S
         try:
             log.section(t('run.cleanup_started'))
@@ -809,10 +860,20 @@ class InventoryViewMixin:
                     pass
                 self.after(500, self._cleanup_tick)
                 return
-            # Phase 3: warten bis Worker fertig UND Countdown abgelaufen.
+            # Phase 3: Countdown abwarten; bei 00:00 noch laufende Worker
+            # AKTIV stoppen (Abbruch nach dem aktuellen Item) und nur noch auf
+            # deren Quittung warten -> dann Neustart.
             busy = (getattr(self, '_campfire_running', False)
                     or getattr(self, '_discard_running', False))
             left = getattr(self, '_inv_cleanup_restart_at', 0) - time.time()
+            if left <= 0 and busy and not getattr(
+                    self, '_inv_cleanup_cutoff_fired', False):
+                self._inv_cleanup_cutoff_fired = True
+                self._inv_manage_abort = True
+                try:
+                    log.event('-', t('run.cleanup_cutoff'))
+                except Exception:
+                    pass
             if busy or left > 0:
                 self.after(500, self._cleanup_tick)
                 return

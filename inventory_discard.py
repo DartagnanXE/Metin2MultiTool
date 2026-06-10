@@ -195,7 +195,7 @@ class DiscardResult:
 
     Not a dataclass to stay import-light + Py-version-proof; treated read-only.
 
-    :ivar status: ``'done'`` / ``'no_items'`` / ``'not_open'`` / ``'error'``.
+    :ivar status: ``'done'`` / ``'no_items'`` / ``'not_open'`` / ``'aborted'`` / ``'error'``.
     :ivar dropped: list of ``(page, row, col, name)`` actually dropped.
     :ivar drop_point: the SCREEN ``(x, y)`` the items were dragged to (or ``None``).
     """
@@ -212,7 +212,7 @@ class DiscardResult:
                 % (self.status, len(self.dropped), self.drop_point))
 
 
-def run_discard(states, *, inp, capture_fn, scan_fn, client_size,
+def run_discard(states, *, inp, capture_fn, scan_fn, client_size, abort_fn=None,
                 offset=(0, 0), calib=DEFAULT_CALIBRATION, lattice=None,
                 sleep=None):
     """Full discard flow: drag each REMOVE-marked item out + confirm "Ja".
@@ -278,8 +278,18 @@ def run_discard(states, *, inp, capture_fn, scan_fn, client_size,
         _flog('0', 'discard.started')
 
         # 2) Drop each removed item: switch page -> drag slot -> world -> confirm.
+        # ``abort_fn`` (optional) wird VOR jedem Item geprueft: F6 bzw. der
+        # Cleanup-Cutoff stoppen den Lauf sauber NACH dem aktuellen Item
+        # (nie mitten im Drag) -> Status 'aborted' mit dem bisherigen Stand.
         dropped = []
         for (page, row, col, name) in targets:
+            try:
+                if abort_fn is not None and abort_fn():
+                    _flog('-', 'discard.aborted', count=len(dropped))
+                    return DiscardResult('aborted', dropped=dropped,
+                                         drop_point=world)
+            except Exception:
+                pass
             _switch_page(inp, calib, ox, oy, page, sleep)
             sx, sy = _slot_screen(row, col, calib, ox, oy, lattice=lat)
             drag(inp, sx, sy, world[0], world[1], sleep=sleep)
@@ -316,11 +326,23 @@ def drag(api, x1, y1, x2, y2, steps=12, settle=INPUT_SETTLE_S, sleep=None):
         api.mouseDown()
         sleep(settle)
         n = max(1, int(steps))
-        for i in range(1, n + 1):
-            x = x1 + (x2 - x1) * i // n
-            y = y1 + (y2 - y1) * i // n
-            api.moveTo(int(x), int(y))
-            sleep(settle / n)
+        old_pause = getattr(api, 'PAUSE', None)
+        try:
+            # Reine MOVES brauchen keinen per-Call-Hold (nur Down->Up braucht
+            # ihn) -- mit dem globalen PAUSE=0.05 kostete der 12-Schritt-Pfad
+            # allein ~0.6s pro Item (Live-Log: ~1.3s/Item Wegwerf-Takt). Der
+            # Hover-Sweep faehrt aus demselben Grund laengst mit PAUSE=0.
+            api.PAUSE = 0
+            for i in range(1, n + 1):
+                x = x1 + (x2 - x1) * i // n
+                y = y1 + (y2 - y1) * i // n
+                api.moveTo(int(x), int(y))
+                sleep(settle / n)
+        finally:
+            try:
+                api.PAUSE = old_pause
+            except Exception:
+                pass
         sleep(settle)
     finally:
         try:

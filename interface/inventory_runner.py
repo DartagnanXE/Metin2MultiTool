@@ -562,6 +562,16 @@ def run_inventory_scan(cfg, previous_map=None, *, log_fn=None, db=None,
         from inventory.types import InventoryMap
         return InventoryMap(pages={})
 
+    # Die VOR dem Scan aktive Seite merken: der Scan klickt I->IV und kehrt
+    # auf I zurueck -- danach stellen wir die Seite wieder her, auf der der
+    # Nutzer sein Inventar offen hatte (User-Wunsch 2026-06-10). Defensiv:
+    # ohne Capture/Erkennung bleibt prev_page None -> kein Restore-Klick.
+    prev_page = None
+    try:
+        prev_page = grid_mod.active_page(runner.capture(), runner.calib)
+    except Exception:
+        pass
+
     # PHASE 1 (fast capture): buffer each page's raw frame; remember the last as
     # the crop fallback. No hover, no recognition -- just switch + capture.
     _emit_line(sink, t('inventory.scan_capturing'))
@@ -580,6 +590,14 @@ def run_inventory_scan(cfg, previous_map=None, *, log_fn=None, db=None,
     # Hand the buffer to the runner so PHASE-2 can map an aligned frame back to
     # its page label for the per-page unknown crop.
     runner._capture_buffer = captured
+
+    # Zur vorher aktiven Seite zurueckkehren (capture_pages endete auf Seite I).
+    # Ein Klick + Park; non-fatal -- die Erkennung unten braucht nur den Buffer.
+    try:
+        if prev_page and prev_page != PAGES[0]:
+            runner.switch_page(prev_page)
+    except Exception:
+        pass
 
     # PHASE 2 (parallel recognise): record each page's locked lattice + frame so a
     # flagged unknown crops from its OWN page, then classify all 180 slots across

@@ -127,6 +127,7 @@ TRANSLATIONS = {
     'run.cleanup_started': {'en': 'Inventory clean-up: checking inventory, scanning, applying marks - fishing restarts after the countdown', 'de': 'Inventar-Cleanup: Inventar prüfen, scannen, Markierungen anwenden - Angeln startet nach dem Countdown neu'},
     'run.cleanup_restart': {'en': 'Inventory clean-up done - restarting fishing', 'de': 'Inventar-Cleanup fertig - Angeln wird neu gestartet'},
     'run.cleanup_aborted_running': {'en': 'Inventory clean-up aborted (a run was started manually)', 'de': 'Inventar-Cleanup abgebrochen (ein Lauf wurde manuell gestartet)'},
+    'run.cleanup_cutoff': {'en': 'Clean-up countdown expired - stopping grilling/dropping after the current item, then fishing restarts', 'de': 'Cleanup-Countdown abgelaufen - Grillen/Wegwerfen wird nach dem aktuellen Item gestoppt, dann startet das Angeln neu'},
     'run.stop_hotkey': {'en': 'Stop: stop-hotkey pressed', 'de': 'Stop: Stop-Hotkey gedrückt'},
     'run.reason_stop_hotkey': {'en': 'Stop hotkey pressed', 'de': 'Stop-Hotkey gedrückt'},
     'tetris.invalid_piece_no_opening_book': {'en': 'Invalid piece -> no opening book', 'de': 'Ungültiger Stein -> kein Eröffnungsbuch'},
@@ -213,9 +214,10 @@ TRANSLATIONS = {
     'ui.throw_delay_help': {'en': 'Pause before casting again after reeling in. Range 0.1-20 s.', 'de': 'Pause vor erneutem Auswerfen nach dem Einholen. Bereich 0.1-20 s.'},
     'ui.start_delay_help': {'en': 'Grace period after Start before the first cast - time to focus Metin2. Range 0.1-20 s.', 'de': 'Vorlaufzeit nach Start bis zum ersten Auswurf - Zeit, Metin2 zu fokussieren. Bereich 0.1-20 s.'},
     'ui.stop_after_help': {'en': 'Automatically stop the run after this much time. Off = fish indefinitely (timer counts up).', 'de': 'Stoppt den Lauf automatisch nach dieser Zeit. Aus = unbegrenzt angeln (Timer zählt hoch).'},
+    'ui.inv_manage_running': {'en': 'Managing inventory ... [F6] stops', 'de': 'Inventar managen läuft ... [F6] stoppt'},
     'ui.timer_action_stop': {'en': 'Stop', 'de': 'Stoppen'},
     'ui.timer_action_cleanup': {'en': 'Inventory clean-up', 'de': 'Inventar-Cleanup'},
-    'ui.timer_action_help': {'en': 'Either/or: what happens when the time limit expires. STOP = the bot simply stops. INVENTORY CLEAN-UP = the bot stops, makes sure the inventory is open, scans it, applies your keep/remove/campfire marks (grill + drop), and after a 40s countdown fishing restarts automatically - then the timer starts over.', 'de': 'Entweder/oder: Was beim Ablauf des Zeitlimits passiert. STOPPEN = der Bot stoppt einfach. INVENTAR-CLEANUP = der Bot stoppt, stellt sicher dass das Inventar offen ist, scannt es, wendet deine Behalten/Entfernen/Lagerfeuer-Markierungen an (grillen + wegwerfen), und nach einem 40s-Countdown startet das Angeln automatisch neu - der Timer beginnt dann von vorn.'},
+    'ui.timer_action_help': {'en': 'Either/or: what happens when the time limit expires. STOP = the bot simply stops. INVENTORY CLEAN-UP = the bot stops, makes sure the inventory is open, scans it, applies your keep/remove/campfire marks (grill + drop), and after a 30s countdown fishing restarts automatically - then the timer starts over.', 'de': 'Entweder/oder: Was beim Ablauf des Zeitlimits passiert. STOPPEN = der Bot stoppt einfach. INVENTAR-CLEANUP = der Bot stoppt, stellt sicher dass das Inventar offen ist, scannt es, wendet deine Behalten/Entfernen/Lagerfeuer-Markierungen an (grillen + wegwerfen), und nach einem 30s-Countdown startet das Angeln automatisch neu - der Timer beginnt dann von vorn.'},
     # --- View headers / subtitles / badges ---
     'ui.fishing_sub': {'en': 'automated minigame', 'de': 'automatisiertes Minispiel'},
     'ui.puzzle_sub': {'en': 'solver assistant', 'de': 'Löser-Assistent'},
@@ -366,6 +368,8 @@ TRANSLATIONS = {
     'campfire.status_label_not_found': {'en': 'Campfire placed but its label was not found', 'de': 'Lagerfeuer platziert, aber Label nicht gefunden'},
     'campfire.status_error': {'en': 'Campfire grilling failed - see Console', 'de': 'Lagerfeuer-Braten fehlgeschlagen - siehe Console'},
     'campfire.status_not_open': {'en': 'Inventory could not be opened - grilling aborted (nothing was clicked)', 'de': 'Inventar liess sich nicht öffnen - Braten abgebrochen (nichts geklickt)'},
+    'campfire.aborted': {'en': 'Grilling stopped after {count} fish (stop requested)', 'de': 'Braten nach {count} Fisch(en) gestoppt (Stopp angefordert)'},
+    'campfire.status_aborted': {'en': 'Grilling stopped (F6 / clean-up cutoff)', 'de': 'Braten gestoppt (F6 / Cleanup-Limit)'},
     # -- discard / drop (Wegwerfen / fallen lassen) -------------------------
     'discard.started': {'en': 'Dropping marked items...', 'de': 'Markierte Items werden fallen gelassen ...'},
     'discard.dropped_one': {'en': 'Dropped {name} (page {page}, slot {slot})', 'de': '{name} fallen gelassen (Seite {page}, Slot {slot})'},
@@ -380,6 +384,8 @@ TRANSLATIONS = {
     'discard.status_no_items': {'en': 'No items to drop', 'de': 'Keine Items zum Wegwerfen'},
     'discard.status_error': {'en': 'Dropping items failed - see Console', 'de': 'Wegwerfen fehlgeschlagen - siehe Console'},
     'discard.status_not_open': {'en': 'Inventory could not be opened - dropping aborted (nothing was clicked)', 'de': 'Inventar liess sich nicht öffnen - Wegwerfen abgebrochen (nichts geklickt)'},
+    'discard.aborted': {'en': 'Dropping stopped after {count} item(s) (stop requested)', 'de': 'Wegwerfen nach {count} Item(s) gestoppt (Stopp angefordert)'},
+    'discard.status_aborted': {'en': 'Dropping stopped (F6 / clean-up cutoff)', 'de': 'Wegwerfen gestoppt (F6 / Cleanup-Limit)'},
     'discard.blocked_running': {'en': 'Cannot drop items while the bot is running - stop it first', 'de': 'Wegwerfen nicht möglich, während der Bot läuft - erst stoppen'},
     # -- inventory UI (rail view + settings) --------------------------------
     'ui.view_inventory': {'en': 'Inventory', 'de': 'Inventar'},
