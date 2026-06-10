@@ -172,11 +172,11 @@ class TestGoldenTunaGeometry(unittest.TestCase):
         self.assertEqual(y[2] - y[1], fishingbot.FishingBot.GOLDEN_TUNA_DY)
         self.assertEqual(y[3] - y[2], fishingbot.FishingBot.GOLDEN_TUNA_DY)
 
-    def test_confirm_ok_position(self):
-        # Knopf-Box full-frame x 388..420, y 271..291 -> Mitte (404, 281)
-        # -> CLIENT (403, 250) (nachgemessen; der alte Wert (399,246) traf
-        # nur den Knopfrand). Konsistenz-Pin gegen versehentliches Verstellen.
-        self.assertEqual(fishingbot.FishingBot.GOLDEN_TUNA_CONFIRM, (403, 250))
+    def test_confirm_has_no_fixed_position(self):
+        # Der Bestaetigungs-Dialog wandert (Hoehe je Text) -> es darf KEINE
+        # fixe Klick-Konstante mehr geben; geklickt wird der Template-FUND
+        # (fishing_detect.golden_confirm_find).
+        self.assertFalse(hasattr(fishingbot.FishingBot, 'GOLDEN_TUNA_CONFIRM'))
 
 
 class TestMatchTemplateMax(unittest.TestCase):

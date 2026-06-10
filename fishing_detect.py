@@ -27,81 +27,94 @@ from respath import resource_path
 # -- Goldener-Thunfisch BESTAETIGUNGS-Dialog (nach dem Options-Klick) --------
 #
 # Nach dem Klick auf eine der drei Optionen (Freilassen/Aufschneiden/Koeder)
-# antwortet der SERVER mit einem zweiten Fenster (z.B. die Freilassen-Bonus-
-# Meldung) mit EINEM OK-Knopf. Dieses Fenster schwaerzt die Bildecken NICHT
-# (gemessen: max 125 statt 0) -> detect_daily_reward sieht es nie; es braucht
-# eine EIGENE Erkennung. Signatur = die Knopf-LEISTE des Dialogs: ein flacher
-# ~80er-Graustreifen (Zeilen ~238..258 client) mit scharfen Dunkel-Kanten
-# darueber/darunter. Zwei Template-Patches FLANKIEREN den OK-Knopf (der Knopf
-# selbst ist ausgespart -- Cursor-Hover macht ihn heller), beide muessen
-# matchen. Gemessen auf den FischOCR-Referenzen (client = full-frame -(1,31)):
-# Selbst-Match 0.0; naechster Negativfall (3-Optionen-Fenster) 27..29; Angel-
-# Frame einseitig 18.5, beidseitig >=67 -> Schwelle 8 mit grossem Abstand.
-GOLDEN_CONFIRM_PATCH_Y = (230, 266)
-GOLDEN_CONFIRM_PATCH_X = ((340, 386), (425, 471))
-GOLDEN_CONFIRM_TEMPLATES = ('images/golden_confirm_bar_l.png',
-                            'images/golden_confirm_bar_r.png')
-GOLDEN_CONFIRM_MAD_MAX = 8.0
-GOLDEN_CONFIRM_SHIFT = 3
+# antwortet der SERVER mit einem zweiten Fenster mit EINEM OK-Knopf (z.B. die
+# Freilassen-Bonus-Meldung). Zwei harte Live-Befunde bestimmen das Design:
+#   1. Das Fenster schwaerzt die Bildecken NICHT (max 125 statt 0) ->
+#      detect_daily_reward sieht es nie; es braucht eine EIGENE Erkennung.
+#   2. Das Fenster steht NICHT an fester Position: seine Hoehe haengt vom
+#      Meldungstext ab und die Lage variiert (Live-Referenzen: OK-Mitte
+#      (403,250) vs. (403,202) client). Fixe Koordinaten (v1.1.5) verfehlten
+#      die zweite Variante -> der OK-Knopf wird jetzt per Template ueber den
+#      GANZEN Frame GESUCHT (wie die Lagerfeuer-Label-Suche) und der Klick
+#      geht auf den FUND, nicht auf eine Konstante.
+#
+# Erkennung = zwei Faktoren:
+#   * Graustufen-NCC des OK-Knopf-Templates (images/golden_ok_knob.png,
+#     20x32): Positives 0.81/1.00, staerkster Negativfall 0.61 -> Schwelle
+#     0.70 mit Marge in beide Richtungen. Laeuft ohnehin nur im 10s-Fenster
+#     nach dem Options-Klick.
+#   * Leisten-Check: der Knopf sitzt auf einer breiten, FLACHEN Grau-Leiste;
+#     beide Flanken (links/rechts vom Fund) muessen flach sein (std <= 12)
+#     mit plausibler Helligkeit (mean 50..110 -- die Dialog-Transparenz
+#     dimmt die Leiste je Szene: gemessen 65..85). Killt zufaellige
+#     Texture-Treffer in unbekannten Szenen.
+GOLDEN_OK_TEMPLATE = 'images/golden_ok_knob.png'
+GOLDEN_OK_NCC_MIN = 0.70
+GOLDEN_OK_BAR_MEAN = (50.0, 110.0)
+GOLDEN_OK_BAR_STD_MAX = 12.0
 
-_golden_confirm_cache = None
+_golden_ok_cache = None
 
 
-def _golden_confirm_templates():
-    """Die beiden Leisten-Templates als BGR-float-Arrays (gecacht, soft).
-
-    ``cv.imread`` liefert BGR -- exakt die Kanal-Ordnung des Live-Captures, so
-    vergleicht :func:`golden_confirm_present` ohne Konvertierung. ``None`` wenn
-    eine Datei fehlt/unlesbar ist (dann gibt es schlicht keine Erkennung).
-    """
-    global _golden_confirm_cache
-    if _golden_confirm_cache is not None:
-        return _golden_confirm_cache
+def _golden_ok_template():
+    """Das OK-Knopf-Template als Graustufen-Array (gecacht, soft). None = aus."""
+    global _golden_ok_cache
+    if _golden_ok_cache is not None:
+        return _golden_ok_cache
     if np is None:
         return None
-    out = []
-    for rel in GOLDEN_CONFIRM_TEMPLATES:
-        img = cv.imread(resource_path(rel), cv.IMREAD_COLOR)
-        if img is None:
-            return None
-        out.append(img.astype('float32'))
-    _golden_confirm_cache = tuple(out)
-    return _golden_confirm_cache
+    tmpl = cv.imread(resource_path(GOLDEN_OK_TEMPLATE), cv.IMREAD_GRAYSCALE)
+    if tmpl is None:
+        return None
+    _golden_ok_cache = tmpl
+    return _golden_ok_cache
+
+
+def golden_confirm_find(image_bgr):
+    """Sucht den OK-Knopf des Bestaetigungs-Dialogs im ganzen Frame.
+
+    :return: ``(found, score, point)`` -- ``point`` ist die Knopf-MITTE in
+        Client-Koordinaten (der Klickpunkt), ``None`` wenn nicht gefunden.
+        Rein, headless-testbar, wirft nie; fehlendes Template/numpy oder ein
+        zu kleiner Frame -> ``(False, 0.0, None)`` (kein Klick -- die sichere
+        Richtung).
+    """
+    tmpl = _golden_ok_template()
+    if tmpl is None or image_bgr is None or np is None:
+        return (False, 0.0, None)
+    try:
+        img = np.asarray(image_bgr)
+        if img.ndim != 3 or img.shape[2] < 3:
+            return (False, 0.0, None)
+        gray = cv.cvtColor(img[:, :, :3], cv.COLOR_BGR2GRAY)
+        th, tw = tmpl.shape[0], tmpl.shape[1]
+        if gray.shape[0] <= th or gray.shape[1] <= tw:
+            return (False, 0.0, None)
+        res = cv.matchTemplate(gray, tmpl, cv.TM_CCOEFF_NORMED)
+        _mn, score, _mnl, loc = cv.minMaxLoc(res)
+        score = float(score)
+        if score < GOLDEN_OK_NCC_MIN:
+            return (False, score, None)
+        cx, cy = int(loc[0] + tw // 2), int(loc[1] + th // 2)
+        # Leisten-Check: beide Flanken flach + plausibel hell.
+        for x0, x1 in ((cx - 48, cx - 24), (cx + 24, cx + 48)):
+            y0, y1 = cy - 7, cy + 8
+            if y0 < 0 or x0 < 0 or y1 > gray.shape[0] or x1 > gray.shape[1]:
+                return (False, score, None)
+            strip = gray[y0:y1, x0:x1].astype('float32')
+            lo, hi = GOLDEN_OK_BAR_MEAN
+            if not (lo <= float(strip.mean()) <= hi):
+                return (False, score, None)
+            if float(strip.std()) > GOLDEN_OK_BAR_STD_MAX:
+                return (False, score, None)
+        return (True, score, (cx, cy))
+    except Exception:
+        return (False, 0.0, None)
 
 
 def golden_confirm_present(image_bgr):
-    """``True`` gdw. der Goldfisch-Bestaetigungs-Dialog im Frame steht.
-
-    Beide Leisten-Patches muessen ihr Template innerhalb +-Shift treffen
-    (mean-abs-diff <= Schwelle). Rein, headless-testbar, wirft nie; fehlende
-    Templates/numpy oder ein zu kleiner Frame -> ``False`` (keine Erkennung,
-    also auch kein Klick -- die sichere Richtung).
-    """
-    templates = _golden_confirm_templates()
-    if templates is None or image_bgr is None or np is None:
-        return False
-    img = np.asarray(image_bgr)
-    if img.ndim != 3 or img.shape[2] < 3:
-        return False
-    y0, y1 = GOLDEN_CONFIRM_PATCH_Y
-    h, w = img.shape[0], img.shape[1]
-    rad = GOLDEN_CONFIRM_SHIFT
-    for (x0, _x1), tmpl in zip(GOLDEN_CONFIRM_PATCH_X, templates):
-        th, tw = tmpl.shape[0], tmpl.shape[1]
-        best = 1e9
-        for dy in range(-rad, rad + 1):
-            for dx in range(-rad, rad + 1):
-                ay0, ax0 = y0 + dy, x0 + dx
-                if ay0 < 0 or ax0 < 0 or ay0 + th > h or ax0 + tw > w:
-                    continue
-                patch = np.asarray(img[ay0:ay0 + th, ax0:ax0 + tw, :3],
-                                   dtype=np.float32)
-                mad = float(np.abs(patch - tmpl).mean())
-                if mad < best:
-                    best = mad
-        if best > GOLDEN_CONFIRM_MAD_MAX:
-            return False
-    return True
+    """``True`` gdw. der Goldfisch-Bestaetigungs-Dialog im Frame steht."""
+    return golden_confirm_find(image_bgr)[0]
 
 
 class FishingDetectMixin:
@@ -186,11 +199,11 @@ class FishingDetectMixin:
         return not image[10:15, 10:15, :3].any()
 
     def detect_golden_confirm(self, image):
-        """``True`` gdw. der Goldfisch-BESTAETIGUNGS-Dialog im Frame steht.
+        """``(found, score, point)`` des Bestaetigungs-Dialog-OK-Knopfs.
 
-        Duenner Mixin-Wrapper um :func:`golden_confirm_present` (Modul-Funktion,
-        damit sie headless ohne FishingBot-Instanz testbar bleibt). Dieses
-        zweite Fenster schwaerzt die Ecken NICHT -> detect_daily_reward sieht
-        es nie; siehe die Konstanten-Doku oben.
+        Duenner Mixin-Wrapper um :func:`golden_confirm_find` (Modul-Funktion,
+        damit sie headless ohne FishingBot-Instanz testbar bleibt). ``point``
+        ist die GEFUNDENE Knopf-Mitte (Client) -- der Dialog steht nicht an
+        fester Position, geklickt wird der Fund; siehe Konstanten-Doku oben.
         """
-        return golden_confirm_present(image)
+        return golden_confirm_find(image)

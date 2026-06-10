@@ -34,6 +34,8 @@ _REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 _SHOTS = {
     'confirm': os.path.join(_REPO_ROOT, 'FischOCR',
                             'GoldenerThunfischAuswahlbestätigen.png'),
+    'confirm_buff': os.path.join(_REPO_ROOT, 'FischOCR',
+                                 'GoldenThunfischBuffBestaetigen.png'),
     'options': os.path.join(_REPO_ROOT, 'FischOCR',
                             'GoldenerThunfisch3Optionen.png'),
     'fishing': os.path.join(_REPO_ROOT, 'FischOCR', 'Lachs.png'),
@@ -64,27 +66,40 @@ class TestGoldenConfirmDefensive(unittest.TestCase):
         self.assertFalse(fd.golden_confirm_present(
             np.zeros((601, 800, 3), dtype=np.uint8)))
 
-    def test_missing_templates_false(self):
-        orig = fd._golden_confirm_cache
+    def test_missing_template_false(self):
+        orig = fd._golden_ok_cache
         try:
-            fd._golden_confirm_cache = None
-            orig_paths = fd.GOLDEN_CONFIRM_TEMPLATES
-            fd.GOLDEN_CONFIRM_TEMPLATES = ('images/does_not_exist.png',) * 2
+            fd._golden_ok_cache = None
+            orig_path = fd.GOLDEN_OK_TEMPLATE
+            fd.GOLDEN_OK_TEMPLATE = 'images/does_not_exist.png'
             try:
-                self.assertFalse(fd.golden_confirm_present(
-                    np.zeros((601, 800, 3), dtype=np.uint8)))
+                self.assertEqual(
+                    fd.golden_confirm_find(
+                        np.zeros((601, 800, 3), dtype=np.uint8)),
+                    (False, 0.0, None))
             finally:
-                fd.GOLDEN_CONFIRM_TEMPLATES = orig_paths
+                fd.GOLDEN_OK_TEMPLATE = orig_path
         finally:
-            fd._golden_confirm_cache = orig
+            fd._golden_ok_cache = orig
 
 
 @unittest.skipUnless(np is not None and Image is not None and _shots_present(),
                      'real reference shots not present')
 class TestGoldenConfirmOnRealShots(unittest.TestCase):
-    def test_confirm_window_detected(self):
-        self.assertTrue(fd.golden_confirm_present(
-            _load_client_bgr(_SHOTS['confirm'])))
+    def test_confirm_window_detected_at_reference_point(self):
+        found, score, point = fd.golden_confirm_find(
+            _load_client_bgr(_SHOTS['confirm']))
+        self.assertTrue(found)
+        self.assertEqual(point, (403, 250))
+
+    def test_buff_variant_detected_at_shifted_point(self):
+        # Der Dialog steht NICHT fest: die Buff-Variante sitzt ~48px hoeher --
+        # genau der Fall, den die fixe v1.1.5-Koordinate verfehlte.
+        found, score, point = fd.golden_confirm_find(
+            _load_client_bgr(_SHOTS['confirm_buff']))
+        self.assertTrue(found)
+        self.assertEqual(point[0], 403)
+        self.assertLess(abs(point[1] - 202), 4)
 
     def test_options_window_not_detected(self):
         # Das 3-OPTIONEN-Fenster darf NICHT als Bestaetigung gelten (dort waere
@@ -97,20 +112,14 @@ class TestGoldenConfirmOnRealShots(unittest.TestCase):
             _load_client_bgr(_SHOTS['fishing'])))
 
     def test_shift_tolerance(self):
-        # +-2px Versatz (Session-Drift) muss die Erkennung ueberleben.
+        # Versatz (Session-Drift) ist trivial: die Suche laeuft ueber den
+        # ganzen Frame -- der Fundpunkt wandert einfach mit.
         frame = _load_client_bgr(_SHOTS['confirm'])
         shifted = np.zeros_like(frame)
         shifted[2:, :-2] = frame[:-2, 2:]
-        self.assertTrue(fd.golden_confirm_present(shifted))
-
-    def test_confirm_click_point_hits_button(self):
-        # Die kalibrierte OK-Mitte (CLIENT 403,250) liegt in der gemessenen
-        # Knopf-Box (x 387..419, y 240..260) und ist auf dem Referenz-Shot
-        # heller als die umgebende Leiste (~80er Grau).
-        x, y = 403, 250
-        self.assertTrue(387 <= x <= 419 and 240 <= y <= 260)
-        frame = _load_client_bgr(_SHOTS['confirm'])
-        self.assertGreater(int(frame[y, x].max()), 100)
+        found, _score, point = fd.golden_confirm_find(shifted)
+        self.assertTrue(found)
+        self.assertEqual(point, (403 - 2, 250 + 2))
 
 
 if __name__ == '__main__':

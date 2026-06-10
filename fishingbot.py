@@ -84,12 +84,11 @@ class FishingBot(FishingDetectMixin):
                      3: 269 + GOLDEN_TUNA_DY}   # 301 (Feld 3, unten: Koeder)
 
     # Nach dem Options-Klick antwortet der SERVER mit einem Bestaetigungs-
-    # Dialog mit EINEM OK-Knopf (z.B. die Freilassen-Bonus-Meldung). PRAEZISE
-    # NACHGEMESSEN auf FischOCR/GoldenerThunfischAuswahlbestaetigen.png: Knopf-
-    # Bounding-Box full-frame x 388..420, y 271..291 -> Mitte (404,281) ->
-    # CLIENT (403,250) (dort liegt das weisse "OK"-Glyph; der alte Wert
-    # (399,246) traf nur den Knopfrand).
-    GOLDEN_TUNA_CONFIRM = (403, 250)
+    # Dialog mit EINEM OK-Knopf (z.B. die Freilassen-Bonus-Meldung). Der
+    # Dialog steht NICHT an fester Position (Hoehe haengt vom Text ab, Lage
+    # variiert: OK-Mitte (403,250) vs. (403,202) auf den Live-Referenzen) --
+    # geklickt wird darum der per Template-SUCHE gefundene Knopf
+    # (fishing_detect.golden_confirm_find), keine Konstante.
 
     # Wie lange nach dem Options-Klick auf das Bestaetigungs-Fenster gewartet
     # wird (Sekunden). Das Fenster kommt erst mit der SERVER-Antwort -- der
@@ -681,14 +680,15 @@ class FishingBot(FishingDetectMixin):
                       field=field, x=mouse_x, y=mouse_y)
         elif time() < getattr(self, '_golden_confirm_until', 0.0):
             # Optionen geklickt, Fenster zu -> auf den Bestaetigungs-Dialog
-            # warten und OK erst klicken, wenn er WIRKLICH im Frame steht
-            # (Template-Match der Knopf-Leiste; Klick auf die gemessene Knopf-
-            # Mitte). Retry-sicher: steht er im naechsten Frame noch, wird
-            # erneut geklickt; nach dem Schliessen laeuft das Fenster ab.
-            if self.detect_golden_confirm(screenshot):
+            # warten und OK erst klicken, wenn er WIRKLICH im Frame steht.
+            # Geklickt wird die GEFUNDENE Knopf-Mitte (der Dialog wandert je
+            # nach Textlaenge/Position). Retry-sicher: steht er im naechsten
+            # Frame noch, wird erneut geklickt; danach laeuft das Fenster ab.
+            found, _score, point = self.detect_golden_confirm(screenshot)
+            if found and point is not None:
                 ox, oy = self.wincap.offset_x, self.wincap.offset_y
-                ok_x = int(ox + self.GOLDEN_TUNA_CONFIRM[0])
-                ok_y = int(oy + self.GOLDEN_TUNA_CONFIRM[1])
+                ok_x = int(ox + point[0])
+                ok_y = int(oy + point[1])
                 pydirectinput.click(x=ok_x, y=ok_y)
                 if time() - getattr(self, '_last_confirm_log', 0) > 3:
                     self._last_confirm_log = time()
