@@ -11,7 +11,7 @@ spec can import it during the build without pulling in the GUI stack, and so
 ``config``/``debuglog``-style headless tests can import it freely.
 """
 
-__version__ = '1.1.6'
+__version__ = '1.1.7'
 
 
 def version_tuple(text=__version__):

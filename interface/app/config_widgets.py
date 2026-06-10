@@ -15,7 +15,11 @@ class ConfigWidgetsMixin:
         self.bait_slider.set(fishing['bait_time'])
         self.throw_slider.set(fishing['throw_time'])
         self.start_slider.set(fishing['start_game_time'])
-        self.stop_after_var.set(fishing['stop_after_enabled'])
+        timer_value = ('off' if not fishing['stop_after_enabled']
+                       else fishing.get('timer_action', 'stop'))
+        self.timer_action_seg.set(
+            self._timer_action_v2l.get(timer_value,
+                                       self._timer_action_v2l['off']))
         self.stop_after_entry.delete(0, 'end')
         self.stop_after_entry.insert(0, str(fishing['stop_after_minutes']))
         self.golden_tuna_seg.set(str(fishing['golden_tuna_action']))

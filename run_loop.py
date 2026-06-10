@@ -504,6 +504,13 @@ class RunLoop:
         """
         values = self.controller.collect_values()
         self.arm_stop_after()
+        # EINZIGE Timer-Autoritaet ist das RunLoop-Deadline (oben armiert): nur
+        # dieser Pfad kennt die Zeitlimit-AKTION (Stoppen vs. Inventar-Cleanup).
+        # Der historische bot-INTERNE Zeitlimit-Stop (fishingbot.runHack prueft
+        # end_time selbst) wuerde Cleanup-blind stoppen, wenn er zuerst feuert
+        # -> nach set_to_begin unten hart deaktivieren (set_to_begin liest
+        # -ENDTIMEP- aus values und wuerde ihn sonst wieder scharf schalten).
+        values['-ENDTIMEP-'] = False
         # Stop-Signal + Hotkey-Marke fuer den NEUEN Lauf frisch zuruecksetzen (ein
         # evtl. noch gesetztes Flag aus einem frueheren Stop darf den neuen Start
         # nicht sofort kippen). Danach erst botting=True setzen.

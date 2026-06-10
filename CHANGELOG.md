@@ -3,6 +3,21 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.1.7] — 2026-06-10
+
+### Geändert (User-Feedback: Timer-Bedienung unmissverständlich)
+
+- **EIN Schalter statt Checkbox+Segment:** Die Zeitlimit-Steuerung ist jetzt
+  ein einziges Dreifach-Segment **Aus | Stoppen | Inventar-Cleanup** plus
+  Minutenfeld. Die alte Kombination war eine Falle: Segment auf „Inventar-
+  Cleanup", aber Häkchen vergessen → gar kein Timer aktiv, und ein Stopp aus
+  anderem Grund sah wie ein Cleanup-Fehler aus (User-Report). **0 Minuten
+  bedeutet ebenfalls: nie stoppen** (im Hilfetext dokumentiert).
+- **Eine Timer-Autorität:** Der historische bot-interne Zeitlimit-Stop im
+  Fishingbot ist deaktiviert — nur noch der RunLoop-Timer feuert, und nur der
+  kennt die Aktion (Stoppen vs. Cleanup). Damit kann ein Zeitlimit nie mehr
+  Cleanup-blind stoppen.
+
 ## [1.1.6] — 2026-06-10
 
 ### Behoben (Live-Feedback aus v1.1.5)

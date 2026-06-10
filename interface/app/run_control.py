@@ -13,10 +13,6 @@ class RunControlMixin:
     def _on_start_stop(self):
         self.controller.on_start_stop()
 
-    def _on_stop_after_toggle(self):
-        self._cfg = self.controller.update_config(
-            'fishing', 'stop_after_enabled', bool(self.stop_after_var.get()))
-
     def _on_stop_minutes(self, _event=None):
         raw = self.stop_after_entry.get().strip()
         try:
@@ -27,10 +23,21 @@ class RunControlMixin:
             'fishing', 'stop_after_minutes', minutes)
 
     def _on_timer_action_change(self, label):
-        """Zeitlimit-Aktion (entweder/oder): 'stop' | 'cleanup' in die Config."""
-        value = getattr(self, '_timer_action_l2v', {}).get(label, 'stop')
-        self._cfg = self.controller.update_config(
-            'fishing', 'timer_action', value)
+        """Zeitlimit-Wahl (EIN Dreifach-Segment): Aus | Stoppen | Cleanup.
+
+        Schreibt BEIDE Config-Felder konsistent: 'off' -> Timer aus
+        (stop_after_enabled=False, timer_action unangetastet); 'stop'/'cleanup'
+        -> Timer an + die Aktion. So kann der alte Fallzustand "Aktion gewaehlt,
+        aber Timer aus" gar nicht mehr entstehen."""
+        value = getattr(self, '_timer_action_l2v', {}).get(label, 'off')
+        if value == 'off':
+            self._cfg = self.controller.update_config(
+                'fishing', 'stop_after_enabled', False)
+        else:
+            self.controller.update_config(
+                'fishing', 'stop_after_enabled', True)
+            self._cfg = self.controller.update_config(
+                'fishing', 'timer_action', value)
 
     def _on_golden_tuna_change(self, label):
         try:
@@ -115,7 +122,6 @@ class RunControlMixin:
                     self.color_seg, self.solver_seg, self.timer_action_seg):
             seg.set_enabled(not running)
         state = 'normal' if not running else 'disabled'
-        self.stop_after_chk.configure(state=state)
         self.stop_after_entry.configure(state=state)
         # Force-Deluxe-Schalter waehrend des Laufs sperren (wie die Segmente).
         try:
