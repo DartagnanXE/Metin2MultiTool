@@ -3,6 +3,38 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.1.6] — 2026-06-10
+
+### Behoben (Live-Feedback aus v1.1.5)
+
+- **Offen-Erkennung auf entfernten Standorten:** Die Inventar-Tab-Leiste ist
+  leicht transparent — je nach Szene dahinter (Wasser/Steg) lasen inaktive
+  Tabs bis zu MAD 8,7 und die Schwelle 8 meldete fälschlich „zu" (die
+  Abbrüche im Nutzer-Log). Schwelle auf 15 (Landschaft bleibt ≥26, weiter
+  große Marge); mit den 4 gelieferten Seiten-Screenshots (I–IV) als
+  Test-Fixtures abgesichert.
+- **Goldfisch-Bestätigung: Fenster wandert!** Der Bestätigungs-Dialog steht
+  nicht an fester Position (Höhe hängt vom Text ab; Live-Referenzen: OK bei
+  y=250 vs. y=202). Der OK-Knopf wird jetzt per Template über den ganzen
+  Frame GESUCHT (zweistufig: Knopf-NCC ≥0,70 + flache Leisten-Flanken) und
+  exakt am Fund geklickt.
+- **Inventar-Management-Grid:** letzte Spalte war abgeschnitten → 8 Spalten
+  (eine Reihe mehr), per Tk-Messung verifiziert (Grid endet bei x=514 von 555).
+
+### Verbessert
+
+- **Wegwerfen/Grillen ~2× schneller:** Der Drag-Pfad (12 Zwischen-Moves)
+  zahlte pro Move den globalen 0,05s-Hold (~0,6 s/Item nur fürs Ziehen);
+  reine Maus-Moves laufen jetzt mit PAUSE=0 (nur Down/Up behalten ihren Hold).
+- **„Inventar managen" zeigt den Lauf:** Knopf wird zu „läuft … [F6] stoppt"
+  (gesperrt); **F6 bricht Grillen/Wegwerfen sauber nach dem aktuellen Item
+  ab** (Status „gestoppt", Log zeigt den Stand).
+- **Cleanup-Timer:** Countdown 40 s → **30 s**; läuft bei 00:00 noch ein
+  Grill-/Wegwerf-Worker, wird er aktiv gestoppt (Abbruch nach dem aktuellen
+  Item) und das Angeln startet direkt danach neu (User-Spez).
+- **Inventar-Seite bleibt erhalten:** Nach Scan/Grillen/Wegwerfen klickt der
+  Bot die Seite (I–IV) wieder an, die vor dem Lauf offen war.
+
 ## [1.1.5] — 2026-06-10
 
 ### Neu
@@ -17,7 +49,7 @@ Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
   (Dauerbetrieb mit periodischem Aufräumen). Abbruch jederzeit per Stop-Hotkey
   oder manuellem Start.
 - **Start-Knopf kontextabhängig:** Starten ist nur noch in den Ansichten
-  *Fishing* und *Puzzle* möglich (dort ist eindeutig, was gestartet wird) — in
+  _Fishing_ und _Puzzle_ möglich (dort ist eindeutig, was gestartet wird) — in
   Inventar/Rangliste/Roadmap/Console/Einstellungen ist der Start-Knopf
   ausgegraut. Stoppen bleibt bei laufendem Bot in jeder Ansicht möglich.
 
