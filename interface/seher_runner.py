@@ -19,8 +19,8 @@ einen Zufallsgegner bei verdeckter Wahl hat JEDE Strategie denselben
 Erwartungswert) -- waehlbar ist sie trotzdem (Tracking-Vielfalt).
 
 Zusaetzlich: run_seher_session() spielt in DAUERSCHLEIFE -- startet jedes
-Spiel selbst (Strg+E -> Eventuebersicht -> Seherwettstreit-Zeile ->
-Ansehen -> Start -> Ja), holt die Belohnung ab (OK-Knopf) und stoppt
+Spiel selbst (Strg+E -> Eventuebersicht -> Klick auf das SEHERWETTSTREIT-
+NAMENSFELD -> Start -> Ja), holt die Belohnung ab (OK-Knopf) und stoppt
 nach X Spielen / bei leerem Vorrat / per Stop -- optional gefolgt von
 Charakterwechsel oder Client-Beenden (ESC-Menue). Jeder Flow-Schritt hat
 einen erwarteten Bildzustand; passt er nicht -> Debug-Frame als PNG +
@@ -587,10 +587,10 @@ def _start_flow(wincap, abort_fn):
     # 2. Seherwettstreit-Zeile + zugehoeriges "Ansehen" -> Start-Knopf.
     # Klick mit Retry: ein verschluckter Ansehen-Klick (DirectInput) war die
     # wahrscheinlichste Ursache des 23:31-Fehlers -> jetzt bis 3x.
-    def locate_ansehen(i):
-        aok, apt, adbg = flow.find_ansehen_for_seher(i)
+    def locate_seher(i):
+        aok, apt, adbg = flow.find_seher_click(i)
         dbg.update(adbg)
-        return (aok, apt, adbg.get('ansehen_ncc', 0.0))
+        return (aok, apt, adbg.get('label_ncc', 0.0))
 
     # Erst pruefen, dass die Seher-Zeile ueberhaupt da ist (sonst falsches
     # Event/keine Liste -> Abbruch mit voller Diagnose).
@@ -599,9 +599,9 @@ def _start_flow(wincap, abort_fn):
         return ('seher_zeile', dbg)
 
     ok, img = _click_until(
-        wincap, abort_fn, locate_ansehen,
+        wincap, abort_fn, locate_seher,
         lambda i: flow.find(i, 'flow_start_btn')[0] or None,
-        FLOW_STEP_TIMEOUT_S, label='ansehen->start')
+        FLOW_STEP_TIMEOUT_S, label='seherzeile->start')
     if not ok:
         if abort_fn():
             return ('abort', dbg)

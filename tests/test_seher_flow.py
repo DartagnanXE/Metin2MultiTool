@@ -49,24 +49,37 @@ def test_flow_templates(fx, tpl, pos_fixture, neg_fixture):
     assert not ok_n, f'{tpl} false-positive ncc={ncc_n}'
 
 
-def test_ansehen_row_logic_picks_seher_row(fx):
-    """In der 3-Event-Uebersicht muss das Ansehen DER Seher-Zeile gewaehlt
-    werden (drei Kandidaten in den Zeilen 145/192/239)."""
-    ok, pt, dbg = flow.find_ansehen_for_seher(fx['seher_flow_overview_multi.png'])
+def test_seher_click_targets_name_field_multi(fx):
+    """User-bestaetigt (2026-06-11): geklickt wird das SEHERWETTSTREIT-
+    NAMENSFELD, NICHT der Ansehen-Knopf. In der 3-Event-Uebersicht muss der
+    Klick auf dem Namensfeld der ersten Zeile liegen (links, ~x476/y146),
+    NICHT in der Ansehen-Spalte (x>580)."""
+    ok, pt, dbg = flow.find_seher_click(fx['seher_flow_overview_multi.png'])
     assert ok, dbg
-    assert abs(pt[1] - 152) <= 4          # Zeile 1 (Seherwettstreit)
-    assert pt[0] > 580                    # Ansehen-Spalte rechts
-    assert dbg['candidates'] >= 3         # es GAB mehrere Kandidaten
+    assert abs(pt[1] - 146) <= 5          # Zeile 1
+    assert 430 <= pt[0] <= 520            # Namensfeld, NICHT Ansehen (>580)
+    # Klickpunkt liegt im gematchten Label-Bereich (= auf dem Plate)
+    lok, lpos, _ = flow.find(fx['seher_flow_overview_multi.png'],
+                             'flow_seher_label')
+    lt = flow._tpl('flow_seher_label')
+    assert lpos[0] <= pt[0] <= lpos[0] + lt.shape[1]
 
 
-def test_ansehen_row_logic_single(fx):
-    ok, pt, dbg = flow.find_ansehen_for_seher(fx['seher_flow_overview_single.png'])
+def test_seher_click_targets_name_field_single(fx):
+    ok, pt, dbg = flow.find_seher_click(fx['seher_flow_overview_single.png'])
     assert ok, dbg
+    assert 340 <= pt[0] <= 440            # Namensfeld
+    assert abs(pt[1] - 146) <= 5
 
 
-def test_no_seher_row_outside_overview(fx):
-    ok, _pt, _dbg = flow.find_ansehen_for_seher(fx['seher_flow_info.png'])
+def test_seher_click_blocked_without_overview(fx):
+    # Fehlklick-Schutz: kein Eventuebersicht-Titel -> kein Klick.
+    ok, _pt, dbg = flow.find_seher_click(fx['seher_flow_info.png'])
     assert not ok
+    for n in ('seher_flow_confirm.png', 'seher_start.png',
+              'seher_flow_reward.png'):
+        ok2, _p, _d = flow.find_seher_click(fx[n])
+        assert not ok2, n
 
 
 def test_looks_like_game_disambiguates_info_window(fx):
@@ -126,7 +139,7 @@ class _SessionSim:
 
     # Klick-Rechtecke (Template-Pos der Fixtures + Groesse)
     RECTS = {
-        'ansehen': (591, 145, 65, 14),       # overview_multi
+        'seherlabel': (401, 135, 150, 22),    # Namensfeld (overview_multi)
         'start': (370, 426, 65, 18),         # info_busy
         'ja': (340, 305, 45, 17),            # confirm_busy
         'ok': (372, 314, 62, 20),            # reward
@@ -167,7 +180,7 @@ class _SessionSim:
 
     def on_click(self, sx, sy):
         x, y = sx - self.offset_x, sy - self.offset_y
-        if self.state == 'overview' and self._hit('ansehen', x, y):
+        if self.state == 'overview' and self._hit('seherlabel', x, y):
             self.state = 'info'
         elif self.state == 'info' and self._hit('start', x, y):
             self.state = 'confirm'

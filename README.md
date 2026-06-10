@@ -9,6 +9,14 @@ behaviour is fully preserved as the default.
 > violates the game's Terms of Service and may get your account banned. Use at
 > your own risk. See [`LICENSE.txt`](LICENSE.txt).
 
+## 🆕 What's new in 1.2.2
+
+- **Correct click target in the event overview (bugfix):** the auto-player now
+  clicks the **"Seherwettstreit" name field** to open the event — not the
+  "Ansehen" (view) button next to it. Rock-solid detection (match ≥0.99 even
+  under noise / brightness / window shift) and a safety guard that never clicks
+  unless the event overview is actually open.
+
 ## 🆕 What's new in 1.2.1
 
 - **Seherwettstreit start flow hardened (bugfix):** the auto-player now

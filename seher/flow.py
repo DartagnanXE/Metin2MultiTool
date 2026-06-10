@@ -58,35 +58,33 @@ def find_click(bgr, name, thresh=FLOW_NCC_MIN):
     return (ok, center(name, pos) if ok else (0, 0), ncc)
 
 
-def find_ansehen_for_seher(bgr):
-    """Sucht die Seherwettstreit-Zeile in der Eventuebersicht und das
-    zugehoerige "Ansehen" (es kann mehrere Events mit je eigenem
-    "Ansehen" geben -> Zeilen-Matching ueber die Mittelpunkts-Hoehe).
+def find_seher_click(bgr):
+    """Klickziel zum Oeffnen der Seherwettstreit-Details = das
+    SEHERWETTSTREIT-NAMENSFELD selbst (NICHT der "Ansehen"-Knopf!).
+
+    Vom Nutzer live bestaetigt (2026-06-11): in der Eventuebersicht oeffnet
+    ein Linksklick auf das Event-Namensfeld die Detailansicht mit dem
+    Start-Knopf; "Ansehen" ist der falsche Ort. Das Label-Template enthaelt
+    den Plate-Rahmen und matcht nur "Seherwettstreit" -> es disambiguiert
+    zugleich gegen andere Events in der Liste (kein Zeilen-Matching noetig).
 
     -> (ok, klick_zentrum, debug_dict)
     """
-    dbg = {}
     ok_l, pos_l, ncc_l = find(bgr, 'flow_seher_label')
-    dbg['label_ncc'] = round(ncc_l, 4)
+    ok_t, _pt, ncc_t = find(bgr, 'flow_event_title')
+    dbg = {'label_ncc': round(ncc_l, 4), 'title_ncc': round(ncc_t, 4)}
     if not ok_l:
         return (False, (0, 0), dbg)
-    lab = _tpl('flow_seher_label')
-    label_cy = pos_l[1] + lab.shape[0] // 2
-    ans = _tpl('flow_ansehen')
-    res = cv2.matchTemplate(bgr, ans, cv2.TM_CCOEFF_NORMED)
-    ys, xs = np.where(res >= FLOW_NCC_MIN)
-    best = None
-    for y, x in zip(ys.tolist(), xs.tolist()):
-        cy = y + ans.shape[0] // 2
-        if abs(cy - label_cy) <= ROW_TOLERANCE_PX:
-            ncc = float(res[y, x])
-            if best is None or ncc > best[2]:
-                best = (x, y, ncc)
-    dbg['candidates'] = len(ys)
-    if best is None:
+    if not ok_t:
+        # Label gematcht, aber KEINE Eventuebersicht offen -> kein Klick
+        # (Fehlklick-Schutz: niemals ins Leere/falsche Fenster klicken).
+        dbg['no_overview'] = True
         return (False, (0, 0), dbg)
-    dbg['ansehen_ncc'] = round(best[2], 4)
-    return (True, center('flow_ansehen', (best[0], best[1])), dbg)
+    return (True, center('flow_seher_label', pos_l), dbg)
+
+
+# Rueckwaerts-kompatibler Alias (alter Name; klickt jetzt das Namensfeld).
+find_ansehen_for_seher = find_seher_click
 
 
 def looks_like_game(bgr):
