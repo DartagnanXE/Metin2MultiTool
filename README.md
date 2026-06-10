@@ -9,6 +9,16 @@ behaviour is fully preserved as the default.
 > violates the game's Terms of Service and may get your account banned. Use at
 > your own risk. See [`LICENSE.txt`](LICENSE.txt).
 
+## 🆕 What's new in 1.2.3
+
+- **Duel of the Seers: speed & reliability overhaul (major fix).** The bot no
+  longer clicks on a fixed timer (which made every other round land *during*
+  the previous round's animation and get ignored — wasting ~half the rounds and
+  10s timeouts each). It now waits until the board is **actually settled**
+  (animation finished), plays instantly, and confirms the move by detecting that
+  **your card is now crossed out** — then reads the result from the score. Much
+  faster and one clean game per game (no more phantom "extra rounds").
+
 ## 🆕 What's new in 1.2.2
 
 - **Correct click target in the event overview (bugfix):** the auto-player now

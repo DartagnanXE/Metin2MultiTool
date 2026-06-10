@@ -115,12 +115,10 @@ class Observation:
     message_px: int = 0
 
 
-def observe(bgr):
-    """Voller Erkennungs-Durchlauf auf einem Frame."""
-    ok, anchor, ncc = find_anchor(bgr)
-    obs = Observation(ok=ok, anchor=anchor, ncc=ncc)
-    if not ok:
-        return obs
+def observe_at(bgr, anchor, ncc=1.0):
+    """Erkennung mit BEKANNTEM Anker (kein Re-Match -> billig fuer schnelles
+    Pollen innerhalb einer Runde, bei der das Fenster fix steht)."""
+    obs = Observation(ok=True, anchor=anchor, ncc=ncc)
     for value in range(9):
         hit, n = cross_at_slot(bgr, anchor, G.slot_of_value(value))
         obs.cross_counts[value] = n
@@ -132,3 +130,30 @@ def observe(bgr):
         1 for s in G.OPP_WHITE_SLOTS if cross_at_slot(bgr, anchor, s)[0])
     obs.message_px = message_activity(bgr, anchor)
     return obs
+
+
+def observe(bgr):
+    """Voller Erkennungs-Durchlauf auf einem Frame (findet den Anker selbst)."""
+    ok, anchor, ncc = find_anchor(bgr)
+    if not ok:
+        return Observation(ok=False, anchor=anchor, ncc=ncc)
+    return observe_at(bgr, anchor, ncc)
+
+
+def crossed_set(bgr, anchor):
+    """Nur die Menge der eigenen gekreuzten Karten (billig, bekannter Anker)."""
+    return {v for v in range(9)
+            if cross_at_slot(bgr, anchor, G.slot_of_value(v))[0]}
+
+
+# Quiescence-ROI (anker-relativ): eigene Hand + Nachrichtenband. Liegt
+# vollstaendig IM Fenster (keine lebende Spielwelt, kein Cursor-Parkpunkt)
+# -> wird zwischen den Runden wirklich stabil. x von der linken Kartenkante
+# bis rechts der Hand, y vom Nachrichtenband bis unter die schwarze Reihe.
+QUIESCENCE_ROI = (-122, 145, 230, 170)   # x, y, w, h relativ zum Anker
+
+
+def quiescence_crop(bgr, anchor):
+    """Bildausschnitt fuer die Animations-/Stabilitaets-Erkennung."""
+    x, y, w, h = QUIESCENCE_ROI
+    return _roi(bgr, anchor, x, y, w, h).copy()

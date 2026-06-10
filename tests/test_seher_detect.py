@@ -229,11 +229,11 @@ def test_runner_full_game_headless(start_frame, monkeypatch):
     monkeypatch.setattr(sr, 'WindowCapture', lambda name: game)
     # Test-Timing: keine echten Wartezeiten
     monkeypatch.setattr(sr, 'POLL_S', 0.001)
-    monkeypatch.setattr(sr, 'SCORE_SETTLE_S', 0.002)
-    monkeypatch.setattr(sr, 'CLICK_CONFIRM_S', 0.2)
-    monkeypatch.setattr(sr, 'RESOLVE_TIMEOUT_S', 1.0)
+    monkeypatch.setattr(sr, 'STABLE_NEEDED', 1)
+    monkeypatch.setattr(sr, 'READY_TIMEOUT_S', 1.0)
+    monkeypatch.setattr(sr, 'COMMIT_TIMEOUT_S', 1.0)
+    monkeypatch.setattr(sr, 'SCORE_TIMEOUT_S', 1.0)
     monkeypatch.setattr(sr, 'WINDOW_GONE_S', 0.5)
-    monkeypatch.setattr(sr, 'MOVE_PACE_S', 0.005)
     monkeypatch.setattr(sr, 'FLOW_PACE_S', 0)
     # JSONL in tmp umleiten
     import tempfile
@@ -267,3 +267,132 @@ def test_runner_reports_missing_deps(monkeypatch):
     monkeypatch.setattr(sr, 'pydirectinput', None)
     res = sr.run_seher_game({})
     assert res.error == 'deps'
+
+
+class _AnimatingFakeGame:
+    """Modelliert den REALEN Bug-Ausloeser: das Spiel IGNORIERT Klicks
+    waehrend der Ergebnis-Animation. Nur wenn das Board RUHIG ist, wird ein
+    Klick als Zug angenommen. Der neue Quiescence-Loop muss daher exakt 9
+    Klicks machen (einer je Karte, alle angenommen) -- kein verbrannter Klick.
+    """
+    ANIM_FRAMES = 4   # so viele get_screenshot-Frames "animiert" das Spiel
+
+    def __init__(self, base, cross, results):
+        self.base = base
+        self.cross = cross
+        self.results = list(results)
+        _ok, self.anchor, _ = detect.find_anchor(base)
+        self.my_crossed = set()
+        self.score_g = 0
+        self.score_m = 0
+        self.busy = self.ANIM_FRAMES   # Intro-Animation am Spielstart
+        self.anim_tick = 0
+        self.over = False
+        self.over_in = None
+        self.offset_x = 1000
+        self.offset_y = 500
+        self.ignored_clicks = 0
+
+    def on_click(self, sx, sy):
+        if self.busy > 0 or self.over:
+            self.ignored_clicks += 1          # Klick in Animation -> verworfen
+            return
+        x = sx - self.offset_x - self.anchor[0]
+        y = sy - self.offset_y - self.anchor[1]
+        for v in range(9):
+            cx, cy = G.click_center_of_value(v)
+            if abs(cx - x) <= G.CARD_W // 2 and abs(cy - y) <= G.CARD_H // 2:
+                if v in self.my_crossed:
+                    return
+                self.my_crossed.add(v)
+                r = self.results.pop(0)
+                if r == 'sieg':
+                    self.score_m += 1
+                elif r == 'niederlage':
+                    self.score_g += 1
+                self.busy = self.ANIM_FRAMES   # Ergebnis-Animation startet
+                if len(self.my_crossed) == 9:
+                    self.over_in = 6
+                return
+
+    def get_screenshot(self):
+        if self.busy > 0:
+            self.busy -= 1
+            self.anim_tick += 1
+        elif self.over_in is not None:
+            self.over_in -= 1
+            if self.over_in <= 0:
+                self.over = True
+        if self.over:
+            return np.zeros((600, 800, 3), dtype=np.uint8)
+        return self._render()
+
+    def _render(self):
+        img = self.base.copy()
+        ax, ay = self.anchor
+        for v in self.my_crossed:
+            sx, sy = G.slot_of_value(v)
+            ch, cw = self.cross.shape[:2]
+            img[ay + sy + 4:ay + sy + 4 + ch, ax + sx + 3:ax + sx + 3 + cw] = self.cross
+        for roi, val in ((G.SCORE_OPP_ROI, self.score_g),
+                         (G.SCORE_ME_ROI, self.score_m)):
+            x, y, w, h = roi
+            img[ay + y:ay + y + h, ax + x:ax + x + w] = 5
+            img[ay + y + 4:ay + y + h - 4, ax + x + 4:ax + x + 4 + 3 * (val + 1)] = 230
+        if self.busy > 0:
+            # Animations-"Bewegung" IM Quiescence-ROI (anker-relativ) -> der
+            # Loop darf hier NICHT klicken (Board nicht ruhig).
+            qx, qy, qw, qh = detect.QUIESCENCE_ROI
+            v = 30 + (self.anim_tick * 60) % 200
+            img[ay + qy + 10:ay + qy + 40, ax + qx + 10:ax + qx + 90] = v
+        return img
+
+
+class _AnimPDI:
+    PAUSE = 0.1
+
+    def __init__(self, game):
+        self.game = game
+        self.clicks = 0
+
+    def click(self, x, y, button='left'):
+        self.clicks += 1
+        self.game.on_click(x, y)
+
+    def moveTo(self, x, y):
+        pass
+
+
+def test_quiescence_prevents_lost_clicks(start_frame, monkeypatch, tmp_path):
+    """Beweist den Fix: gegen ein Spiel, das Klicks waehrend der Animation
+    ignoriert, spielt der neue Loop alle 9 Karten mit GENAU 9 Klicks (kein
+    verschluckter/verbrannter Klick) -- der alte Loop verlor jede 2. Runde."""
+    import cv2
+    from interface import seher_runner as sr
+    cross = cv2.imread(os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        'seher', 'templates', 'cross.png'), cv2.IMREAD_COLOR)
+    results = ['sieg', 'remis', 'niederlage', 'sieg', 'remis',
+               'sieg', 'remis', 'niederlage', 'sieg']
+    game = _AnimatingFakeGame(start_frame, cross, results)
+    pdi = _AnimPDI(game)
+    monkeypatch.setattr(sr, 'pydirectinput', pdi)
+    monkeypatch.setattr(sr, 'WindowCapture', lambda name: game)
+    monkeypatch.setattr(sr, 'POLL_S', 0.001)
+    monkeypatch.setattr(sr, 'STABLE_NEEDED', 2)
+    monkeypatch.setattr(sr, 'READY_TIMEOUT_S', 2.0)
+    monkeypatch.setattr(sr, 'COMMIT_TIMEOUT_S', 1.0)
+    monkeypatch.setattr(sr, 'SCORE_TIMEOUT_S', 1.0)
+    monkeypatch.setattr(sr, 'WINDOW_GONE_S', 0.5)
+    monkeypatch.setattr(sr, 'results_path', lambda: str(tmp_path / 'r.jsonl'))
+    monkeypatch.setattr(sr, '_log_diagnosis', lambda *a, **k: None)
+
+    res = sr.run_seher_game({}, order='desc')
+
+    assert res.error == ''
+    assert len(game.my_crossed) == 9          # ALLE Karten gelegt
+    assert game.ignored_clicks == 0           # NIE in die Animation geklickt
+    assert pdi.clicks == 9                     # genau 9 Klicks (kein Retry noetig)
+    assert len(res.rounds) == 9
+    assert [r['result'] for r in res.rounds] == results
+    assert res.points_me == 4 and res.points_opp == 2

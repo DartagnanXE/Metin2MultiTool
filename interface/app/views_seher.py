@@ -194,12 +194,12 @@ class SeherViewMixin:
         threading.Thread(target=_worker, name='seher-session',
                          daemon=True).start()
 
-    def _seher_tick(self, phase, remaining):
+    def _seher_tick(self, phase, info):
         try:
-            if phase == 'zug' and remaining and remaining > 0.05:
+            if phase == 'round':
                 self._seher_timer.configure(
-                    text=t('ui.seher_timer_move', s='{:.1f}'.format(remaining)))
-            elif phase == 'auswertung':
+                    text=t('ui.seher_timer_round', n=info))
+            elif phase == 'eval':
                 self._seher_timer.configure(text=t('ui.seher_timer_eval'))
             else:
                 self._seher_timer.configure(text='')

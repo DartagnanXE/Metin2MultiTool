@@ -217,14 +217,14 @@ class _SessionSim:
 
 def _fast_timing(monkeypatch, sr):
     monkeypatch.setattr(sr, 'POLL_S', 0.001)
-    monkeypatch.setattr(sr, 'SCORE_SETTLE_S', 0.002)
-    monkeypatch.setattr(sr, 'CLICK_CONFIRM_S', 0.2)
-    monkeypatch.setattr(sr, 'RESOLVE_TIMEOUT_S', 1.0)
+    monkeypatch.setattr(sr, 'STABLE_NEEDED', 1)
+    monkeypatch.setattr(sr, 'READY_TIMEOUT_S', 1.0)
+    monkeypatch.setattr(sr, 'COMMIT_TIMEOUT_S', 1.0)
+    monkeypatch.setattr(sr, 'SCORE_TIMEOUT_S', 1.0)
     monkeypatch.setattr(sr, 'WINDOW_GONE_S', 0.5)
     monkeypatch.setattr(sr, 'FLOW_STEP_TIMEOUT_S', 0.5)
     monkeypatch.setattr(sr, 'GAME_APPEAR_TIMEOUT_S', 0.4)
     monkeypatch.setattr(sr, 'REWARD_WAIT_S', 0.5)
-    monkeypatch.setattr(sr, 'MOVE_PACE_S', 0.005)
     monkeypatch.setattr(sr, 'FLOW_PACE_S', 0)
 
 

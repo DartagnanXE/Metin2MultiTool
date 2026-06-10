@@ -51,19 +51,22 @@ except Exception:  # pragma: no cover
 
 RESULTS_FILENAME = 'seherwettstreit_results.jsonl'
 
-# Timing (Sekunden). Auswertung dauert laut Nutzer ~3-4 s.
-# Pacing (User-Spez): 4 s Kadenz zwischen den Zuegen (sichtbarer Timer im
-# Bot), 0.75 s Render-Floor zwischen allen Flow-Schritten -- dazwischen
-# bleibt alles event-getrieben (weiter, SOBALD der Folgezustand erkannt ist).
-MOVE_PACE_S = 4.0
-FLOW_PACE_S = 0.75
-POLL_S = 0.15
-CLICK_CONFIRM_S = 2.5
-CLICK_RETRIES = 3
-RESOLVE_TIMEOUT_S = 10.0
-SCORE_SETTLE_S = 0.45
+# Timing (Sekunden). EVENT-GETRIEBEN statt fester Kadenz (frueherer Bug:
+# 4-s-Kadenz ab Klick liess den naechsten Klick in die Ergebnis-Animation
+# der Vorrunde fallen -> Spiel ignorierte ihn -> 10-s-Timeout jede 2. Runde).
+# Jetzt: warte bis das Board STABIL ist (Animation vorbei) = sofort bereit,
+# klicke, bestaetige via 'eigene Karte gekreuzt', lies Ergebnis per Score-Diff.
+POLL_S = 0.08            # schnelles Pollen
+STABLE_NEEDED = 2        # so viele aufeinanderfolgende stabile Frames
+STABLE_DELTA = 22        # Pixel-Helligkeitsdiff, ab dem "Bewegung"
+STABLE_MIN_PX = 35       # so viele veraenderte Pixel = noch Animation
+READY_TIMEOUT_S = 8.0    # max. warten bis Board stabil/bereit
+COMMIT_TIMEOUT_S = 3.0   # max. warten bis eigene Karte gekreuzt (pro Klick)
+CLICK_RETRIES = 4        # verschluckte Klicks erneut versuchen
+SCORE_TIMEOUT_S = 4.0    # max. warten auf Score-Aenderung nach Commit
+FLOW_PACE_S = 0.75       # Render-Floor zwischen MENUE-Schritten (Flow)
 WINDOW_FIND_S = 10.0
-WINDOW_GONE_S = 20.0
+WINDOW_GONE_S = 8.0
 
 # "Du legst"-Slot (rechtes Panel, unten) als Klick-Quittung.
 PLAYED_ME_ROI = (145, 240, 64, 52)
@@ -129,13 +132,55 @@ def _wait(abort_fn, seconds):
     return True
 
 
+def _opp_counts(img, anchor):
+    """(schwarze, weisse) gekreuzte Gegner-Backs (best-effort, fuers Farb-Log)."""
+    o = detect.observe_at(img, anchor)
+    return (o.opp_black_crossed, o.opp_white_crossed)
+
+
+def _wait_ready(wincap, abort_fn, anchor, card):
+    """Wartet, bis das Spielbrett RUHIG ist (Animation der Vorrunde vorbei) und
+    die Zielkarte spielbar -- der State-of-the-Art-Ersatz fuer feste Kadenzen.
+    Pollt zwei aufeinanderfolgende stabile Frames im Quiescence-ROI (eigene
+    Hand + Nachrichtenband, strikt im Fenster -> keine lebende Spielwelt).
+
+    -> ('ready'|'gone'|'timeout'|'already'|'abort', img, anchor)
+    """
+    deadline = time.time() + READY_TIMEOUT_S
+    prev_q = None
+    stable = 0
+    last_img = None
+    while time.time() < deadline:
+        if abort_fn():
+            return ('abort', last_img, anchor)
+        img = wincap.get_screenshot()
+        ok, a2, _ncc = detect.find_anchor(img)
+        if not ok:
+            return ('gone', img, anchor)
+        anchor = a2
+        last_img = img
+        q = detect.quiescence_crop(img, anchor)
+        if prev_q is not None and not detect.crops_differ(
+                prev_q, q, delta=STABLE_DELTA, min_px=STABLE_MIN_PX):
+            stable += 1
+        else:
+            stable = 0
+        prev_q = q
+        if stable >= STABLE_NEEDED:
+            if card in detect.crossed_set(img, anchor):
+                return ('already', img, anchor)
+            return ('ready', img, anchor)
+        time.sleep(POLL_S)
+    return ('timeout', last_img, anchor)
+
+
 def run_seher_game(cfg, *, abort_fn=None, order='desc', debug=True,
                    wincap=None, on_tick=None):
     """Spielt das offene Seherwettstreit-Spiel zu Ende. Blockiert.
 
-    on_tick(phase, remaining): Live-Timer-Callback ('zug' mit Rest-
-    sekunden der 4-s-Kadenz, 'auswertung' waehrend der Erkennung,
-    'idle' am Ende). Wird vom Worker-Thread gerufen.
+    on_tick(phase, info): Live-Status-Callback ('round' mit Rundennummer
+    waehrend des Zugs, 'eval' waehrend der Auswertung, 'idle' am Ende).
+    Wird vom Worker-Thread gerufen.
     """
     from seher import flow
     abort_fn = abort_fn or (lambda: False)
@@ -200,52 +245,45 @@ def run_seher_game(cfg, *, abort_fn=None, order='desc', debug=True,
         log.event('-', t('seher.takeover', n=len(played),
                          cards=','.join(str(c) for c in sorted(played))))
     deck = [c for c in _order_cards(order) if c not in played]
-    last_click_ts = 0.0
+    anchor = obs.anchor
 
-    # -- 2. Runden spielen -------------------------------------------------
-    for card in deck:
+    # -- 2. Runden spielen (event-getrieben) -------------------------------
+    for idx, card in enumerate(deck):
         if abort_fn():
             res.aborted = True
             break
-        # 4-s-Kadenz seit dem letzten Zug (sichtbarer Countdown); die
-        # Auswertung selbst wurde bereits event-getrieben erkannt.
-        wait_until = last_click_ts + MOVE_PACE_S
-        while not abort_fn():
-            remaining = wait_until - time.time()
-            if remaining <= 0:
-                break
-            tick('zug', max(0.0, remaining))
-            time.sleep(min(0.1, remaining))
-        tick('zug', 0.0)
-        if abort_fn():
-            res.aborted = True
-            break
-        round_no = 9 - len(deck) + deck.index(card) + 1
+        round_no = len(played) + idx + 1
         rec = RoundRecord(round_no=round_no, card=card)
+        tick('round', round_no)
 
-        img = frame()
-        obs = detect.observe(img)
-        if not obs.ok:
-            log.event('-', t('seher.window_lost', round=round_no))
+        # (a) WARTEN BIS BEREIT: Board stabil (Animation vorbei) + Karte da.
+        state, img, anchor = _wait_ready(wincap, abort_fn, anchor, card)
+        if state == 'abort':
+            res.aborted = True
+            break
+        if state == 'gone':
             res.window_gone = True
             break
+        if state == 'already':
+            # Karte zaehlt schon als gespielt (Doppel-Render) -> ueberspringen.
+            continue
+        if state == 'timeout':
+            # Board wurde nicht ruhig -> trotzdem versuchen (Diagnose loggen).
+            log.event('-', t('seher.not_ready', round=round_no))
+            _log_diagnosis(wincap, 'nicht_bereit', img)
         rec.anchor_ncc = obs.ncc
-        pre_b = obs.opp_black_crossed
-        pre_w = obs.opp_white_crossed
-        pre_score_opp = detect.score_crop(img, obs.anchor, 'opp')
-        pre_score_me = detect.score_crop(img, obs.anchor, 'me')
-        x, y, w, h = PLAYED_ME_ROI
-        pre_played = img[obs.anchor[1] + y:obs.anchor[1] + y + h,
-                         obs.anchor[0] + x:obs.anchor[0] + x + w].copy()
+        pre_b, pre_w = _opp_counts(img, anchor)
+        pre_score_opp = detect.score_crop(img, anchor, 'opp')
+        pre_score_me = detect.score_crop(img, anchor, 'me')
 
-        # -- Klick mit Quittung + Retry --------------------------------
+        # (b) KLICK + COMMIT (eigene Karte gekreuzt), mit Retry. NUR
+        # 'card in my_crossed' zaehlt -- keine Animations-Heuristik mehr.
         t_click = time.time()
-        last_click_ts = t_click
-        confirmed = False
+        committed = False
         for attempt in range(1, CLICK_RETRIES + 1):
             rec.click_retries = attempt
             cx, cy = G.click_center_of_value(card)
-            sx, sy = screen_xy(obs.anchor, cx, cy)
+            sx, sy = screen_xy(anchor, cx, cy)
             if debug:
                 log.event('0', t('seher.click', card=card, x=sx, y=sy,
                                  attempt=attempt))
@@ -255,99 +293,99 @@ def run_seher_game(cfg, *, abort_fn=None, order='desc', debug=True,
                                      wincap.offset_y + PARK_POINT[1])
             except Exception:
                 pass
-            confirm_end = time.time() + CLICK_CONFIRM_S
-            while time.time() < confirm_end and not abort_fn():
-                img2 = frame()
-                o2 = detect.observe(img2)
+            deadline = time.time() + COMMIT_TIMEOUT_S
+            while time.time() < deadline and not abort_fn():
+                o2 = detect.observe(frame())
                 if not o2.ok:
+                    # Fenster weg direkt nach Klick = letzte Karte gespielt,
+                    # Spiel endet -> als committed werten.
+                    committed = True
+                    res.window_gone = True
                     break
-                cur_played = img2[o2.anchor[1] + y:o2.anchor[1] + y + h,
-                                  o2.anchor[0] + x:o2.anchor[0] + x + w]
-                if (card in o2.my_crossed
-                        or detect.crops_differ(pre_played, cur_played)
-                        or o2.opp_black_crossed + o2.opp_white_crossed
-                        > pre_b + pre_w):
-                    confirmed = True
+                anchor = o2.anchor
+                if card in o2.my_crossed:
+                    committed = True
+                    rec.cross_px = o2.cross_counts.get(card, 0)
                     break
                 time.sleep(POLL_S)
-            if confirmed or abort_fn():
+            if committed or abort_fn():
+                break
+            # Klick verschluckt -> kurz auf Ruhe warten, dann erneut.
+            st, img, anchor = _wait_ready(wincap, abort_fn, anchor, card)
+            if st in ('gone', 'abort', 'already'):
+                if st == 'gone':
+                    res.window_gone = True
+                if st == 'abort':
+                    res.aborted = True
+                committed = (st == 'already')
                 break
         rec.t_click_s = round(time.time() - t_click, 3)
         if abort_fn():
             res.aborted = True
             res.rounds.append(rec.__dict__)
             break
-        if not confirmed:
-            log.event('-', t('seher.click_unconfirmed', card=card))
+        if not committed:
+            # Karte liess sich nach allen Retries nicht legen -> struktureller
+            # Fehler (falsche Koordinaten/Fenster) -> hart stoppen mit Diagnose.
+            rec.result = 'nicht_gelegt'
+            res.rounds.append(rec.__dict__)
+            log.event('-', t('seher.commit_failed', card=card,
+                             n=CLICK_RETRIES))
+            _log_diagnosis(wincap, 'karte_nicht_gelegt')
+            res.error = 'commit'
+            break
 
-        # -- Auswertung abwarten: neues Kreuz beim Gegner ----------------
+        if res.window_gone:
+            res.rounds.append(rec.__dict__)
+            break
+
+        # (c) ERGEBNIS: auf Score-Aenderung warten (event-getrieben), zugleich
+        # Gegnerfarbe best-effort (blockiert NICHT den Fortschritt).
+        tick('eval', round_no)
         t_res = time.time()
         color = '?'
-        resolved = False
-        while time.time() - t_res < RESOLVE_TIMEOUT_S and not abort_fn():
-            tick('auswertung')
+        result = 'remis'
+        while time.time() - t_res < SCORE_TIMEOUT_S and not abort_fn():
             img3 = frame()
             o3 = detect.observe(img3)
             if not o3.ok:
                 res.window_gone = True
                 break
-            if o3.opp_black_crossed > pre_b:
-                color, resolved = 'schwarz', True
-            elif o3.opp_white_crossed > pre_w:
-                color, resolved = 'weiss', True
-            if resolved:
-                rec.cross_px = o3.cross_counts.get(card, 0)
-                rec.message_px = o3.message_px
+            anchor = o3.anchor
+            if color == '?':
+                if o3.opp_black_crossed > pre_b:
+                    color = 'schwarz'
+                elif o3.opp_white_crossed > pre_w:
+                    color = 'weiss'
+            opp_chg = detect.crops_differ(
+                pre_score_opp, detect.score_crop(img3, anchor, 'opp'))
+            me_chg = detect.crops_differ(
+                pre_score_me, detect.score_crop(img3, anchor, 'me'))
+            if me_chg and not opp_chg:
+                result = 'sieg'
+                break
+            if opp_chg and not me_chg:
+                result = 'niederlage'
                 break
             time.sleep(POLL_S)
+        if result == 'sieg':
+            res.points_me += 1
+        elif result == 'niederlage':
+            res.points_opp += 1
         rec.opp_color = color
+        rec.result = result
         rec.t_resolve_s = round(time.time() - t_res, 3)
-        if not resolved:
-            rec.result = 'unklar'
-            res.rounds.append(rec.__dict__)
-            if res.window_gone or abort_fn():
-                res.aborted = res.aborted or abort_fn()
-                break
-            log.event('-', t('seher.resolve_timeout', round=round_no))
-            continue
-
-        # -- Resultat via Score-Diff (nach kurzem Settle) ----------------
-        if not _wait(abort_fn, SCORE_SETTLE_S):
-            res.aborted = True
-            res.rounds.append(rec.__dict__)
-            break
-        img4 = frame()
-        o4 = detect.observe(img4)
-        if o4.ok:
-            opp_chg = detect.crops_differ(
-                pre_score_opp, detect.score_crop(img4, o4.anchor, 'opp'))
-            me_chg = detect.crops_differ(
-                pre_score_me, detect.score_crop(img4, o4.anchor, 'me'))
-            if me_chg and not opp_chg:
-                rec.result = 'sieg'
-                res.points_me += 1
-            elif opp_chg and not me_chg:
-                rec.result = 'niederlage'
-                res.points_opp += 1
-            elif not opp_chg and not me_chg:
-                rec.result = 'remis'
-            else:
-                rec.result = 'unklar'
-        else:
-            rec.result = 'unklar'
-            res.window_gone = True
-
         res.rounds.append(rec.__dict__)
-        log.event('+' if rec.result == 'sieg' else
-                  '-' if rec.result == 'niederlage' else '0',
+        log.event('+' if result == 'sieg' else
+                  '-' if result == 'niederlage' else '0',
                   t('seher.round_done', round=round_no, card=card,
-                    color=color, result=rec.result,
+                    color=color, result=result,
                     score='{}:{}'.format(res.points_me, res.points_opp)))
         if res.window_gone:
             break
 
     # -- 3. Spielende: Fenster verschwindet --------------------------------
-    if not res.aborted and not res.window_gone:
+    if not res.aborted and not res.window_gone and not res.error:
         deadline = time.time() + WINDOW_GONE_S
         while time.time() < deadline and not abort_fn():
             o = detect.observe(frame())
