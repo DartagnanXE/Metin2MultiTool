@@ -94,11 +94,13 @@ class ShellMixin:
 
         self._rail_items = {}
         self._rail_dots = {}
-        rows = {'fishing': 0, 'puzzle': 1, 'inventory': 2, 'ranking': 3,
-                'roadmap': 4, 'console': 5, 'settings': 8}
+        rows = {'fishing': 0, 'puzzle': 1, 'inventory': 2, 'seher': 3,
+                'ranking': 4, 'roadmap': 5, 'console': 6,
+                'settings': 8}
         tip_keys = {'fishing': 'ui.view_fishing', 'puzzle': 'ui.view_puzzle',
                     'console': 'ui.view_console',
                     'inventory': 'ui.view_inventory',
+                    'seher': 'ui.view_seher',
                     'ranking': 'ui.view_ranking',
                     'roadmap': 'ui.view_roadmap',
                     'settings': 'ui.view_settings'}
@@ -167,6 +169,7 @@ class ShellMixin:
         self._build_puzzle_view(self.panel_wrap)
         self._build_console_view(self.panel_wrap)
         self._build_inventory_view(self.panel_wrap)
+        self._build_seher_view(self.panel_wrap)
         self._build_ranking_view(self.panel_wrap)
         self._build_roadmap_view(self.panel_wrap)
         self._build_settings_view(self.panel_wrap)

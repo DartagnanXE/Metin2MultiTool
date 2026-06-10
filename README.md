@@ -9,6 +9,27 @@ behaviour is fully preserved as the default.
 > violates the game's Terms of Service and may get your account banned. Use at
 > your own risk. See [`LICENSE.txt`](LICENSE.txt).
 
+## 🆕 What's new in 1.2.0
+
+- 🔮 **New tab: "Duel of the Seers" (Seherwettstreit) auto-player** *(beta)* —
+  fully automates the card mini-game event: opens the event window (Ctrl+E),
+  starts the game, plays all 9 rounds, collects the reward and repeats — until
+  you press Stop, a configurable run limit is reached, or you run out of tarot
+  sets (then it can optionally **switch character** or **close the client**).
+- **Visible move timer** (4 s cadence between card plays) and a 0.75 s render
+  floor between menu steps; everything else continues as soon as the next
+  screen state is actually detected.
+- **Honest error handling:** every step has an expected screen state. If the
+  screen doesn't look as expected, the bot saves a debug frame
+  (`seher_debug_*.png` next to the config), logs the failing step and stops —
+  it never clicks blindly.
+- Every round (own card, opponent colour, result, timings) is logged to the
+  live console and appended to `seherwettstreit_results.jsonl` for later
+  analysis.
+- Fun fact, mathematically proven: against the game's random computer the card
+  order **cannot** matter — the bot therefore simply plays a configurable
+  fixed order and instead focuses on speed and robust detection.
+
 ## 🆕 What's new in 1.0.7
 
 - **Leaderboard identity fix (important):** your install now keeps a **stable
@@ -67,6 +88,14 @@ behaviour is fully preserved as the default.
 - **Board detection:** _Default_ (fixed position) / _Auto_ (image match) /
   _Mark_ (calibrate once with a draggable grid overlay).
 - **Colour sampling:** _Single_ pixel (default) or _Multi_ pixel (more robust).
+
+**Duel of the Seers (Seherwettstreit) event** *(new in 1.2.0, beta)*:
+
+- Auto-plays the card mini-game in a loop: start via event overview, play,
+  collect reward, repeat — with run limit and an optional after-action
+  (switch character / close client).
+- Template-based screen-state detection with hard stop + debug frame on any
+  unexpected screen.
 
 **UI & quality of life:**
 

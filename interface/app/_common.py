@@ -63,6 +63,7 @@ RAIL_GLYPHS = {
     'puzzle': '\U0001F9E9',    # Puzzleteil
     'console': '>_',
     'inventory': '\U0001F392',  # Rucksack (Inventar-Scan)
+    'seher': '\U0001F52E',    # Kristallkugel (Seherwettstreit)
     'ranking': '\U0001F3C6',   # Pokal (Rangliste/Stats/Events)
     'roadmap': '\U0001F5FA',   # Landkarte (geplante Features)
     'settings': '⚙',      # Zahnrad
@@ -71,7 +72,7 @@ RAIL_GLYPHS = {
 # [sichtbarer Trenner], Inventory (separat + zuletzt: TEMPORAER, bis kalibriert),
 # [Spacer], Settings (unten angepinnt).
 RAIL_ORDER = ('fishing', 'puzzle', 'ranking', 'roadmap', 'console',
-              'inventory', 'settings')
+              'inventory', 'seher', 'settings')
 
 # Key-Capture: which -> (config-section, config-key). Macht den Tasten-Aufnahme-
 # Fluss generisch; bait/cast verhalten sich byte-identisch wie zuvor, der

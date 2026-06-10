@@ -79,6 +79,7 @@ a = Analysis(
         ('campfire_templates', 'campfire_templates'),  # Lagerfeuer-Label-Vorlage (inventory_campfire)
         ('fishing_chat_templates', 'fishing_chat_templates'),  # Chat-OCR-Vorlagen (fishing_chat: Biss/Name-Whitelist)
         ('inventory_tab_templates', 'inventory_tab_templates'),  # Tab-Templates Offen-Erkennung (inventory.open_probe)
+        ('seher/templates', 'seher/templates'),  # Seherwettstreit-Anker+Kreuz (seher.detect)
         ('pieces_second.json', '.'),
     ] + ctk_datas + tz_datas + ([(APP_ICON, '.')] if APP_ICON else []),
     hiddenimports=[
@@ -94,6 +95,10 @@ a = Analysis(
         # Wegwerfen/fallen lassen: ebenso lazy im selben Apply-Worker importiert
         # -> ohne Pin fehlt es in der EXE (ModuleNotFoundError zur Laufzeit).
         'inventory_discard', 'interface.inventory_discard_runner',
+        # Seherwettstreit: lazy im Worker importiert -> ohne Pin
+        # ModuleNotFoundError in der EXE (gleiches Muster wie oben).
+        'interface.seher_runner', 'seher', 'seher.detect',
+        'seher.flow', 'seher.geometry',
         # Run 1: Ranking/Events/Mount -- z.T. lazy in app.py/hack.py importiert.
         'stats', 'event_window', 'mount',
         # Responsiveness-Kern: Stop-Signal + Hotkey-Daemon + Op-Zeitbudget. Statisch

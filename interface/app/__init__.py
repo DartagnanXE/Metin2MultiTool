@@ -46,6 +46,7 @@ from interface.app.window_picker import WindowPickerMixin
 from interface.app.config_widgets import ConfigWidgetsMixin
 from interface.app.views_run import FishingPuzzleConsoleViewsMixin
 from interface.app.views_inventory import InventoryViewMixin
+from interface.app.views_seher import SeherViewMixin
 from interface.app.views_ranking import RankingViewMixin
 from interface.app.builders import RowBuildersMixin
 from interface.app.run_control import RunControlMixin
@@ -72,6 +73,7 @@ class App(
     RowBuildersMixin,
     RankingViewMixin,
     InventoryViewMixin,
+    SeherViewMixin,
     FishingPuzzleConsoleViewsMixin,
     ConfigWidgetsMixin,
     WindowPickerMixin,

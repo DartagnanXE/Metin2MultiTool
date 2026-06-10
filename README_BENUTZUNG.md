@@ -36,6 +36,49 @@ gehärteter **Portable**-Build gegen False-Positive-Virenwarnungen.
 
 ---
 
+## 🔮 Seherwettstreit-Autoplayer (neu in 1.2.0, Beta)
+
+Der Reiter mit der **Kristallkugel** (unter „Inventar") spielt das
+Seherwettstreit-Karten-Event vollautomatisch — vom Start bis zur Belohnung.
+
+**Voraussetzungen:** Spiel im **800x600-Fenstermodus**, Charakter hat
+Tarotsets (Quest, max. 5x/Tag) und 30.000 Yang pro Spiel. Es muss NICHTS
+vorbereitet werden — der Bot öffnet die Eventübersicht selbst (Strg+E).
+
+**Bedienung:**
+
+1. Reiter 🔮 öffnen, optional einstellen:
+   - **Reihenfolge** der eigenen Karten (absteigend/aufsteigend/zufällig —
+     gegen den Zufalls-Computer ist das beweisbar egal, wird aber getrackt).
+   - **Durchläufe**: 0 = endlos bis Stop, sonst Anzahl Spiele.
+   - **Danach**: nur stoppen / **Charakter wechseln** / **Client schließen**
+     — greift, wenn das Limit erreicht ist ODER die Tarotsets/Yang alle sind.
+2. **„Seherwettstreit spielen"** drücken. Der Knopf wird zum Stop-Knopf.
+3. Zuschauen: der große **Timer** zeigt „Nächster Zug in X s" (4-Sekunden-
+   Takt zwischen den Zügen); jede Runde steht live in der Console.
+
+**Was der Bot pro Spiel macht:** Strg+E → Eventübersicht → Zeile
+„Seherwettstreit" suchen (steht das Event nicht in der Liste: Abbruch mit
+Fehlermeldung) → „Ansehen" → „Start" → „Ja" → 9 Runden spielen (Karte
+klicken, Auswertung erkennen: Gegnerfarbe + Sieg/Niederlage/Remis) →
+Belohnungs-Popup „OK" → nächstes Spiel.
+
+**Wenn etwas nicht aussieht wie erwartet** (z. B. ein anderes Fenster liegt
+davor): Der Bot klickt **nie blind**. Er speichert ein Beweisbild
+(`seher_debug_<schritt>.png` neben der `config.json`), schreibt den
+fehlgeschlagenen Schritt in die Console und **stoppt**. Bitte das PNG +
+die Console-Zeile melden — damit ist die Ursache sofort sichtbar.
+
+**Protokoll:** Jede Runde (eigene Karte, Gegnerfarbe, Ergebnis, Zeiten)
+landet zusätzlich in `seherwettstreit_results.jsonl` (neben der Config) —
+nützlich, um die Zufälligkeit des Computer-Gegners zu prüfen.
+
+**Hinweis zur Strategie:** Mathematisch bewiesen hat beim Seherwettstreit
+(verdeckte Wahl gegen zufälligen Computer) **jede** Spielweise denselben
+Erwartungswert (~4,6 Münzen/Spiel). Der Bot gewinnt also nicht „besser" als
+ein Mensch — er spielt nur schneller, fehlerfrei und holt die Belohnung
+zuverlässig ab.
+
 ## 2. Build (auf einem Windows-Rechner)
 
 > Eine Windows-`.exe` muss **auf Windows** gebaut werden (nicht plattform-
