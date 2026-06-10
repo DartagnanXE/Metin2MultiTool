@@ -62,10 +62,14 @@ TAB_PATCH_BOX = (-14, 24, -5, 13)
 TAB_SHIFT_RADIUS = 3
 
 #: Accept threshold for "this tab matches its INACTIVE template" (mean abs diff
-#: over the RGB patch, 0..255). Real inactive tabs measure <= 0.6, the active
-#: tab >= 39, the closest landscape patch ever found 26.2 -- 8 sits in the gap
-#: with a wide margin both ways.
-TAB_MATCH_MAD_MAX = 8.0
+#: over the RGB patch, 0..255). The tab row is SLIGHTLY TRANSPARENT, so the
+#: scene behind it bleeds through and the inactive-tab MAD varies per location:
+#: <= 0.6 on the original reference set, up to 8.7 on the user's dock/water
+#: shots (pages III/IV active) -- a threshold of 8 mis-read those as CLOSED
+#: (live 2026-06-10). The active tab stays >= 39 and the closest landscape
+#: patch ever found is 26.2, so 15 keeps a wide margin both ways while
+#: absorbing the measured scene bleed.
+TAB_MATCH_MAD_MAX = 15.0
 
 #: The inventory counts as OPEN when at least this many of the 4 tabs match
 #: their inactive template (one is always active -> 3 is the open maximum; a

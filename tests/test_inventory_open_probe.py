@@ -42,6 +42,15 @@ _OPEN_SHOTS = {
     'page_I_active_calib': os.path.join(
         _REPO_ROOT, 'FischOCR', 'inventar_offen_seiteI_kalibrierung.png'),
     'page_II_active': os.path.join(_REPO_ROOT, '..', 'itemwegwerfmeldung.png'),
+    # Vom Nutzer gelieferte Steg-/Wasser-Szenen (2026-06-10): die Tab-Leiste
+    # ist leicht transparent, die Szene blutet durch -> inaktive Tabs lasen
+    # dort bis MAD 8.7 und die alte Schwelle 8 meldete faelschlich ZU.
+    'page_II_dock': os.path.join(_REPO_ROOT, 'FischOCR',
+                                 'inventar_offen_seiteII.png'),
+    'page_III_dock': os.path.join(_REPO_ROOT, 'FischOCR',
+                                  'inventar_offen_seiteIII.png'),
+    'page_IV_dock': os.path.join(_REPO_ROOT, 'FischOCR',
+                                 'inventar_offen_seiteIV.png'),
     'no_glow': os.path.join(_REPO_ROOT, '..', 'FischOhneLeuchten.png'),
     'glow': os.path.join(_REPO_ROOT, '..', 'FischLeuchten.png'),
 }
