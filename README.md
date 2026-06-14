@@ -9,10 +9,24 @@ behaviour is fully preserved as the default.
 > violates the game's Terms of Service and may get your account banned. Use at
 > your own risk. See [`LICENSE.txt`](LICENSE.txt).
 
+## 🆕 What's new in 1.2.4
+
+- **Jigsaw puzzle: smarter end-game + safety layer.** Fixed a case where the
+  "finish" fallback could wreck a nearly-solved board — it would force an
+  ill-fitting piece into a hole that a single right piece would have completed,
+  then get stuck discarding. The solver now waits patiently for the completing
+  piece (capped, so it never waits forever).
+- **Background safety net (no change to normal play).** After each placement the
+  bot now checks that the piece actually landed where planned and logs any
+  mismatch; an ambiguous piece colour is discarded rather than risked; an
+  obviously garbled board read is re-read; and a long run of discards stops the
+  bot cleanly instead of burning boxes. The proven-optimal solver maths is
+  untouched.
+
 ## 🆕 What's new in 1.2.3
 
 - **Duel of the Seers: speed & reliability overhaul (major fix).** The bot no
-  longer clicks on a fixed timer (which made every other round land *during*
+  longer clicks on a fixed timer (which made every other round land _during_
   the previous round's animation and get ignored — wasting ~half the rounds and
   10s timeouts each). It now waits until the board is **actually settled**
   (animation finished), plays instantly, and confirms the move by detecting that
