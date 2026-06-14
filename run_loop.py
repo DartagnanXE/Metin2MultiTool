@@ -362,6 +362,13 @@ class RunLoop:
         # Force Deluxe (V3-Reservat): nur wirksam bei solver_mode=='trained' +
         # vorhandener Deluxe-Box (der PuzzleBot prueft das selbst). Default aus.
         self.puzzlebot.force_deluxe = puzzle.get('force_deluxe', False)
+        # Haertung (puzzle_safety): additiv mit .get-Defaults -> fehlende Keys in
+        # bestehenden Configs aendern nichts. verify_placements/board_plausibility
+        # sind reine Beobachtungs-/Absicherungs-Schichten (Default AN); color_stat
+        # 'median' wirkt nur im 'multi'-Modus (Default 'mean' = byte-stabil).
+        self.puzzlebot.verify_placements = puzzle.get('verify_placements', True)
+        self.puzzlebot.board_plausibility = puzzle.get('board_plausibility', True)
+        self.puzzlebot.color_stat = puzzle.get('color_stat', 'mean')
 
     def inject_offset(self):
         """Loest den Board-Offset aus dem Detection-Modus auf und injiziert ihn.

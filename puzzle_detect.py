@@ -16,6 +16,8 @@ saemtlicher Zustand (``PIECE_REF_BGR``, ``color_mode``, ``board_size``,
 ``self.``-Zugriff bleiben damit byte-identisch zur fruheren Single-Class.
 """
 
+import numpy as np
+
 import deluxe
 import geometry
 
@@ -55,10 +57,18 @@ class PuzzleDetectMixin:
         y1 = min(height, y + half + 1)
 
         region = crop_img[y0:y1, x0:x1]
-        # Mittelwert ueber die ersten zwei Achsen (alle Pixel des Patches) je
-        # Kanal. region hat Form (h, w, 3); mean(axis=(0,1)) -> (3,).
-        mean = region.mean(axis=(0, 1))
-        return (int(mean[0]), int(mean[1]), int(mean[2]))
+        # Statistik des Patches (②): 'median' (Default) ist robust gegen ein
+        # EINZELNES Ausreisser-Pixel (Glanzlicht, Cursor, Antialiasing-Kante) --
+        # genau die haeufigste reale Fehlerquelle des Einzel-Pixel-Samplings.
+        # Der Mittelwert ('mean', byte-stabil zum Frueheren) wuerde von einem
+        # solchen Pixel verzogen. Wirkt NUR im 'multi'-Modus; 'single' bleibt
+        # exakt 1 Pixel.
+        if getattr(self, 'color_stat', 'mean') == 'median':
+            flat = region.reshape(-1, region.shape[-1])
+            stat = np.median(flat, axis=0)
+        else:
+            stat = region.mean(axis=(0, 1))
+        return (int(stat[0]), int(stat[1]), int(stat[2]))
 
     def _classify_piece(self, bgr):
         """Ordnet eine ``(b, g, r)``-Farbe einem Steintyp 1..6 (oder 7) zu, sonst None.

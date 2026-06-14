@@ -3,6 +3,34 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.4] — 2026-06-14
+
+### Behoben (Fischpuzzle: klügere Endspiel-Entscheidung)
+
+- **Finish-Modus zerstört kein 1-Zug-Loch mehr:** Stand das Brett kurz vor
+  Fertig und war in genau **einem** Zug komplettierbar (z. B. ein L-förmiges
+  Loch, das ein L-Stein füllt), konnte der „Finish"-Notmodus stattdessen einen
+  unpassenden Stein hineinzwingen und das Loch fragmentieren — danach hing der
+  Bot lange im Verwerfen fest (im User-Log nachgewiesen). Jetzt wartet er
+  geduldig auf den komplettierenden Stein (gedeckelt, damit er nie endlos
+  wartet).
+
+### Hinzugefügt (Fischpuzzle: Sicherheits-/Plausibilitäts-Schicht)
+
+- **Platzierungs-Audit + Konfidenz-Log:** Nach jeder Platzierung wird das
+  erwartete gegen das tatsächlich gelesene Brett geprüft und Abweichungen
+  werden geloggt; pro Stein werden rohe Farbwerte + Erkennungs-Konfidenz
+  protokolliert. Damit werden Fehl-Erkennungen erstmals nachvollziehbar
+  (Beobachtung — der Spielablauf ändert sich dadurch nicht).
+- **Vorsichtigere Farb-Erkennung:** Eine mehrdeutige Stein-Farbe wird lieber
+  verworfen als mit dem Risiko einer Fehlplatzierung gesetzt.
+- **Brett-Plausibilität:** Ein offensichtlich gestörtes Brett-Bild (viele
+  Zellen ohne echte Steinfarbe) wird kurz neu gelesen, statt darauf zu
+  entscheiden.
+- **Sicherheits-Stopp:** Werden sehr viele Steine in Folge ohne jede
+  Platzierung verworfen, stoppt der Bot sauber, statt endlos Boxen zu
+  verbrauchen.
+
 ## [1.1.7] — 2026-06-10
 
 ### Geändert (User-Feedback: Timer-Bedienung unmissverständlich)

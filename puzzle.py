@@ -11,6 +11,8 @@ import calibration
 import deluxe
 import geometry
 import trained_solver
+import puzzle_safety
+from copy import deepcopy
 from debuglog import log
 from respath import resource_path
 from i18n import t
@@ -37,6 +39,28 @@ PUZZLE_STEP_DELAY = 0.1
 # Capture; 2s decken Render-/Animations-Verzoegerung mit grossem Polster ab,
 # ohne den Treffer-Pfad zu verlangsamen (Erfolg beendet die Schleife sofort).
 PIECE_COLOR_RETRY_S = 2.0
+
+# -- Haertung (Sicherheits-Schicht, puzzle_safety) ------------------------
+# Finish-Modus: jenseits dieser Verwerf-in-Folge wird auch dann platziert, wenn
+# das ein 1-Zug-Loch fragmentiert (Schutz gegen pathologisches Endlos-Warten).
+# Bis dahin laesst der Schutz (one_piece_completable) den Loeser geduldig auf den
+# komplettierenden Stein warten, statt ein fertig-fuellbares Loch zu zerstoeren.
+# Wert 10: ein komplettierender Steintyp kommt mit p=1/6 (Erwartung ~6 Zuege);
+# 10 gibt komfortables Polster, ohne im Pechfall zu viele Boxen zu verbrennen.
+FINISH_HARD_CAP = 10
+# Safe-Fail: so viele Verwerfen IN FOLGE ohne jede Platzierung -> sauberer Stop
+# (statt Boxen endlos zu verbrennen, z.B. bei dauerhaft fehl-erkanntem Stein).
+DISCARD_STOP_LIMIT = 60
+# Konfidenz-Gate (Toleranz-Fallback der Stein-Erkennung): Mindest-Farbabstand
+# (euklidisch) zum zweitnaechsten Zentroid, sonst lieber verwerfen als raten.
+PIECE_MIN_MARGIN = 30.0
+# Brett-Plausibilitaet: ab so vielen "Garbage"-Zellen (belegt, aber KEINE echte
+# Steinfarbe) gilt die Brett-Lesung als verdaechtig -> kurzes Re-Read-Fenster.
+# Wert 4 (nicht 2): legitime UI-Ueberlagerungen (Cursor/Tooltip/Animation) ueber
+# 1-3 Zellen loesen KEINEN Re-Read mehr aus -> kein unnoetiger 0.6s-Verzug pro
+# Stein. Echte Fehl-Lesungen (verschobenes Fenster) faerben viele Zellen garbage.
+BOARD_MAX_GARBAGE = 4
+BOARD_READ_RETRY_S = 0.6
 
 
 fish_jigsaw_chest = cv.imread(resource_path("images/fish_jigsaw_chest.png"))
@@ -97,6 +121,20 @@ class PuzzleBot(PuzzleDetectMixin):
     color_patch = 3
     solver_mode = 'standard'
 
+    # -- Haertung: umschaltbare Schutz-Schichten (puzzle_safety) ----------
+    # color_stat: Statistik des 'multi'-Patches -- 'mean' (DEFAULT, byte-stabil
+    #             zum bisherigen Verhalten) oder 'median' (robust gegen ein
+    #             einzelnes Glanz-/Cursor-Pixel; empfohlen NACH Live-Test). Wirkt
+    #             NUR im 'multi'-Modus; 'single' bleibt ohnehin 1 Pixel.
+    # verify_placements: Closed-Loop -- erwartetes Footprint gegen das in der
+    #             naechsten Runde frisch gelesene Brett pruefen und Abweichungen
+    #             loggen (reine Beobachtung, aendert kein Verhalten).
+    # board_plausibility: belegte Zellen ohne echte Steinfarbe als "Garbage"
+    #             zaehlen und bei Verdacht das Brett kurz neu lesen.
+    color_stat = 'mean'
+    verify_placements = True
+    board_plausibility = True
+
     # -- Force Deluxe (V3-Reservat-Strategie, opt-in) ---------------------
     # force_deluxe: reserviert ein festes 2x3-Feld (deluxe.reservat_2x3) und
     # laesst den trainierten Solver NUR die 18 anderen Zellen fuellen; der
@@ -134,6 +172,15 @@ class PuzzleBot(PuzzleDetectMixin):
     _color_retry_until = 0.0
     _color_read_announced = False
 
+    # -- Haertung: Laufzeit-Zustand der Schutz-Schichten ------------------
+    # Closed-Loop: nach einer Platzierung gemerktes Soll-Brett + Metadaten,
+    # gegen die die naechste frische Brett-Lesung geprueft wird.
+    _expected_board = None
+    _expected_meta = None
+    # Brett-Plausibilitaet: Garbage-Zaehlung der letzten Lesung + Re-Read-Deadline.
+    _last_board_garbage = 0
+    _board_retry_until = 0.0
+
     state = 0
 
     end = False
@@ -149,6 +196,11 @@ class PuzzleBot(PuzzleDetectMixin):
         self.state = 0
         self._discard_streak = 0      # Verwerfen-in-Folge (Finish-Modus-Trigger)
         self._fd_avail_cache = None   # Force-Deluxe: Box-Verfuegbarkeits-Cache
+        # Haertung: Closed-Loop-/Plausibilitaets-Zustand pro Lauf zuruecksetzen.
+        self._expected_board = None
+        self._expected_meta = None
+        self._last_board_garbage = 0
+        self._board_retry_until = 0.0
         # Offset auf den Klassen-Default zuruecksetzen; die Integration setzt
         # danach den aus dem Detection-Modus aufgeloesten Offset (falls
         # abweichend). Garantiert einen wohldefinierten Startwert pro Lauf.
@@ -172,6 +224,7 @@ class PuzzleBot(PuzzleDetectMixin):
                 [0,0,0,0,0,0],
                 [0,0,0,0,0,0]]
 
+        garbage = 0
         for i in range(0, 4):
             for j in range(0, 6):
                 cx, cy = geometry.cell_point(i, j, self.board_size)
@@ -183,9 +236,27 @@ class PuzzleBot(PuzzleDetectMixin):
                     board[i][j] = 0
                 else:
                     board[i][j] = 1
+                    # Plausibilitaet (④): eine belegte Zelle MUSS eine echte
+                    # Steinfarbe sein. Belegt-aber-keine-Steinfarbe = Garbage
+                    # (Cursor/Tooltip/Truhe/Animation ueber der Zelle) -> die
+                    # binaere Belegung allein wuerde das fuer "belegt" halten.
+                    if self.board_plausibility and not self._is_valid_piece_color(
+                            cb, cg, cr):
+                        garbage += 1
 
                 cv.rectangle(crop_img, (cx, cy), (cx, cy),
                             color=(0, 255, 255), thickness=4, lineType=cv.LINE_4)
+
+        self._last_board_garbage = garbage
+
+        # Closed-Loop (①): das in der VORrunde gesetzte Soll-Brett gegen das
+        # jetzt frisch gelesene Ist-Brett pruefen, BEVOR es ueberschrieben wird.
+        # Reine Beobachtung -- die Re-Synchronisation (frische Lesung) bleibt der
+        # eigentliche Schutz; hier wird sie nur AUDITIERBAR gemacht.
+        if self.verify_placements and self._expected_board is not None:
+            self._verify_last_placement(board)
+        self._expected_board = None
+        self._expected_meta = None
 
         self.tetris.board = board
         # Eroeffnungsbuch (pieces_second.json) gilt fuer das LEERE Startbrett.
@@ -202,6 +273,71 @@ class PuzzleBot(PuzzleDetectMixin):
 
         log.snapshot('BOARD_STATE', board=self.tetris.board,
                      extra='leere Zellen={}'.format(self.tetris.count_zeros()))
+
+    # -- Haertung: Closed-Loop + Plausibilitaet ---------------------------
+
+    def _arm_placement_verify(self, piece_type, anchor):
+        """Merkt das Brett VOR der Platzierung + Stein/Anker, damit die naechste
+        frische Lesung gegen das erwartete Footprint geprueft werden kann (①).
+
+        ``self.tetris.board`` ist hier noch der Zustand VOR ``insert_piece``
+        (Aufruf erfolgt vor dem Einsetzen). Wirft nie."""
+        try:
+            if not self.verify_placements:
+                return
+            self._expected_board = deepcopy(self.tetris.board)
+            self._expected_meta = {'piece_type': piece_type, 'anchor': anchor}
+        except Exception:
+            self._expected_board = None
+            self._expected_meta = None
+
+    def _verify_last_placement(self, actual_board):
+        """Vergleicht Soll (gemerktes Brett + Stein/Anker) mit dem frisch
+        gelesenen Ist-Brett und LOGGT Abweichungen (reine Beobachtung)."""
+        try:
+            meta = self._expected_meta or {}
+            res = puzzle_safety.verify_placement(
+                self._expected_board, meta.get('piece_type'),
+                meta.get('anchor'), actual_board)
+            if res['severity'] != 'ok':
+                log.snapshot(
+                    'PLACEMENT_VERIFY', board=actual_board,
+                    piece_type=meta.get('piece_type'),
+                    extra=('severity={} anchor={} fehlende_footprint={} '
+                           'unerwartet={}').format(
+                               res['severity'], meta.get('anchor'),
+                               res['missing_footprint'], res['unexpected']))
+        except Exception:
+            pass
+
+    def _board_suspicious(self):
+        """True, wenn die letzte Brett-Lesung verdaechtig viele Garbage-Zellen
+        hatte (belegt, aber keine echte Steinfarbe) -> kurz neu lesen (④).
+
+        Endgame-Guard: bei VOLLEM Brett (keine leeren Zellen) erscheint die Truhe
+        und ueberlagert Zellen -> die werden als garbage gelesen. Das ist KEIN
+        Lesefehler, sondern der normale Abschluss -> kein Re-Read (sonst kollidiert
+        das mit dem Truhen-Einsammel-Pfad)."""
+        try:
+            if self.tetris.count_zeros() == 0:
+                return False
+        except Exception:
+            pass
+        return (self.board_plausibility
+                and getattr(self, '_last_board_garbage', 0) >= BOARD_MAX_GARBAGE)
+
+    def _log_color_confidence(self, piece_type, bgr):
+        """Schreibt die Erkennungs-Konfidenz (rohe BGR + Distanz/Margin zu den
+        Zentroiden) als Audit-Snapshot (①). Wirft nie."""
+        try:
+            m = puzzle_safety.centroid_metrics(bgr, self.PIECE_REF_BGR)
+            log.snapshot(
+                'PIECE_COLOR_OK', bgr=bgr, piece_type=piece_type,
+                extra=('naechster={} dist={:.1f} zweiter={} margin={:.1f}'
+                       ).format(m['nearest'], m['nearest_dist'] or 0.0,
+                                m['second'], m['margin'] or 0.0))
+        except Exception:
+            pass
 
     def get_image(self):
 
@@ -305,6 +441,11 @@ class PuzzleBot(PuzzleDetectMixin):
         if piece_type is not None:
             log.event(self.state, t('puzzle.piece_color_detected'),
                       piece_type=piece_type, x=x, y=y)
+            # Audit (①): rohe BGR + Konfidenz (Distanz/Margin zum naechsten vs
+            # zweitnaechsten Zentroid) mitschreiben, damit eine spaetere
+            # Fehlklassifikation aus dem Log rekonstruierbar wird -- bisher
+            # wurden diese Werte NUR im Miss-Fall geloggt.
+            self._log_color_confidence(piece_type, (b, g, r))
             return piece_type
 
         # Toleranz-Klassifikation ('single'-Modus, JEDER Versuch): bevor ein
@@ -320,8 +461,24 @@ class PuzzleBot(PuzzleDetectMixin):
         if self.color_mode != 'multi':
             fallback = self._classify_piece_tolerant((b, g, r))
             if fallback is not None:
+                # Konfidenz-Gate (③): die Disjunktheits-Begruendung im Toleranz-
+                # Fallback ist faktisch falsch (kleinste Kanal-Luecke ist real 0,
+                # nicht 85; naechstes Paar 1<->6 ~90 euklidisch). Darum hier den
+                # Margin zum zweitnaechsten Zentroid verlangen: ist die Messung
+                # nicht klar einem Typ zugeordnet, lieber VERWERFEN als einen
+                # womoeglich FALSCHEN Stein setzen (Verwerfen ist billig).
+                m = puzzle_safety.centroid_metrics((b, g, r), self.PIECE_REF_BGR)
+                if m['margin'] is not None and m['margin'] < PIECE_MIN_MARGIN:
+                    log.snapshot(
+                        'PIECE_COLOR_LOWCONF', bgr=(b, g, r), screen_xy=(x, y),
+                        extra=('Toleranz-Treffer Typ {} verworfen: margin={:.1f}'
+                               ' < {} (naechster={} zweiter={})').format(
+                                   fallback, m['margin'], PIECE_MIN_MARGIN,
+                                   m['nearest'], m['second']))
+                    return None
                 log.event(self.state, t('puzzle.piece_color_tolerant_fallback'),
                           piece_type=fallback, b=b, g=g, r=r)
+                self._log_color_confidence(fallback, (b, g, r))
                 return fallback
 
         # Keine der 6 engen BGR-Ranges getroffen -> None (Solver faengt das ab).
@@ -439,6 +596,14 @@ class PuzzleBot(PuzzleDetectMixin):
             return None
 
         ax, ay = anchor
+        # Bounds/Overlap-Guard (F9): dieser Pfad schrieb bisher blind ins Brett
+        # und klickte. find_free_2x3 sollte gueltige Anker liefern, aber defensiv
+        # pruefen, bevor 6 Zellen gesetzt + geklickt werden.
+        fp = puzzle_safety.footprint_from_cells(deluxe.DELUXE_FORM, anchor)
+        if fp is None or any(self.tetris.board[r][c] for (r, c) in fp):
+            log.error('Deluxe-Platzierung abgebrochen: ungueltiger/'
+                      'ueberlappender Anker {}'.format(anchor))
+            return None
         # Die 6 Zellen des 2x3-Rechtecks im internen Brett belegen (der Solver
         # nutzt Tetris.insert_piece nur fuer die echten Typen 1..6; hier setzen
         # wir direkt, da Piece(7) bewusst leer/ungueltig ist).
@@ -483,7 +648,23 @@ class PuzzleBot(PuzzleDetectMixin):
             # Stein, der evtl. nie kommt, und verwirft Boxen endlos). Dann auf
             # FINISH-Modus schalten: den am wenigsten schlechten Stein platzieren
             # -> Brett wird voll -> Truhe, statt Endlos-Verwerfen.
-            finish = getattr(self, '_discard_streak', 0) >= FINISH_AFTER_DISCARDS
+            streak = getattr(self, '_discard_streak', 0)
+            finish = streak >= FINISH_AFTER_DISCARDS
+            # Finish-Fix (⑥): ist das Brett in EINEM Zug komplettierbar und der
+            # aktuelle Stein kann das NICHT, dann NICHT in den Finish-Modus
+            # zwingen -- der wuerde das 1-Zug-Loch durch einen fragmentierenden
+            # Stein zerstoeren (exakt der im Log nachgewiesene Fehlentscheid:
+            # ein Single zerlegte ein per L-Stein in einem Zug fuellbares Loch).
+            # Stattdessen geduldig weiter verwerfen, bis der komplettierende
+            # Stein kommt -- gedeckelt durch FINISH_HARD_CAP gegen Endlos-Warten.
+            if (finish and streak < FINISH_HARD_CAP
+                    and puzzle_safety.one_piece_completable(self.tetris.board)
+                    and not puzzle_safety.piece_can_complete(
+                        self.tetris.board, piece.piece_type)):
+                finish = False
+                log.event(self.state, 'Finish ausgesetzt: Brett in 1 Zug '
+                          'komplettierbar -> 1-Zug-Loch nicht fragmentieren',
+                          piece_type=piece.piece_type, streak=streak)
             # Force Deluxe (V3): ist die Strategie aktiv (force_deluxe + trained
             # + Deluxe-Box vorhanden), das feste 2x3-Reservat an den Solver
             # reichen -> er fuellt nur die 18 anderen Zellen und legt NIE ins
@@ -494,15 +675,25 @@ class PuzzleBot(PuzzleDetectMixin):
             a = trained_solver.choose_placement(self.tetris.board, piece,
                                                 finish=finish, reservat=reservat)
             if a is None:
-                self._discard_streak = getattr(self, '_discard_streak', 0) + 1
+                self._discard_streak = streak + 1
                 log.event(self.state,
                           t('puzzle.ai_no_improving_placement'),
                           piece_type=piece.piece_type, solver_mode='trained')
+                # Safe-Fail (⑥): zu viele Verwerfen IN FOLGE ohne jede
+                # Platzierung -> sauberer Stop statt Boxen endlos zu verbrennen
+                # (z.B. bei dauerhaft fehl-erkanntem Stein).
+                if self._discard_streak >= DISCARD_STOP_LIMIT:
+                    log.error('Safe-Fail: {} Steine in Folge verworfen ohne '
+                              'Platzierung -> Stop (moegliche Dauer-Fehl'
+                              'erkennung)'.format(self._discard_streak))
+                    self.botting = False
                 return None
 
             self._discard_streak = 0
             log.event(self.state, t('puzzle.placement_chosen'), piece_type=piece.piece_type,
                       pos=a, solver_mode='trained')
+            # Closed-Loop (①) scharf schalten: Soll-Brett VOR dem Einsetzen merken.
+            self._arm_placement_verify(piece.piece_type, a)
             self.tetris.insert_piece(a[0], a[1], piece)
             if self.tetris.verify_end():
                 self.end = True
@@ -515,6 +706,7 @@ class PuzzleBot(PuzzleDetectMixin):
 
             log.event(self.state, t('puzzle.opening_book_move'), piece_type=piece.piece_type,
                       pos=pos)
+            self._arm_placement_verify(piece.piece_type, pos)
             self.tetris.insert_piece(pos[0], pos[1], piece)
             if self.tetris.verify_end():
                 self.end = True
@@ -550,6 +742,7 @@ class PuzzleBot(PuzzleDetectMixin):
 
             log.event(self.state, t('puzzle.placement_chosen'), piece_type=piece.piece_type,
                       pos=a, solver_mode=self.solver_mode)
+            self._arm_placement_verify(piece.piece_type, a)
             self.tetris.insert_piece(a[0], a[1], piece)
             if self.tetris.verify_end():
                 self.end = True
@@ -723,6 +916,20 @@ class PuzzleBot(PuzzleDetectMixin):
                           new_piece=self.new_piece)
                 self.timer_action = time()
                 self.set_puzzle_state(crop_image)
+                # Plausibilitaet (④): verdaechtige Brett-Lesung (zu viele
+                # Garbage-Zellen) -> kurz neu lesen, statt auf einem Fehl-Brett
+                # zu entscheiden. Nach Ablauf des Fensters best-effort weiter.
+                if self._board_suspicious():
+                    if self._board_retry_until == 0.0:
+                        self._board_retry_until = time() + BOARD_READ_RETRY_S
+                    if time() < self._board_retry_until:
+                        log.event(self.state, 'Brett verdaechtig -> erneut lesen',
+                                  garbage=self._last_board_garbage)
+                        return None
+                    log.event(self.state, 'Brett weiter verdaechtig -> '
+                              'best-effort fortfahren',
+                              garbage=self._last_board_garbage)
+                self._board_retry_until = 0.0
                 if self.play_game():
                     self.state = 6
                 else:

@@ -144,6 +144,10 @@ DEFAULTS = {
         'force_deluxe': False,
         'overlay_opacity': 0.85,  # Deckkraft Mark-/Vorschau-Overlay (0.4..1.0)
         'step_delay': 0.1,        # Wartezeit zwischen Puzzle-Schritten (0.01..1.0 s)
+        # -- Haertung (puzzle_safety): Schutz-Schichten --------------------
+        'verify_placements': True,   # ① Platzierungs-Audit: Soll/Ist-Brett loggen
+        'board_plausibility': True,  # ④ Garbage-Zellen erkennen -> Brett neu lesen
+        'color_stat': 'mean',        # ② Patch-Statistik im 'multi'-Modus (mean|median); median = robust, erst live testen
     },
     'log': {
         'show_in_ui': True,

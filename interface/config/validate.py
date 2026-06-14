@@ -289,6 +289,16 @@ def validate(cfg):
             puzzle.get('step_delay'),
             PUZZLE_DELAY_MIN, PUZZLE_DELAY_MAX,
             DEFAULTS['puzzle']['step_delay'])
+        # Haertung (puzzle_safety): bools + color_stat-Enum sauber clampen.
+        puzzle['verify_placements'] = bool(
+            puzzle.get('verify_placements',
+                       DEFAULTS['puzzle']['verify_placements']))
+        puzzle['board_plausibility'] = bool(
+            puzzle.get('board_plausibility',
+                       DEFAULTS['puzzle']['board_plausibility']))
+        puzzle['color_stat'] = _enum(
+            puzzle.get('color_stat'), ('mean', 'median'),
+            DEFAULTS['puzzle']['color_stat'])
 
         merged['log']['show_in_ui'] = bool(merged['log'].get('show_in_ui', True))
 
