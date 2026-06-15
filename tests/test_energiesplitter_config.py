@@ -60,16 +60,19 @@ class TestPlanHammerYang(unittest.TestCase):
 # energiesplitter/calc.py -- plan_stack_purchase
 # ---------------------------------------------------------------------------
 class TestPlanStackPurchase(unittest.TestCase):
+  # Default-Stacks = echte Hammer-Shop-Groessen (Addendum A1: 1/50/200).
   def test_greedy_largest_first(self):
-    # 310 bei genug Platz -> 200 + 100 + 10.
-    self.assertEqual(calc.plan_stack_purchase(310, 99), [200, 100, 10])
+    # 200 bei genug Platz -> genau 1x 200er-Stack.
+    self.assertEqual(calc.plan_stack_purchase(200, 99), [200])
+    # 250 -> 200 + 50.
+    self.assertEqual(calc.plan_stack_purchase(250, 99), [200, 50])
 
   def test_exact_target_with_singles(self):
-    # 203 -> 200 + 1 + 1 + 1 (kleinere nur zum exakten Treffen).
-    self.assertEqual(calc.plan_stack_purchase(203, 99), [200, 1, 1, 1])
+    # 251 -> 200 + 50 + 1 (1er nur zum exakten Treffen).
+    self.assertEqual(calc.plan_stack_purchase(251, 99), [200, 50, 1])
 
   def test_never_exceeds_target(self):
-    for target in (1, 5, 11, 99, 200, 201, 250, 410, 999):
+    for target in (1, 5, 11, 50, 99, 200, 201, 250, 251, 410, 999):
       stacks = calc.plan_stack_purchase(target, 999)
       self.assertLessEqual(sum(stacks), target)
 
@@ -98,6 +101,19 @@ class TestPlanStackPurchase(unittest.TestCase):
     self.assertEqual(
         calc.plan_stack_purchase(251, 99, stack_sizes=(200, 50, 1)),
         [200, 50, 1])
+
+  def test_default_matches_addendum(self):
+    # Der Default OHNE explizite Groessen muss 1/50/200 sein (kein 100/10 mehr).
+    self.assertEqual(calc.plan_stack_purchase(200, 99), [200])
+    self.assertEqual(calc.plan_stack_purchase(250, 99), [200, 50])
+    self.assertEqual(calc.plan_stack_purchase(251, 99), [200, 50, 1])
+
+  def test_small_free_space_uses_smaller_stacks(self):
+    # Knapper Freiplatz: nur 1 Slot -> hoechstens 1 (groesster passender) Stack.
+    self.assertEqual(calc.plan_stack_purchase(60, 1), [50])
+    self.assertEqual(calc.plan_stack_purchase(49, 1), [1])
+    # 2 Slots, Ziel 51 -> 50 + 1.
+    self.assertEqual(calc.plan_stack_purchase(51, 2), [50, 1])
 
   def test_unsorted_and_dirty_sizes(self):
     # Unsortiert / mit Dubletten / mit Muell -> robust (absteigend, dedupliziert).

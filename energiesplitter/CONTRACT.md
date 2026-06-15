@@ -371,17 +371,17 @@ plan_hammer_yang(hammer_count, price_per_item) -> dict
     #     'total_yang': hammer_count*2*price_per_item}
     # reine Arithmetik; negative/0 -> auf 0 geklemmt; wirft nie.
 
-plan_stack_purchase(target_count, free_slots, stack_sizes=(200, 100, 10, 1)) -> list[int]
+plan_stack_purchase(target_count, free_slots, stack_sizes=(200, 50, 1)) -> list[int]
     # Greedy: größtmögliche Stacks zuerst; kleinere NUR um target_count exakt zu
     # treffen ODER in free_slots zu passen. Jeder gekaufte Stack belegt potenziell
     # 1 EMPTY-Slot -> Summe der gewählten Stacks <= target_count UND Anzahl der
     # Stacks, die einen NEUEN Slot brauchen, <= free_slots. Liefert die Stack-Liste
-    # (z.B. [200, 100, 10] für target 310 bei genug Platz). target<=0 oder
+    # (z.B. [200, 50] für target 250 bei genug Platz). target<=0 oder
     # free_slots<=0 -> []. wirft nie.
-    # HINWEIS Stack-Größen: Default-Tupel = (200,100,10,1) gemäß Shop-Bild
-    # (Hammer 1/10/100/200). Der CALLER übergibt die zur LAUFZEIT GELESENEN
-    # Stack-Größen (read_shop_stack), NICHT die Annahme. Addendum A1 (1/50/200)
-    # vs Bild (1/10/100/200) ist offene Frage 2 -> Wahrheit = gelesene Größe.
+    # HINWEIS Stack-Größen: Default-Tupel = (200, 50, 1) = echte Hammer-Shop-Stacks
+    # (Addendum A1: 1/50/200; größter zuerst). Der CALLER übergibt die zur LAUFZEIT
+    # GELESENEN Stack-Größen (read_shop_stack), NICHT die Annahme; das Default-Tupel
+    # ist nur der Fallback. (Frühere Bild-Lesung „1/10/100/200" war falsch.)
 ```
 
 **energiesplitter/gold_reader.py (Agent A):**

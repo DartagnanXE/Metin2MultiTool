@@ -389,6 +389,13 @@ class TestStackPlan(unittest.TestCase):
     bot = _make_bot()
     self.assertEqual(bot._plan_stacks(0, free_slots=5), [])
 
+  def test_fallback_stack_sizes_match_addendum(self):
+    # Ohne Live-Reader faellt der Bot auf die echten Hammer-Stacks (1/50/200)
+    # zurueck -- nicht mehr das alte (200,100,10,1) Shop-Bild-Tupel.
+    bot = _make_bot()
+    with mock.patch.object(esbot_mod, '_detect', None):
+      self.assertEqual(bot._read_shop_stack_sizes(), (200, 50, 1))
+
 
 class TestModeBranch(unittest.TestCase):
   """runHack verzweigt nach self.mode (armed -> echter Tick-Pfad)."""

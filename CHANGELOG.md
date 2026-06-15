@@ -3,6 +3,28 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.5] — 2026-06-15
+
+### Hinzugefügt (Energiesplitter-Modul — Vorschau/Gerüst)
+
+- **Neuer Reiter „Energiesplitter"** mit zweigeteiltem Start-Button
+  (**Hammer kaufen** / **Dolche kaufen + verarbeiten**), Eingabe der
+  **Hammer-Anzahl** mit **Yang-Rechner** (Anzahl × 15.000 für Hammer +
+  Anzahl × 15.000 für Dolche), eigenen Einstellungen und umfangreichen Logs.
+- **Noch nicht scharf (mit Absicht):** Das Modul führt aktuell **keine** echten
+  Käufe/Verarbeitungen aus. Ein **Sicherheits-GATE (Phase 0)** verhindert jede
+  Maus-Aktion, bis die restlichen Erkennungs-Bilder + die Kalibrierung vorliegen.
+  Mehrere **Gold-Schutz-Backstops** (Mindest-Reserve, Ausgabe-Limit, Aktions-
+  Limit) sind eingebaut. Die scharfe Kauf-/Verarbeitungs-Logik folgt in einem
+  nächsten Update; der erste echte Lauf läuft bewusst überwacht mit hoher
+  Gold-Reserve.
+
+### Geändert (intern, ohne Verhaltensänderung an Angeln/Puzzle)
+
+- Energiesplitter-Bot in kleine, fokussierte Module aufgeteilt (alle < 800
+  Zeilen) und auf Robustheit getrimmt. Hammer-Stack-Größen auf **1 / 50 / 200**
+  korrigiert.
+
 ## [1.2.4] — 2026-06-14
 
 ### Behoben (Fischpuzzle: klügere Endspiel-Entscheidung)

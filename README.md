@@ -9,6 +9,16 @@ behaviour is fully preserved as the default.
 > violates the game's Terms of Service and may get your account banned. Use at
 > your own risk. See [`LICENSE.txt`](LICENSE.txt).
 
+## 🆕 What's new in 1.2.5
+
+- **New "Energiesplitter" module (preview).** Own tab with a split start button
+  (buy hammers / buy + process daggers), a hammer-count input with a Yang cost
+  calculator, dedicated settings and extensive logs. **Not yet armed:** a
+  Phase-0 safety GATE blocks every mouse action until the remaining detection
+  assets and calibration are in place, with several gold-protection backstops
+  built in. The live buy/process logic ships in a follow-up update, with the
+  first real run supervised and a high gold reserve.
+
 ## 🆕 What's new in 1.2.4
 
 - **Jigsaw puzzle: smarter end-game + safety layer.** Fixed a case where the

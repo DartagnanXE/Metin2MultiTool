@@ -44,7 +44,7 @@ def plan_hammer_yang(hammer_count, price_per_item):
   }
 
 
-def plan_stack_purchase(target_count, free_slots, stack_sizes=(200, 100, 10, 1)):
+def plan_stack_purchase(target_count, free_slots, stack_sizes=(200, 50, 1)):
   """Greedy Stack-Auswahl fuer den Hammerkauf.
 
   Liefert die Liste der zu kaufenden Stack-Groessen (groesste zuerst), so dass:
@@ -58,9 +58,9 @@ def plan_stack_purchase(target_count, free_slots, stack_sizes=(200, 100, 10, 1))
   ``free_slots <= 0`` -> ``[]``. Wirft nie.
 
   WICHTIG: Der Caller uebergibt die zur LAUFZEIT GELESENEN Stack-Groessen
-  (``read_shop_stack``), NICHT die Annahme. Der Default ``(200,100,10,1)``
-  spiegelt nur das Shop-Bild und ist ein Fallback, falls keine Groessen gelesen
-  wurden.
+  (``read_shop_stack``), NICHT die Annahme. Der Default ``(200, 50, 1)``
+  spiegelt die echten Hammer-Shop-Stacks (Addendum A1: 1/50/200) und ist ein
+  Fallback, falls keine Groessen gelesen wurden.
   """
   target = _clamp_nonneg_int(target_count)
   slots = _clamp_nonneg_int(free_slots)
