@@ -3,6 +3,17 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.7] — 2026-06-15
+
+### Behoben (kritisch)
+
+- **App-Start-Absturz behoben.** v1.2.6 konnte wegen eines fehlenden Rail-
+  Eintrags (`KeyError: 'energiesplitter'`) gar nicht starten. Der neue
+  Energiesplitter-Reiter ist jetzt korrekt in der Seitenleiste verdrahtet; der
+  Start wurde am echten GUI verifiziert (alle Reiter bauen + schalten). Zusätzlich
+  ist die Seitenleiste jetzt absturzfest: ein unbekannter Reiter wird übersprungen
+  statt die ganze App zu killen.
+
 ## [1.2.6] — 2026-06-15
 
 ### Energiesplitter-Modul: scharf-fähig (kalibriert)

@@ -90,31 +90,41 @@ class ShellMixin:
         # Inventory sitzt direkt unter Puzzle (regulaere Sektion). Die Spacer-Zeile
         # (row 7) waechst und drueckt das unten angepinnte Settings (row 8) nach
         # unten.
-        rail.grid_rowconfigure(7, weight=1)
+        rail.grid_rowconfigure(8, weight=1)
 
         self._rail_items = {}
         self._rail_dots = {}
+        # Grid-Zeile je Rail-Item. Top-Gruppe 0..7, Spacer 8 (waechst), Settings
+        # unten angepinnt 9. Energiesplitter sitzt als Bot-Modus unter Console.
+        # WICHTIG: JEDER Eintrag in RAIL_ORDER (_common.py) MUSS hier eine Zeile
+        # haben -- sonst fehlt das Item (defensiv via .get: kein App-Crash mehr).
         rows = {'fishing': 0, 'puzzle': 1, 'inventory': 2, 'seher': 3,
-                'ranking': 4, 'roadmap': 5, 'console': 6,
-                'settings': 8}
+                'ranking': 4, 'roadmap': 5, 'console': 6, 'energiesplitter': 7,
+                'settings': 9}
         tip_keys = {'fishing': 'ui.view_fishing', 'puzzle': 'ui.view_puzzle',
                     'console': 'ui.view_console',
                     'inventory': 'ui.view_inventory',
                     'seher': 'ui.view_seher',
+                    'energiesplitter': 'ui.view_energiesplitter',
                     'ranking': 'ui.view_ranking',
                     'roadmap': 'ui.view_roadmap',
                     'settings': 'ui.view_settings'}
 
         for view in RAIL_ORDER:
+            row = rows.get(view)
+            if row is None:
+                # Unbekanntes Rail-Item (RAIL_ORDER erweitert, hier vergessen):
+                # ueberspringen statt die GANZE App mit KeyError zu killen.
+                continue
             btn = ctk.CTkButton(
-                rail, text=RAIL_GLYPHS[view], width=42, height=42,
+                rail, text=RAIL_GLYPHS.get(view, '●'), width=42, height=42,
                 corner_radius=12, font=ctk.CTkFont(size=18),
                 fg_color='transparent', text_color=TEXT_FAINT,
                 hover_color=RAIL_HOVER,
                 command=lambda v=view: self._show_view(v))
-            pad_top = 12 if rows[view] == 0 else 3
+            pad_top = 12 if row == 0 else 3
             pad_bottom = 10 if view == 'settings' else 3
-            btn.grid(row=rows[view], column=0, pady=(pad_top, pad_bottom))
+            btn.grid(row=row, column=0, pady=(pad_top, pad_bottom))
             self._rail_items[view] = btn
             try:
                 Tooltip(btn, text=t(tip_keys[view]))
