@@ -79,6 +79,11 @@ class RunLoop:
         self.controller = app.controller
         self.fishbot = self.controller.fishbot
         self.puzzlebot = self.controller.puzzlebot
+        # Energiesplitter-Bot (EINE Klasse, Modus-Schalter hammer/dagger), wie
+        # fishbot/puzzlebot ueber DIESEN Tick getrieben (kein Worker-Thread).
+        # Soft: fehlt das Paket (Phase-0 nicht geliefert), bleibt esbot None ->
+        # der Tick/on_start ueberspringt ihn (byte-stabil fuer alle Altpfade).
+        self.esbot = getattr(self.controller, 'esbot', None)
         self.tick_ms = tick_ms
 
         # Globales Zeitlimit ("Stop after X minutes"): bei START gesetzt, im Tick
@@ -193,6 +198,8 @@ class RunLoop:
             self._hotkey_fired = True
             self.fishbot.botting = False
             self.puzzlebot.botting = False
+            if self.esbot is not None:
+                self.esbot.botting = False
         except Exception:
             pass
 
@@ -370,6 +377,56 @@ class RunLoop:
         self.puzzlebot.board_plausibility = puzzle.get('board_plausibility', True)
         self.puzzlebot.color_stat = puzzle.get('color_stat', 'mean')
 
+    def apply_energiesplitter_config(self, values, mode):
+        """Legt die Energiesplitter-Optionen als ``-ES_*-``-Keys in ``values`` ab.
+
+        Bruecke analog ``apply_puzzle_config``/``to_values``: liest die drei
+        Sub-Dicts (hammer/dagger/shared) der validierten Config und schreibt die
+        modus-passenden Werte unter den ``-ES_*-``-Schluesseln, die
+        ``EnergiesplitterBot.set_to_begin(values)`` liest. ``mode`` ist
+        ``'energiesplitter_hammer'`` oder ``'energiesplitter_dagger'`` -> der
+        bot-interne Modus (``'hammer'``/``'dagger'``) wird daraus abgeleitet und
+        als ``-ES_MODE-`` mitgegeben (set_to_begin liest den Modus von der
+        Instanz; ``-ES_MODE-`` ist die redundante, robuste Quelle).
+
+        MUTIERT ``values`` in-place (wie der fishing-Pfad ``-ENDTIMEP-`` setzt)
+        und gibt es der Bequemlichkeit halber zurueck. Wirft nie -- ein Fehler
+        hier faellt auf die Bot-Defaults zurueck (der Bot bleibt dank dry_run
+        ohnehin sicher).
+        """
+        es = self.controller.current_config()['energiesplitter']
+        is_dagger = (mode == 'energiesplitter_dagger')
+        which = es['dagger'] if is_dagger else es['hammer']
+        shared = es['shared']
+        try:
+            values['-ES_MODE-'] = 'dagger' if is_dagger else 'hammer'
+            # hammer-spezifisch (im dagger-Modus dennoch gesetzt -> der Bot
+            # ignoriert die unzutreffenden, friert aber konsistent ein).
+            values['-ES_HAMMER_COUNT-'] = int(es['hammer']['hammer_count'])
+            values['-ES_FREISCHALTEN-'] = bool(
+                es['hammer']['energie_freischalten'])
+            values['-ES_PREFER_STACK-'] = str(es['hammer']['prefer_stack'])
+            # dagger-spezifisch.
+            values['-ES_PROCESS_MODE-'] = str(es['dagger']['process_mode'])
+            values['-ES_BATCH-'] = int(es['dagger']['batch_size'])
+            # preis/gold/cap aus dem AKTIVEN Sub-Dict (hammer ODER dagger).
+            values['-ES_PRICE-'] = int(which['price_per_item'])
+            values['-ES_GOLD_FLOOR-'] = int(which['gold_floor'])
+            values['-ES_MAX_SPEND-'] = int(which['max_gold_spend'])
+            # shared.
+            values['-ES_SPEED-'] = str(shared['speed_profile'])
+            values['-ES_MOUSE_PAUSE-'] = float(shared['mouse_pause'])
+            values['-ES_KB_PAUSE-'] = float(shared['keyboard_pause'])
+            values['-ES_MAX_ACTIONS-'] = int(shared['max_actions'])
+            values['-ES_UNVERIF_STOP-'] = int(
+                shared['consecutive_unverified_stop'])
+            values['-ES_JITTER-'] = float(shared['jitter_pct'])
+            values['-ES_BIRDSEYE-'] = bool(shared['birdseye_on_miss'])
+            values['-ES_DRY_RUN-'] = bool(shared['dry_run'])
+        except Exception as exc:
+            log.error(t('run.crash_in_runhack'), exc=exc)
+        return values
+
     def inject_offset(self):
         """Loest den Board-Offset aus dem Detection-Modus auf und injiziert ihn.
 
@@ -523,7 +580,31 @@ class RunLoop:
         # nicht sofort kippen). Danach erst botting=True setzen.
         self.stop_signal.clear()
         self._hotkey_fired = False
-        if self.controller.mode == 'fishing':
+        mode = self.controller.mode
+        if mode in ('energiesplitter_hammer', 'energiesplitter_dagger'):
+            # Energiesplitter: derselbe Tick-getriebene Pfad wie fishing/puzzle.
+            # Fehlt der Bot (Phase-0-Paket nicht geliefert), still NICHTS starten
+            # -- der Tick laesst dann ohnehin keinen Bot laufen (Controller faellt
+            # in Schritt 3 auf den Leerlauf zurueck).
+            if self.esbot is None:
+                self.fishbot.botting = False
+                self.puzzlebot.botting = False
+                return
+            # bot-internen Modus VOR set_to_begin setzen (set_to_begin liest
+            # self.mode), Stop-Signal injizieren (Quelle fuer abort_fn) und den
+            # abort-Seam wie Manage v1.1.6 verdrahten (das Stop-Signal feuert den
+            # Callback -> der Bot pollt NICHT, sondern wird via abort_fn gestoppt).
+            self.esbot.mode = ('dagger'
+                               if mode == 'energiesplitter_dagger'
+                               else 'hammer')
+            self.esbot.stop_signal = self.stop_signal
+            self.apply_energiesplitter_config(values, mode)
+            self.esbot.set_to_begin(values)   # erzeugt wincap, friert Config ein,
+            #                                    ruft phase0_gate -> self.armed
+            self.esbot.botting = True
+            self.fishbot.botting = False
+            self.puzzlebot.botting = False
+        elif mode == 'fishing':
             # Konfigurierbare Hotkeys VOR set_to_begin auf die Instanz injizieren
             # (analog zur Puzzle-Config-Injektion). Frozen keys via to_values
             # bleiben unberuehrt; Default '2'/'1' -> byte-stabil.
@@ -560,12 +641,16 @@ class RunLoop:
             self.fishbot.set_to_begin(values)   # erzeugt wincap, liest frozen keys
             self.fishbot.botting = True
             self.puzzlebot.botting = False
+            if self.esbot is not None:
+                self.esbot.botting = False
         else:
             self.apply_puzzle_config()
             self.puzzlebot.set_to_begin(values)  # erzeugt wincap, resettet Offset
             self.inject_offset()                 # Offset NACH set_to_begin injizieren
             self.puzzlebot.botting = True
             self.fishbot.botting = False
+            if self.esbot is not None:
+                self.esbot.botting = False
 
     def on_stop(self):
         """Stoppt den Lauf. set_running(False) hat botting beider Bots bereits
@@ -578,6 +663,8 @@ class RunLoop:
         """
         self.fishbot.botting = False
         self.puzzlebot.botting = False
+        if self.esbot is not None:
+            self.esbot.botting = False
         try:
             self.stop_signal.request_stop()
         except Exception:
@@ -617,7 +704,9 @@ class RunLoop:
         #        Grund melden + das Signal konsumieren), ODER
         #    (b) der In-Tick-Fallback-Poll (greift, falls der Daemon nicht laufen
         #        kann, z. B. ohne win32). Nur relevant, solange ein Bot laeuft.
-        bot_active = self.fishbot.botting or self.puzzlebot.botting
+        es_botting = (self.esbot is not None and self.esbot.botting)
+        bot_active = (self.fishbot.botting or self.puzzlebot.botting
+                      or es_botting)
         if self.stop_signal.stopped:
             # Stop-Signal bricht auch einen wartenden Inventar-Cleanup ab
             # (Countdown/Auto-Neustart) -- der Nutzer will ALLES anhalten.
@@ -632,6 +721,8 @@ class RunLoop:
             # ohnehin ueber set_running). botting defensiv nachziehen.
             self.fishbot.botting = False
             self.puzzlebot.botting = False
+            if self.esbot is not None:
+                self.esbot.botting = False
             if self._hotkey_fired and (bot_active or self.controller.running):
                 log.event('-', t('run.stop_hotkey'))
                 stop_reason = t('run.reason_stop_hotkey')
@@ -641,18 +732,23 @@ class RunLoop:
             log.event('-', t('run.stop_hotkey'))
             self.fishbot.botting = False
             self.puzzlebot.botting = False
+            if self.esbot is not None:
+                self.esbot.botting = False
             stop_reason = t('run.reason_stop_hotkey')
 
         # 1) Globales Zeitlimit ZUERST (beide Modi) -- vor dem Bot-Schritt, damit
         #    der Grund "Zeitlimit" zuverlaessig vor einem evtl. internen Stop
         #    gemeldet wird.
         if (self._stop_deadline is not None
-                and (self.fishbot.botting or self.puzzlebot.botting)
+                and (self.fishbot.botting or self.puzzlebot.botting
+                     or (self.esbot is not None and self.esbot.botting))
                 and time.time() > self._stop_deadline):
             log.event('-', t('run.stop_time_limit_reached'))
             fishing_was_active = self.fishbot.botting
             self.fishbot.botting = False
             self.puzzlebot.botting = False
+            if self.esbot is not None:
+                self.esbot.botting = False
             self._stop_deadline = None
             stop_reason = t('run.reason_time_limit_reached')
             # ZEITLIMIT-AKTION 'cleanup' (nur Angel-Modus): statt endgueltig zu
@@ -700,6 +796,11 @@ class RunLoop:
                 # runHack stoppt sich bei ungueltiger Region selbst (botting=False)
                 # und loggt die Ursache -- wir spiegeln das danach ins UI.
                 self.puzzlebot.runHack()
+            elif self.esbot is not None and self.esbot.botting:
+                # Energiesplitter: EIN blockierender Tick (Erkennung->Entscheidung
+                # ->eine Aktion). Stoppt sich bei Phase-0-Block/Stop-Bedingung
+                # selbst (botting=False) und loggt die Ursache.
+                self.esbot.runHack()
         except Exception as exc:
             # Vollstaendige Diagnose statt stillem Stop: Traceback an
             # Konsole+Datei, kontrollierter Stop beider Bots.
@@ -712,6 +813,8 @@ class RunLoop:
                 pass
             self.fishbot.botting = False
             self.puzzlebot.botting = False
+            if self.esbot is not None:
+                self.esbot.botting = False
             stop_reason = t('run.reason_error_see_console')
 
         # 2b) Stats/Events (single-threaded, alle defensiv): Laufzeit anrechnen,
@@ -729,6 +832,8 @@ class RunLoop:
         if self.stop_signal.stopped:
             self.fishbot.botting = False
             self.puzzlebot.botting = False
+            if self.esbot is not None:
+                self.esbot.botting = False
             if stop_reason is None and self._hotkey_fired:
                 log.event('-', t('run.stop_hotkey'))
                 stop_reason = t('run.reason_stop_hotkey')
@@ -739,7 +844,8 @@ class RunLoop:
         #    Region-/Truhen-Fehler, Exception), faellt das UI auf START zurueck UND
         #    der Grund wird prominent in der Statuszeile gemeldet (Nutzer-Stop ist
         #    still).
-        active = self.fishbot.botting or self.puzzlebot.botting
+        active = (self.fishbot.botting or self.puzzlebot.botting
+                  or (self.esbot is not None and self.esbot.botting))
         if self.controller.running != active:
             was_running = self.controller.running
             self.controller.set_running(active)  # set_running ruft sync_controls()

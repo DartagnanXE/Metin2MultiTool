@@ -21,6 +21,24 @@ from .defaults import (
     DELAY_MAX,
     DELAY_MIN,
     DETECTION_MODES,
+    ES_BATCH_MAX,
+    ES_BATCH_MIN,
+    ES_GOLD_FLOOR_MAX,
+    ES_GOLD_FLOOR_MIN,
+    ES_HAMMER_MAX,
+    ES_HAMMER_MIN,
+    ES_JITTER_MAX,
+    ES_JITTER_MIN,
+    ES_MAXACT_MAX,
+    ES_MAXACT_MIN,
+    ES_MAXSPEND_MAX,
+    ES_MAXSPEND_MIN,
+    ES_PAUSE_MAX,
+    ES_PAUSE_MIN,
+    ES_PRICE_MAX,
+    ES_PRICE_MIN,
+    ES_UNVERIF_MAX,
+    ES_UNVERIF_MIN,
     EVENT_WARN_MIN_MAX,
     GOLDEN_TUNA_ACTIONS,
     HOTKEY_TOKENS,
@@ -28,6 +46,9 @@ from .defaults import (
     KEYPOINT_KEYS,
     OVERLAY_OPACITY_MAX,
     OVERLAY_OPACITY_MIN,
+    PREFER_STACK_MODES,
+    PROCESS_MODES,
+    SPEED_PROFILES,
     TIMER_ACTIONS,
     PUZZLE_DELAY_MAX,
     PUZZLE_DELAY_MIN,
@@ -300,6 +321,10 @@ def validate(cfg):
             puzzle.get('color_stat'), ('mean', 'median'),
             DEFAULTS['puzzle']['color_stat'])
 
+        # Energiesplitter: drei Sub-Dicts (hammer/dagger/shared) clampen/enumen.
+        merged['energiesplitter'] = _validate_energiesplitter(
+            merged.get('energiesplitter'))
+
         merged['log']['show_in_ui'] = bool(merged['log'].get('show_in_ui', True))
 
         window = merged['window']
@@ -379,6 +404,86 @@ def validate(cfg):
         return copy.deepcopy(DEFAULTS)
 
 
+def _validate_energiesplitter(value):
+    """Normalisiert den ``energiesplitter``-Block (hammer/dagger/shared).
+
+    int/float werden geklemmt + auf ihren Typ gebracht, Enums via ``_enum``,
+    bools via ``bool()``. Unbekannte Sub-Keys werden verworfen (es wird ein
+    NEUES, vollstaendiges Dict aus den Defaults heraus aufgebaut). ``max_gold_spend``
+    bleibt der Config-Wert (0 = auto); die Auto-Ableitung passiert in
+    ``set_to_begin`` (validate bleibt rein/deterministisch). Wirft nie.
+    """
+    src = value if isinstance(value, dict) else {}
+    d_h = DEFAULTS['energiesplitter']['hammer']
+    d_d = DEFAULTS['energiesplitter']['dagger']
+    d_s = DEFAULTS['energiesplitter']['shared']
+    src_h = src.get('hammer') if isinstance(src.get('hammer'), dict) else {}
+    src_d = src.get('dagger') if isinstance(src.get('dagger'), dict) else {}
+    src_s = src.get('shared') if isinstance(src.get('shared'), dict) else {}
+
+    hammer = {
+        'hammer_count': int(_clamp(
+            _coerce_int(src_h.get('hammer_count'), d_h['hammer_count']),
+            ES_HAMMER_MIN, ES_HAMMER_MAX, d_h['hammer_count'])),
+        'energie_freischalten': bool(
+            src_h.get('energie_freischalten', d_h['energie_freischalten'])),
+        'price_per_item': int(_clamp(
+            _coerce_int(src_h.get('price_per_item'), d_h['price_per_item']),
+            ES_PRICE_MIN, ES_PRICE_MAX, d_h['price_per_item'])),
+        'gold_floor': int(_clamp(
+            _coerce_int(src_h.get('gold_floor'), d_h['gold_floor']),
+            ES_GOLD_FLOOR_MIN, ES_GOLD_FLOOR_MAX, d_h['gold_floor'])),
+        'max_gold_spend': int(_clamp(
+            _coerce_int(src_h.get('max_gold_spend'), d_h['max_gold_spend']),
+            ES_MAXSPEND_MIN, ES_MAXSPEND_MAX, d_h['max_gold_spend'])),
+        'prefer_stack': _enum(
+            src_h.get('prefer_stack'), PREFER_STACK_MODES, d_h['prefer_stack']),
+    }
+    dagger = {
+        'process_mode': _enum(
+            src_d.get('process_mode'), PROCESS_MODES, d_d['process_mode']),
+        'price_per_item': int(_clamp(
+            _coerce_int(src_d.get('price_per_item'), d_d['price_per_item']),
+            ES_PRICE_MIN, ES_PRICE_MAX, d_d['price_per_item'])),
+        'gold_floor': int(_clamp(
+            _coerce_int(src_d.get('gold_floor'), d_d['gold_floor']),
+            ES_GOLD_FLOOR_MIN, ES_GOLD_FLOOR_MAX, d_d['gold_floor'])),
+        'max_gold_spend': int(_clamp(
+            _coerce_int(src_d.get('max_gold_spend'), d_d['max_gold_spend']),
+            ES_MAXSPEND_MIN, ES_MAXSPEND_MAX, d_d['max_gold_spend'])),
+        'batch_size': int(_clamp(
+            _coerce_int(src_d.get('batch_size'), d_d['batch_size']),
+            ES_BATCH_MIN, ES_BATCH_MAX, d_d['batch_size'])),
+    }
+    shared = {
+        'speed_profile': _enum(
+            src_s.get('speed_profile'), SPEED_PROFILES, d_s['speed_profile']),
+        'mouse_pause': float(_clamp(
+            src_s.get('mouse_pause'), ES_PAUSE_MIN, ES_PAUSE_MAX,
+            d_s['mouse_pause'])),
+        'keyboard_pause': float(_clamp(
+            src_s.get('keyboard_pause'), ES_PAUSE_MIN, ES_PAUSE_MAX,
+            d_s['keyboard_pause'])),
+        'max_actions': int(_clamp(
+            _coerce_int(src_s.get('max_actions'), d_s['max_actions']),
+            ES_MAXACT_MIN, ES_MAXACT_MAX, d_s['max_actions']))
+        if _coerce_int(src_s.get('max_actions'), d_s['max_actions']) != 0
+        else 0,
+        'consecutive_unverified_stop': int(_clamp(
+            _coerce_int(src_s.get('consecutive_unverified_stop'),
+                        d_s['consecutive_unverified_stop']),
+            ES_UNVERIF_MIN, ES_UNVERIF_MAX,
+            d_s['consecutive_unverified_stop'])),
+        'jitter_pct': float(_clamp(
+            src_s.get('jitter_pct'), ES_JITTER_MIN, ES_JITTER_MAX,
+            d_s['jitter_pct'])),
+        'birdseye_on_miss': bool(
+            src_s.get('birdseye_on_miss', d_s['birdseye_on_miss'])),
+        'dry_run': bool(src_s.get('dry_run', d_s['dry_run'])),
+    }
+    return {'hammer': hammer, 'dagger': dagger, 'shared': shared}
+
+
 def _validate_offset(value):
     """``None`` oder ein 2-Element-[x, y]-Integer-Paar; sonst ``None``."""
     if value is None:
@@ -438,5 +543,5 @@ __all__ = [
     '_clamp', '_enum', '_coerce_int', '_validate_key', '_validate_hhmm',
     '_validate_weekday', '_validate_url', '_validate_install_id',
     '_validate_event_window', '_deep_merge', '_validate_offset',
-    '_validate_size', '_validate_keypoints',
+    '_validate_size', '_validate_keypoints', '_validate_energiesplitter',
 ]

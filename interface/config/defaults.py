@@ -13,8 +13,49 @@ Validierung (:mod:`interface.config.validate`) als auch die UI lesen von hier.
 DETECTION_MODES = ('default', 'auto', 'mark')
 COLOR_MODES = ('single', 'multi')
 SOLVER_MODES = ('standard', 'trained')
-APP_MODES = ('fishing', 'puzzle')
+APP_MODES = ('fishing', 'puzzle',
+             'energiesplitter_hammer', 'energiesplitter_dagger')
 COLOR_PATCHES = (3, 5)
+
+# -- Energiesplitter: erlaubte Enums + Wertebereiche (eine einzige Wahrheit) -
+# Greedy-Stack-Wahl beim Hammerkauf: 'largest_fit' = groesstmoegliche Stacks
+# bevorzugen (200er), kleinere nur fuer die exakte Zielzahl / freien-Platz-Fit;
+# 'singles' = immer einzeln (langsam, aber maximal exakt).
+PREFER_STACK_MODES = ('largest_fit', 'singles')
+# Dolch-Verarbeitung: '1:1' (Default, einfach verifizierbar) vs. 'batch'
+# (zurueckgestellt; nur wirksam, wenn der Bot batch unterstuetzt).
+PROCESS_MODES = ('one_to_one', 'batch')
+# Tempo-Profil -> wirkt auf settle/poll-Skalen (nie unter dem Render-Minimum).
+SPEED_PROFILES = ('safe', 'fast')
+# Preis/Stueck (Yang) -- Verifikations-Schwelle, im Bild unbelegt -> einstellbar.
+ES_PRICE_MIN = 1
+ES_PRICE_MAX = 1_000_000_000
+# Gold-Reserve, die NIE unterschritten wird (>=15k, damit ein Kauf nie das
+# letzte Yang verbrennt).
+ES_GOLD_FLOOR_MIN = 15000
+ES_GOLD_FLOOR_MAX = 1_000_000_000
+# UI-Eingabe = Anzahl Haemmer.
+ES_HAMMER_MIN = 1
+ES_HAMMER_MAX = 10000
+# Per-Operation-Pausen (Maus/Tastatur) -- wie der globale pydirectinput.PAUSE.
+ES_PAUSE_MIN = 0.03
+ES_PAUSE_MAX = 0.3
+# Batch-Groesse (nur Modus 'batch').
+ES_BATCH_MIN = 1
+ES_BATCH_MAX = 200
+# Aktions-Obergrenze (Endlos-Schutz). 0 = auto (round(1.2*soll)); explizit
+# gesetzt wird sie hart geklemmt.
+ES_MAXACT_MIN = 1
+ES_MAXACT_MAX = 100000
+# Stop nach N nicht-verifizierten Aktionen in Folge.
+ES_UNVERIF_MIN = 1
+ES_UNVERIF_MAX = 20
+# Anteiliger Jitter auf ALLE Intervalle (Anti-Cheat-Verschleierung).
+ES_JITTER_MIN = 0.0
+ES_JITTER_MAX = 0.5
+# max_gold_spend: 0 = auto-abgeleitet (siehe set_to_begin); explizit 0..1e9.
+ES_MAXSPEND_MIN = 0
+ES_MAXSPEND_MAX = 1_000_000_000
 
 # Golden-Tuna-Dialog: welcher der 3 senkrecht gestapelten Knoepfe geklickt
 # wird. 1 = Freilassen, 2 = Aufschneiden, 3 = Als Koeder benutzen (Default).
@@ -149,6 +190,39 @@ DEFAULTS = {
         'board_plausibility': True,  # ④ Garbage-Zellen erkennen -> Brett neu lesen
         'color_stat': 'mean',        # ② Patch-Statistik im 'multi'-Modus (mean|median); median = robust, erst live testen
     },
+    # Energiesplitter: ZWEI Aktionen (Hammer-Kauf @ Alchemist / Dolch-Kauf +
+    # 1:1-Verarbeitung @ Waffenhaendler) unter einer Reiter-Ansicht. Drei
+    # Sub-Dicts: hammer / dagger / shared. Sicherer Erststart: dry_run=True
+    # (arm-Flag) -> der Bot erkennt nur, kauft/draggt NICHT, bis Phase-0 + die
+    # User-Bestaetigung grenuen sind. gold_floor + max_gold_spend + max_actions
+    # sind OCR-unabhaengige Backstops (siehe energiesplitter/bot.py).
+    'energiesplitter': {
+        'hammer': {
+            'hammer_count': 200,          # UI-Eingabe: ANZAHL Haemmer
+            'energie_freischalten': True,  # Aktion 1: Freischalt-Story bei Bedarf
+            'price_per_item': 15000,      # Yang/Stueck (Verifikations-Schwelle)
+            'gold_floor': 50000,          # nie unterschreiten
+            'max_gold_spend': 0,          # 0 = auto (count*price); sonst harter Cap
+            'prefer_stack': 'largest_fit',
+        },
+        'dagger': {
+            'process_mode': 'one_to_one',
+            'price_per_item': 15000,
+            'gold_floor': 50000,
+            'max_gold_spend': 0,          # 0 = auto
+            'batch_size': 50,             # nur Modus 'batch'
+        },
+        'shared': {
+            'speed_profile': 'fast',
+            'mouse_pause': 0.05,
+            'keyboard_pause': 0.10,
+            'max_actions': 0,             # 0 = auto round(1.2*soll)
+            'consecutive_unverified_stop': 3,
+            'jitter_pct': 0.15,
+            'birdseye_on_miss': True,     # KEYPRESS-Manoever bei NPC-Miss
+            'dry_run': True,              # arm-Flag, sicherer Erststart-Default
+        },
+    },
     'log': {
         'show_in_ui': True,
     },
@@ -222,6 +296,12 @@ DEFAULTS = {
 __all__ = [
     'DETECTION_MODES', 'COLOR_MODES', 'SOLVER_MODES', 'APP_MODES',
     'COLOR_PATCHES', 'GOLDEN_TUNA_ACTIONS', 'KEYPOINT_KEYS',
+    'PREFER_STACK_MODES', 'PROCESS_MODES', 'SPEED_PROFILES',
+    'ES_PRICE_MIN', 'ES_PRICE_MAX', 'ES_GOLD_FLOOR_MIN', 'ES_GOLD_FLOOR_MAX',
+    'ES_HAMMER_MIN', 'ES_HAMMER_MAX', 'ES_PAUSE_MIN', 'ES_PAUSE_MAX',
+    'ES_BATCH_MIN', 'ES_BATCH_MAX', 'ES_MAXACT_MIN', 'ES_MAXACT_MAX',
+    'ES_UNVERIF_MIN', 'ES_UNVERIF_MAX', 'ES_JITTER_MIN', 'ES_JITTER_MAX',
+    'ES_MAXSPEND_MIN', 'ES_MAXSPEND_MAX',
     'DELAY_MIN', 'DELAY_MAX', 'OVERLAY_OPACITY_MIN', 'OVERLAY_OPACITY_MAX',
     'PUZZLE_DELAY_MIN', 'PUZZLE_DELAY_MAX',
     'HOTKEY_TOKENS', 'WEEKDAYS', 'EVENT_WARN_MIN_MAX',

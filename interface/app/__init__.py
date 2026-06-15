@@ -47,6 +47,7 @@ from interface.app.config_widgets import ConfigWidgetsMixin
 from interface.app.views_run import FishingPuzzleConsoleViewsMixin
 from interface.app.views_inventory import InventoryViewMixin
 from interface.app.views_seher import SeherViewMixin
+from interface.app.views_energiesplitter import EnergiesplitterViewMixin
 from interface.app.views_ranking import RankingViewMixin
 from interface.app.builders import RowBuildersMixin
 from interface.app.run_control import RunControlMixin
@@ -74,6 +75,7 @@ class App(
     RankingViewMixin,
     InventoryViewMixin,
     SeherViewMixin,
+    EnergiesplitterViewMixin,
     FishingPuzzleConsoleViewsMixin,
     ConfigWidgetsMixin,
     WindowPickerMixin,
@@ -102,6 +104,18 @@ class App(
             puzzlebot = puzzlebot or PuzzleBot()
 
         self.controller = BotController(self, fishbot, puzzlebot, self._cfg)
+
+        # Energiesplitter-Bot (EINE Klasse, Modus-Schalter hammer/dagger). Wird
+        # wie fishbot/puzzlebot ueber den run_loop-Tick getrieben (KEIN eigener
+        # Worker-Thread). Auf den Controller gehaengt, damit der RunLoop ihn als
+        # ``controller.esbot`` findet (Symmetrie zu fishbot/puzzlebot). Soft:
+        # fehlt das Paket (Phase-0 noch nicht geliefert), bleibt esbot=None und
+        # die Reiter-Sicht meldet "Phase-0 nicht bereit" statt zu crashen.
+        try:
+            from energiesplitter import EnergiesplitterBot
+            self.controller.esbot = EnergiesplitterBot()
+        except Exception:
+            self.controller.esbot = None
 
         # Gespeicherte Sprache anwenden, BEVOR das UI (mit t()) gebaut wird.
         set_lang(self._cfg['language'])

@@ -170,6 +170,7 @@ class ShellMixin:
         self._build_console_view(self.panel_wrap)
         self._build_inventory_view(self.panel_wrap)
         self._build_seher_view(self.panel_wrap)
+        self._build_energiesplitter_view(self.panel_wrap)
         self._build_ranking_view(self.panel_wrap)
         self._build_roadmap_view(self.panel_wrap)
         self._build_settings_view(self.panel_wrap)
