@@ -21,7 +21,16 @@ jobs:
           cache: pip
 
       - name: Abhaengigkeiten installieren
-        run: pip install --prefer-binary -r requirements.txt
+        run: |
+          pip install --prefer-binary -r requirements.txt
+          pip install --prefer-binary pytest
 
       - name: Tests
-        run: python -m unittest discover -s tests -v
+        # pytest statt 'unittest discover': Teile der Suite (z.B. seher) sind
+        # pytest-nativ (Fixtures/parametrize) und laufen NICHT unter unittest
+        # (-> seit 06-10 ImportError 'No module named pytest' = CI chronisch rot).
+        # pytest fuehrt unittest.TestCase UND pytest-Tests aus -> exakt das, was
+        # lokal gruen ist, plus die GUI-Tests (customtkinter via requirements;
+        # Windows-Runner hat Desktop -> test_gui_smoke laeuft real und faengt
+        # App-Start-/Rail-Regressionen wie den v1.2.6-KeyError).
+        run: python -m pytest tests -q
