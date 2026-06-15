@@ -2,9 +2,12 @@
 
 EINE Klasse, ZWEI Aktionen (Modus-Schalter ``self.mode``):
 
-* ``MODE_HAMMER``  -- Aktion 1: Haemmer am Alchemisten kaufen.
-* ``MODE_DAGGER``  -- Aktion 2: Dolche am Waffenhaendler kaufen + 1:1 zu
-  Energiesplittern verarbeiten (Drag Hammer -> Dolch-Slot).
+* ``MODE_HAMMER``  -- Aktion 1: ``stack_count`` (X) mal einen **200er-Hammer-
+  Stack** am Alchemisten kaufen (template-verifiziert, Re-Read-belegt), dann
+  Auto-Stop.
+* ``MODE_DAGGER``  -- Aktion 2: Schleife bis keine Haemmer mehr im Inventar:
+  ``daggers_per_round`` Dolche kaufen, dann EINZELN NACHEINANDER verarbeiten
+  (je 1 Drag eines Hammer-STACKS auf einen Dolch verbraucht 1 Hammer + 1 Dolch).
 
 Integration ueber den ``run_loop``-Bot-Tick (wie ``fishbot``/``puzzlebot``):
 ``set_to_begin(values)`` friert die Config ein und ruft den Phase-0-GATE,
@@ -15,22 +18,17 @@ PHASE-0-GATE (harter Blocker, §2 CONTRACT): solange ``self.dry_run`` ODER
 ``not self.armed``, ruft der Bot NIE ``rightClick``/``click``/``drag``/
 ``keyDown`` -- er liest, loggt und stoppt. ``armed`` setzt ALLEIN
 ``phase0_gate()`` = ``detect.assets_ready(mode).ready AND
-geometry.is_calibrated(wincap) AND gold_reader.is_calibrated(frame)`` (Fenster-
-Groesse 800x600 UND eine INHALTLICHE Live-Re-Verifikation, dass Yang + Inventar-
-Raster am echten Frame plausibel lesen). Zusaetzlich greifen die OCR-unabhaengigen
-Backstops ``gold_floor``/``max_gold_spend``/``max_actions``/``price_per_item``/
-``consecutive_unverified_stop`` in JEDER Kauf-/Verarbeitungs-Entscheidung.
-
-``max_gold_spend`` ist ein Budget-Deckel ueber die REAL GELESENE Yang-Abnahme:
-``gold_spent`` wird OCR-unabhaengig per gelesenem Delta (``gold_before -
-gold_after``) fortgeschrieben -- auch wenn ein Kauf nicht als 'verifiziert'
-gewertet wurde -- damit der Deckel die tatsaechliche kumulierte Yang-Abnahme
-begrenzt und nicht um nicht-verifizierte Kaeufe driften kann. Der live gelesene
-``gold_floor`` bleibt die nicht-umgehbare harte Wand (Reserve-Schutz).
+geometry.is_calibrated(wincap) AND detect.grid_present()`` (Templates + Shop-
+Anker bereit, Fenster-Groesse 800x600 UND aufloesbares Inventar-Raster). YANG
+spielt seit dem Umbau 2026-06-16 KEINE Rolle mehr -- kein Preis, kein Kontostand,
+keine Ausgabe-Verfolgung. Als OCR-unabhaengige Backstops bleiben ``max_actions``
+(``_action_cap_hit``) und ``consecutive_unverified_stop`` in JEDER Kauf-/
+Verarbeitungs-Entscheidung wirksam, plus die Erkennung-vor-Aktion (Kauf/Drag nur
+auf template-verifizierte Ziele).
 
 Headless-Sicherheit: ``pydirectinput`` und die Schwester-Module von Agent A
-(``detect``/``geometry``/``gold_reader``) werden WEICH importiert. Fehlt etwas,
-landet es als ``missing``-Eintrag im GATE -- kein ImportError, kein Klick.
+(``detect``/``geometry``) werden WEICH importiert. Fehlt etwas, landet es als
+``missing``-Eintrag im GATE -- kein ImportError, kein Klick.
 """
 
 import constants
@@ -61,16 +59,6 @@ try:  # Geometrie/Kalibrierung (Agent A)
 except Exception:
     _geometry = None
 
-try:  # Gold-Reader (Agent A)
-    from energiesplitter import gold_reader as _gold_reader
-except Exception:
-    _gold_reader = None
-
-try:  # Rechen-Logik (Agent B)
-    from energiesplitter import calc as _calc
-except Exception:
-    _calc = None
-
 # Drag-Primitiv WIEDERVERWENDEN (A2) -- nie neu bauen. mouseUp im finally.
 try:
     from inventory_discard import drag as _discard_drag
@@ -82,8 +70,8 @@ MODE_HAMMER = 'hammer'
 MODE_DAGGER = 'dagger'
 
 # State-Maschinen + Bruecken als Mixins (NACH den weichen Globals importiert,
-# damit deren Lauf-Lesen von ``_detect``/``_calc``/``_geometry`` ueber dieses
-# Modul greift -- inkl. Test-Patching ``mock.patch.object(esbot_mod, ...)``).
+# damit deren Lauf-Lesen von ``_detect``/``_geometry`` ueber dieses Modul greift
+# -- inkl. Test-Patching ``mock.patch.object(esbot_mod, ...)``).
 from energiesplitter.bridges import BridgesMixin
 from energiesplitter.flow_hammer import HammerFlowMixin
 from energiesplitter.flow_dagger import DaggerFlowMixin
@@ -132,11 +120,11 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
   # phase0_gate() gesetzt. So bleibt ein frisch konstruierter Bot harmlos.
   dry_run = True
   armed = False
-  gold_floor = 50000
   max_actions = 2
   consecutive_unverified_stop = 3
-  price_per_item = 15000
-  yang_check = True   # sicher: live Yang-Gold-Wand aktiv (siehe _reset_config_defaults)
+
+  # Fixe Mechanik-Konstante: ein Hammer-Kauf ist IMMER ein 200er-Stack.
+  HAMMER_STACK_SIZE = 200
 
   def __init__(self):
     # Konstruktor haelt das Objekt headless-konstruierbar; die echte Config
@@ -153,54 +141,35 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
 
   # -- Config-Defaults (vor set_to_begin; werden dann eingefroren) --------
   def _reset_config_defaults(self):
-    self.hammer_count = 200
+    self.stack_count = 1
     self.energie_freischalten = True
-    self.price_per_item = 15000
-    self.process_mode = 'one_to_one'
-    self.batch_size = 50
-    self.prefer_stack = 'largest_fit'
+    self.daggers_per_round = 1
     self.mouse_pause = 0.05
     self.keyboard_pause = 0.10
     self.speed_profile = 'fast'
     self.jitter_pct = 0.15
     self.birdseye_on_miss = True
     self.birds_eye_key = 'g'
-    self.gold_floor = 50000
-    self.max_gold_spend = 0
     self.max_actions = 2
     self.consecutive_unverified_stop = 3
     self.dry_run = True
     self.armed = False
-    # yang_check: TRUE (Default, sicher) = live Yang-Gold-Wand aktiv (gold_floor
-    # + unlesbares-Yang-Stop + inhaltliche Yang-Kalibrierung im Phase-0-Gate).
-    # FALSE = der LIVE-Yang-Gate entfaellt, ABER max_actions UND ein FESTER
-    # max_gold_spend-Deckel (aus hammer_count*price abgeleitet) bleiben ZWINGEND
-    # wirksam. Erkennung-vor-Aktion bleibt UNVERAENDERT (Risiko: keine Gold-Wand).
-    self.yang_check = True
 
   def _reset_counters(self):
+    # gekauft = bisher gekaufte 200er-Stacks (Aktion 1).
     self.gekauft = 0
     self.hammer_remaining = 0
     self.splitter_summe = 0
     self.actions_done = 0
-    # gold_spent = kumulierte REAL GELESENE Yang-Abnahme (OCR-Delta je Kauf,
-    # verifiziert ODER nicht) -- die Bezugsgroesse fuer den max_gold_spend-Deckel
-    # auf dem yang_check=TRUE-Pfad.
-    self.gold_spent = 0
-    # _planned_spent = OCR-UNABHAENGIGER Akkumulator der tatsaechlich GEPLANTEN
-    # Ausgabe (echte Stack-Kosten je Kauf: stack*price beim Hammer, price beim
-    # Dolch). Bezugsgroesse fuer den max_gold_spend-Deckel auf dem
-    # yang_check=FALSE-Pfad, wo das Yang nicht gelesen werden muss. Wird bei JEDEM
-    # ausgeloesten Kauf fortgeschrieben -- so unterzaehlt die Projektion die
-    # bereits getaetigte Ausgabe bei Stacks>1 nicht (Safety-Audit MEDIUM).
-    self._planned_spent = 0
     self.consecutive_unverified = 0
-    self._gold_start = None
-    self._gold_last = None
     self._dolche_gekauft = 0
     self._buy_retries = 0
     self._npc_tries = 0
     self._birdseye_used = False
+    # Dolch-Verarbeitung: Warteschlange der gekauften, noch nicht verarbeiteten
+    # Dolch-Slots der aktuellen Runde (EINZELN nacheinander abgearbeitet).
+    self._dagger_queue = []
+    self._round_to_buy = 0
 
   # -- 'scharf'-Schalter (bewusste Tester-Aktion, CONTRACT §2/§7) ----------
   # KANONISCHER Name fuer den bewussten Live-/scharf-Schalter. Default NICHT
@@ -235,8 +204,8 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
   # -- set_to_begin (idempotent; friert Config ein; ruft phase0_gate) -----
   def set_to_begin(self, values):
     """Friert ALLE Config-Attribute aus ``values`` ein, RESETtet State +
-    Zaehler, leitet ``max_gold_spend``/``max_actions`` ab und ruft den
-    Phase-0-GATE (setzt ``self.armed``). Erzeugt ``wincap``. KEIN Klick.
+    Zaehler, leitet ``max_actions`` ab und ruft den Phase-0-GATE (setzt
+    ``self.armed``). Erzeugt ``wincap``. KEIN Klick.
 
     Idempotent re-aufrufbar (run_loop setzt ``self.mode`` vor dem Aufruf).
     Fehlt das Spiel-Fenster, wird ``self._stop_reason`` gesetzt; das Laufflag
@@ -249,12 +218,12 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
 
     self._freeze_config(values or {})
 
-    # max_gold_spend / max_actions ableiten (0 = auto), CONTRACT §1.3/§3.
-    soll = max(0, int(self.hammer_count))
-    if int(self.max_gold_spend) <= 0:
-      self.max_gold_spend = soll * 2 * max(0, int(self.price_per_item))
+    # max_actions ableiten (0 = auto): die Aktions-Obergrenze ist der einzige
+    # verbliebene Auto-Backstop. Aktion 1 braucht ~stack_count Kaeufe; Aktion 2
+    # haengt am Inventar-Bestand (open-ended) -> grosszuegiger Auto-Default.
+    soll = max(1, int(self.stack_count))
     if int(self.max_actions) <= 0:
-      self.max_actions = max(1, round(1.2 * soll))
+      self.max_actions = max(50, round(3 * soll))
 
     # wincap erzeugen -- Fenster fehlt -> Stop-Grund merken (kein Raise nach
     # aussen; run_loop steuert botting). WindowCapture wirft bei fehlendem HWND.
@@ -276,66 +245,49 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
       val = v.get(key, default)
       return default if val is None else val
 
-    self.hammer_count = int(_get('-ES_HAMMER_COUNT-', 200))
+    self.stack_count = int(_get('-ES_STACK_COUNT-', 1))
     self.energie_freischalten = bool(_get('-ES_FREISCHALTEN-', True))
-    self.price_per_item = int(_get('-ES_PRICE-', 15000))
-    self.process_mode = str(_get('-ES_PROCESS_MODE-', 'one_to_one'))
-    self.batch_size = int(_get('-ES_BATCH-', 50))
-    self.prefer_stack = str(_get('-ES_PREFER_STACK-', 'largest_fit'))
+    self.daggers_per_round = int(_get('-ES_DAGGERS_PER_ROUND-', 1))
     self.mouse_pause = float(_get('-ES_MOUSE_PAUSE-', 0.05))
     self.keyboard_pause = float(_get('-ES_KB_PAUSE-', 0.10))
     self.speed_profile = str(_get('-ES_SPEED-', 'fast'))
     self.jitter_pct = float(_get('-ES_JITTER-', 0.15))
     self.birdseye_on_miss = bool(_get('-ES_BIRDSEYE-', True))
     self.birds_eye_key = 'g'
-    self.gold_floor = int(_get('-ES_GOLD_FLOOR-', 50000))
-    self.max_gold_spend = int(_get('-ES_MAX_SPEND-', 0))
     self.max_actions = int(_get('-ES_MAX_ACTIONS-', 0))
     self.consecutive_unverified_stop = int(_get('-ES_UNVERIF_STOP-', 3))
     self.dry_run = bool(_get('-ES_DRY_RUN-', True))
-    # yang_check Default TRUE (sicher) -- fehlt der Key -> live Yang-Wand aktiv.
-    self.yang_check = bool(_get('-ES_YANG_CHECK-', True))
 
   # -- Phase-0-GATE (harter Blocker, CONTRACT §2) -------------------------
   def phase0_gate(self):
-    """Setzt ``self.armed`` = (Assets bereit AND 800x600-kalibriert AND Inhalt
-    live plausibel lesbar).
+    """Setzt ``self.armed`` = (Assets bereit AND 800x600-kalibriert AND
+    Inventar-Raster aufloesbar). YANG spielt KEINE Rolle mehr.
 
-    Delegiert die reine Pruefung an Agent A (``detect.assets_ready`` +
-    ``geometry.is_calibrated``) UND verlangt VOR dem Scharfschalten eine
-    INHALTLICHE Live-Re-Verifikation: ``gold_reader.is_calibrated(frame)`` muss
-    auf einem echten Frame Yang + Inventar-Raster plausibel lesen -- die reine
-    Fenster-Groesse (800x600) reicht NICHT. Fehlt ein Modul (Build-Reihenfolge)
-    ODER fehlt das Fenster ODER liest der Inhalt nicht plausibel, bleibt
+    Delegiert die reine Pruefung an Agent A:
+      1. ``detect.assets_ready(mode)`` -- Item-/NPC-Templates + Shop-Anker bereit.
+      2. ``geometry.is_calibrated(wincap)`` -- Fenster ~800x600.
+      3. ``detect.grid_present()`` -- Inventar-Raster (Slot 1 -> Pixel) aufloesbar
+         (sichere Drag-/Slot-Ziele).
+    Fehlt ein Modul (Build-Reihenfolge) ODER das Fenster ODER das Raster, bleibt
     ``armed=False`` und die Luecke landet in ``missing`` (sicher = rot). Liefert
     ``(armed, missing)`` und speichert ``self._missing``.
 
-    ``yang_check`` (Default TRUE, sicher) steuert NUR die Yang-bezogenen
-    Vorbedingungen: ist es FALSE, scheitert das Gate NICHT mehr an der Yang-
-    Kalibrierung (weder ``yang_digits`` aus ``assets_ready`` noch die inhaltliche
-    Yang-Live-Re-Verifikation) -- gefordert bleiben dann Grid-/Template-
-    Kalibrierung (800x600) UND ``assets_ready`` OHNE die Yang-Ziffern. Der Schutz
-    verlagert sich auf die OCR-unabhaengigen Backstops ``max_actions`` +
-    FESTER ``max_gold_spend``-Deckel (siehe ``gold_guard``). Erkennung-vor-Aktion
-    bleibt unveraendert (Kauf/Drag weiter nur auf Template-verifizierte Ziele).
+    Erkennung-vor-Aktion bleibt unveraendert (Kauf/Drag weiter nur auf Template-
+    verifizierte Ziele); die OCR-unabhaengigen Backstops sind ``max_actions`` +
+    ``consecutive_unverified_stop``.
     """
     missing = []
 
     mode = self.mode if self.mode in (MODE_HAMMER, MODE_DAGGER) else MODE_HAMMER
-    yang_required = bool(self.yang_check)
 
-    # 1) Assets (Templates / Item-Icons / Gold-Digits) -- via Agent A.
+    # 1) Assets (Item-/NPC-Templates / Shop-Anker) -- via Agent A.
     if _detect is None or not hasattr(_detect, 'assets_ready'):
       missing.append('detect_module')
     else:
       try:
-        ready, miss = _detect.assets_ready(mode)
-        miss = list(miss or [])
-        if not yang_required:
-          # yang_check=FALSE: die Yang-Ziffern duerfen das Gate NICHT blocken.
-          miss = [m for m in miss if m != 'yang_digits']
+        _ready, miss = _detect.assets_ready(mode)
         if miss:
-          missing.extend(miss)
+          missing.extend(list(miss))
       except Exception:
         missing.append('detect_error')
 
@@ -351,22 +303,9 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
       except Exception:
         missing.append('calibration:800x600')
 
-    # 3) Gold-Reader-Modul + inhaltliche Kalibrierung.
-    if _gold_reader is None or not hasattr(_gold_reader, 'read_gold'):
-      # Das Modul ist auch fuer den Grid-Check noetig -> immer gefordert.
-      missing.append('gold_reader_module')
-    elif yang_required:
-      # 3b) INHALTLICHE Live-Re-Verifikation (CONTRACT §2): die Fenster-Groesse
-      # allein genuegt NICHT -- erst wenn Yang + Inventar-Raster am echten Frame
-      # plausibel lesen, ist der scharfe Lauf abgesichert. Liest es nicht -> rot.
-      if not self._content_calibrated(mode):
-        missing.append('content_calibration')
-    else:
-      # yang_check=FALSE: KEINE Yang-Live-Re-Verifikation -- aber das Inventar-
-      # Raster muss weiter aufloesbar sein (Template-/Grid-Kalibrierung), sonst
-      # gibt es keine sicheren Drag-/Slot-Ziele. Nur die Yang-Lesbarkeit entfaellt.
-      if not self._grid_calibrated():
-        missing.append('grid_calibration')
+    # 3) Inventar-Raster aufloesbar (sichere Drag-/Slot-Ziele).
+    if not self._grid_calibrated():
+      missing.append('grid_calibration')
 
     self._missing = missing
     self.armed = (len(missing) == 0)
@@ -375,12 +314,10 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
     # sofort, WORAN es haengt. Absturzsicher.
     try:
       if self.armed:
-        log.event(self.state, 'Phase-0-GATE: gruen (scharf erlaubt)',
-                  modus=mode, yang_check=yang_required)
+        log.event(self.state, 'Phase-0-GATE: gruen (scharf erlaubt)', modus=mode)
       else:
         log.event(self.state, 'Phase-0-GATE: rot (kein Kauf/Drag)',
-                  modus=mode, yang_check=yang_required,
-                  fehlend=', '.join(missing))
+                  modus=mode, fehlend=', '.join(missing))
     except Exception:  # pragma: no cover - Logging darf das Gate nie kippen
       pass
     return self.armed, missing
@@ -388,37 +325,13 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
   def _grid_calibrated(self):
     """``True``, wenn das Inventar-Raster aufloesbar ist (Slot 1 -> Pixel).
 
-    Nutzt ``gold_reader._grid_present`` (reiner Kalibrier-Check ueber
-    ``calibration.slot_center``). Das ist der NICHT-Yang-Teil der inhaltlichen
-    Kalibrierung -- gefordert auch bei ``yang_check=FALSE`` (sichere Drag-Ziele).
+    Nutzt ``detect.grid_present`` (reiner Kalibrier-Check ueber
+    ``calibration.slot_center``) -- garantiert sichere Drag-/Slot-Ziele.
     Defensiv ``False`` bei fehlendem Modul. Read-only, wirft nie."""
-    if _gold_reader is None or not hasattr(_gold_reader, '_grid_present'):
+    if _detect is None or not hasattr(_detect, 'grid_present'):
       return False
     try:
-      return bool(_gold_reader._grid_present())
-    except Exception:  # pragma: no cover - defensiv
-      return False
-
-  def _content_calibrated(self, mode):
-    """``True`` nur, wenn der Live-Frame INHALTLICH plausibel liest (Yang +
-    Inventar-Raster) -- die zusaetzliche armed-Bedingung des Phase-0-GATE.
-
-    Nutzt ``gold_reader.is_calibrated(frame, roi)`` auf einem frisch gelesenen
-    Frame. Defensiv: fehlt die Funktion, das Fenster oder der Frame, ODER wirft
-    irgendetwas -> ``False`` (GATE bleibt rot = sicher). Wirft nie, klickt nie."""
-    if _gold_reader is None or not hasattr(_gold_reader, 'is_calibrated'):
-      return False
-    bgr = self._shot()
-    if bgr is None:
-      return False
-    roi = None
-    if _geometry is not None and hasattr(_geometry, 'gold_roi'):
-      try:
-        roi = _geometry.gold_roi(mode)
-      except Exception:
-        roi = None
-    try:
-      return bool(_gold_reader.is_calibrated(bgr, roi))
+      return bool(_detect.grid_present())
     except Exception:  # pragma: no cover - defensiv
       return False
 
@@ -484,18 +397,11 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
       log.event(self.state, t(
           'energiesplitter.done',
           hammers=self.gekauft, daggers=self._dolche_gekauft,
-          splitters=self.splitter_summe,
-          gold_before=self._fmt_gold(self._gold_start),
-          gold_after=self._fmt_gold(self._gold_last),
-          reason=reason))
+          splitters=self.splitter_summe, reason=reason))
     except Exception:  # pragma: no cover - Logging darf nie den Stop kippen
       pass
     self.state = self.ST_STOP
     self.botting = False
-
-  @staticmethod
-  def _fmt_gold(g):
-    return '?' if g is None else g
 
   def _log_section(self):
     key = ('energiesplitter.section_hammer' if self.mode == MODE_HAMMER
@@ -519,15 +425,11 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
                 betrieb=('SCHARF' if self.scharf else 'SIMULATION'),
                 dry_run=self.dry_run,
                 armed=self.armed,
-                hammer_count=self.hammer_count,
-                price=self.price_per_item,
-                yang_check=self.yang_check,
-                gold_floor=self.gold_floor,
-                max_gold_spend=self.max_gold_spend,
+                stack_count=self.stack_count,
+                daggers_per_round=self.daggers_per_round,
                 max_actions=self.max_actions,
                 unverif_stop=self.consecutive_unverified_stop,
-                freischalten=self.energie_freischalten,
-                prefer_stack=self.prefer_stack)
+                freischalten=self.energie_freischalten)
     except Exception:  # pragma: no cover - Logging darf nie den Lauf kippen
       pass
     try:
@@ -548,132 +450,6 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
       return True
     return False
 
-  def gold_guard(self, planned_cost):
-    """Pruefung VOR jedem Kauf (CONTRACT §2, R3). Liefert das gelesene Gold
-    bei OK, sonst ``None`` UND stoppt selbst.
-
-    yang_check=TRUE (Default, sicher): drei OCR-unabhaengige Backstops + ein
-    OCR-Backstop:
-      1. Gold unlesbar              -> Stop + Snapshot (nie blind kaufen).
-      2. gelesen - Kosten < floor   -> Stop (Reserve schuetzen, harte Wand).
-      3. gold_spent + Kosten > cap  -> Stop (absoluter Budget-Deckel).
-
-    yang_check=FALSE (RISIKO): der LIVE-Yang-Gate entfaellt -- unlesbares Yang
-    blockiert NICHT und die live gold_floor-Wand ist AUS. ZWINGEND wirksam bleibt
-    der FESTE Budget-Deckel ueber die PROGNOSTIZIERTE Ausgabe
-    (``actions_done * price_per_item + planned_cost > max_gold_spend`` -> Stop) --
-    OCR-unabhaengig, da das Yang nicht gelesen werden muss. ``max_actions`` greift
-    zusaetzlich im Aufrufer (``_action_cap_hit``). Erkennung-vor-Aktion bleibt
-    unveraendert. Liefert das gelesene Gold (falls lesbar, fuer opportunistische
-    Verifikation) oder ``0`` (Sentinel 'nicht-gatend'); der Kauf laeuft weiter.
-    """
-    if not self.yang_check:
-      return self._gold_guard_no_yang(planned_cost)
-
-    gold = self._read_gold()
-    try:
-      log.event(self.state, 'WAHRNEHMUNG: Yang-Lesung vor Kauf',
-                gelesen=self._fmt_gold(gold), lesbar=(gold is not None),
-                geplante_kosten=int(planned_cost), floor=self.gold_floor,
-                gold_spent=self.gold_spent, cap=self.max_gold_spend)
-    except Exception:  # pragma: no cover
-      pass
-    if gold is None:
-      self._snapshot('gold_unreadable')
-      log.event(self.state, t('energiesplitter.gold_unreadable'))
-      self._stop('gold_unreadable')
-      return None
-    if self._gold_start is None:
-      self._gold_start = gold
-    self._gold_last = gold
-
-    if gold - int(planned_cost) < int(self.gold_floor):
-      log.event(self.state, t('energiesplitter.gold_floor_hit', gold=gold))
-      self._stop('gold_floor')
-      return None
-
-    if self.gold_spent + int(planned_cost) > int(self.max_gold_spend):
-      log.event(self.state, t('energiesplitter.gold_floor_hit', gold=gold))
-      self._stop('max_gold_spend')
-      return None
-
-    return gold
-
-  def _gold_guard_no_yang(self, planned_cost):
-    """gold_guard-Pfad fuer ``yang_check=FALSE`` (siehe gold_guard-Docstring).
-
-    KEIN unlesbares-Yang-Stop, KEINE live gold_floor-Wand -- aber der FESTE
-    max_gold_spend-Deckel ueber die GEPLANTE Ausgabe bleibt ZWINGEND.
-
-    Bezugsgroesse ist der OCR-unabhaengige Akkumulator ``self._planned_spent``
-    (echte Stack-Kosten je BEREITS getaetigtem Kauf, fortgeschrieben im
-    Buy-Step), NICHT ``actions_done * price_per_item``: Letzteres unterzaehlt die
-    Ausgabe bei Hammer-Stacks > 1 systematisch (ein Kauf eines 200er-Stacks
-    kostet 200*price, zaehlt aber nur als EINE Aktion) -- der Deckel waere dann
-    keine echte zweite Wand (Safety-Audit MEDIUM). Geprueft wird
-    ``_planned_spent + planned_cost > max_gold_spend`` VOR dem Kauf, sodass der
-    naechste Kauf den Deckel nicht ueberschreitet. ``max_actions`` greift
-    zusaetzlich im Aufrufer.
-
-    Liefert ``0`` (nicht-gatender Sentinel) bei unlesbarem Yang, sonst das
-    gelesene Gold (rein opportunistisch fuer die Verifikation). Wirft nie."""
-    projected = int(self._planned_spent) + int(planned_cost)
-    if projected > int(self.max_gold_spend):
-      log.event(self.state, t('energiesplitter.max_gold_spend', spent=projected,
-                              cap=self.max_gold_spend))
-      self._stop('max_gold_spend')
-      return None
-    gold = self._read_gold()
-    if gold is not None:
-      if self._gold_start is None:
-        self._gold_start = gold
-      self._gold_last = gold
-      return gold
-    return 0
-
-  def _note_real_spend(self, gold_before, gold_after):
-    """Schreibt die REAL GELESENE Yang-Abnahme auf den kumulierten Verbrauch
-    fort -- OCR-unabhaengig vom Verifikations-Urteil (CONTRACT §2, Cap-Drift-
-    Haertung).
-
-    Addiert ``max(0, gold_before - gold_after)`` auf ``self.gold_spent`` und
-    liefert das addierte Delta. So deckelt ``max_gold_spend`` die tatsaechliche
-    kumulierte Yang-Abnahme, auch wenn ein real bezahlter Kauf nicht als
-    'verifiziert' gewertet wurde (sonst koennte der Deckel um bis zu
-    ``consecutive_unverified_stop`` Stacks ueberschritten werden). Defensiv: ein
-    unlesbares ``gold_after`` (``None``) traegt 0 bei -- in dem Fall stoppt der
-    Bot ohnehin ueber den ``gold_unreadable``-Backstop. Wirft nie."""
-    try:
-      if gold_before is None or gold_after is None:
-        return 0
-      delta = int(gold_before) - int(gold_after)
-    except Exception:  # pragma: no cover - defensiv
-      return 0
-    if delta <= 0:
-      return 0
-    self.gold_spent += delta
-    return delta
-
-  def _note_planned_spend(self, planned_cost):
-    """Schreibt die ECHTEN Stack-Kosten eines ausgeloesten Kaufs auf den OCR-
-    unabhaengigen Planungs-Akkumulator ``self._planned_spent`` fort (Bezugsgroesse
-    fuer den yang_check=FALSE-Deckel).
-
-    ``planned_cost`` ist exakt der Wert, der dem ``gold_guard`` uebergeben wurde
-    (``stack * price_per_item`` beim Hammer, ``price_per_item`` beim Dolch) -- so
-    spiegelt der Akkumulator die tatsaechlich geplante Ausgabe, auch bei Stacks>1.
-    Wird bei JEDEM Kauf aufgerufen, UNABHAENGIG vom Verifikations-Urteil (ein real
-    ausgeloester Kauf zaehlt fuer den Deckel). Defensiv: nicht-positive/ungueltige
-    Kosten tragen 0 bei. Wirft nie."""
-    try:
-      cost = int(planned_cost)
-    except Exception:  # pragma: no cover - defensiv
-      return 0
-    if cost <= 0:
-      return 0
-    self._planned_spent += cost
-    return cost
-
   def _note_unverified(self):
     """Zaehlt eine nicht-verifizierte Aktion; stoppt bei N in Folge."""
     self.consecutive_unverified += 1
@@ -688,25 +464,6 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
   def _shot(self):
     try:
       return self.wincap.get_screenshot()
-    except Exception:  # pragma: no cover - defensiv
-      return None
-
-  def _read_gold(self):
-    """Liest den Gold-Zaehler via Agent-A-Reader. Defensiv -> None heisst
-    'unlesbar' (Caller stoppt). Read-only, kein Klick."""
-    if _gold_reader is None or _geometry is None:
-      return None
-    bgr = self._shot()
-    if bgr is None:
-      return None
-    try:
-      roi = _geometry.gold_roi(self.mode)
-    except Exception:
-      roi = None
-    if roi is None:
-      return None
-    try:
-      return _gold_reader.read_gold(bgr, roi)
     except Exception:  # pragma: no cover - defensiv
       return None
 
@@ -860,32 +617,24 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
       return False
     return True
 
-  def verify_purchase(self, gold_before, expected_cost):
-    """Verifiziert einen Kauf OCR-gestuetzt: Gold sank um ~``expected_cost``
-    (Abweichung >20%% -> nicht verifiziert). Liefert ``(ok, gold_after)``.
-    Reine Lese-Pruefung -- kein Klick."""
-    gold_after = self._read_gold()
-    if gold_after is None:
-      try:
-        log.event(self.state, 'WAHRNEHMUNG: Kauf-Verifikation -- Yang nach Kauf unlesbar',
-                  erwartet=expected_cost, gold_before=gold_before)
-      except Exception:  # pragma: no cover
-        pass
-      return False, None
-    self._gold_last = gold_after
-    delta = gold_before - gold_after
-    if expected_cost <= 0:
-      ok = delta > 0
-    else:
-      rel = abs(delta - expected_cost) / float(expected_cost)
-      ok = (delta > 0 and rel <= 0.20)
+  def verify_hammer_purchase(self, bag_before):
+    """Verifiziert einen Hammer-Stack-Kauf per Re-Read: der Hammer-Bestand im
+    Beutel ist nach dem Kauf gewachsen. YANG wird NICHT gelesen.
+
+    ``bag_before`` = gemessener Hammer-Bestand VOR dem Kauf (oder ``None``, wenn
+    nicht messbar). Liefert ``True``, wenn der Bestand nachweislich gewachsen ist
+    (``_verify_bag_growth`` erwartet >= 1 Slot Zuwachs durch den 200er-Stack);
+    ist der Bag-Stack NICHT messbar (Phase-0-Stub), gilt der Kauf als belegt
+    (``True``) -- der GATE haelt scharfe Laeufe ohne Live-Asset ohnehin zurueck.
+    Reine Lese-Pruefung -- kein Klick. Wirft nie."""
+    ok = bool(self._verify_bag_growth(bag_before, 1))
     try:
-      log.event(self.state, 'WAHRNEHMUNG: Kauf-Verifikation (Yang-Delta)',
-                erwartet=expected_cost, gelesen_delta=delta,
-                gold_before=gold_before, gold_after=gold_after, verifiziert=bool(ok))
+      log.event(self.state, 'WAHRNEHMUNG: Hammer-Kauf-Verifikation (Re-Read)',
+                bag_vorher=bag_before, bag_messbar=self._bag_count_measurable(),
+                verifiziert=bool(ok))
     except Exception:  # pragma: no cover
       pass
-    return ok, gold_after
+    return ok
 
   def verify_process(self, before_bgr, after_bgr):
     """Verifiziert die 1:1-Verarbeitung NACH der neuen Grundwahrheit (User

@@ -44,9 +44,6 @@ GAME_SIZE_TOLERANCE = 8
 
 
 # -- ROIs im 800x600-CLIENT (x, y, w, h) -- alle # KALIBRIER-BAR -------------
-# Gold-Zaehler unten rechts ueber der Aktionsleiste. Gemessen am Alchemist-Shop
-# (BlRGzUUM3w -> "312.295"): weisse 7px-Glyphen, rechtsbuendig.
-ROI_GOLD = (747, 552, 44, 9)            # KALIBRIER-BAR (P0.3: beide Shop-Zustaende)
 # Spielszene (ohne HUD oben/unten/rechts) -- Suchbereich fuer den gruenen
 # NPC-Namen. y>=100 schneidet die Titel-/Buff-Leiste, x<=620 den rechten HUD-Rand.
 ROI_SCENE = (150, 100, 470, 320)        # KALIBRIER-BAR
@@ -97,17 +94,6 @@ def crop(bgr, roi):
         return bgr[y0:y1, x0:x1]
     except Exception:
         return None
-
-
-def gold_roi(mode=None):
-    """Liefert die Gold-Zaehler-ROI ``(x, y, w, h)`` im 800x600-Client.
-
-    Feste ROI (oben am Modul: ``ROI_GOLD``); fuer beide Modi identisch -- der
-    Gold-Zaehler sitzt in beiden Shop-Zustaenden an derselben Stelle. ``mode``
-    wird (vorerst) ignoriert, bleibt aber im Vertrag, falls P0.3 zwei
-    Shop-Zustaende getrennt kalibriert. Read-only, wirft nie.
-    """
-    return ROI_GOLD
 
 
 def slot_center(slot):
@@ -164,7 +150,7 @@ def is_calibrated(wincap):
 
 __all__ = [
     'GAME_W', 'GAME_H', 'CLIENT_X0', 'CLIENT_Y0', 'RAW_W', 'RAW_H',
-    'GAME_SIZE_TOLERANCE', 'ROI_GOLD', 'ROI_SCENE', 'ROI_PANEL_HEADER',
+    'GAME_SIZE_TOLERANCE', 'ROI_SCENE', 'ROI_PANEL_HEADER',
     'ROI_DIALOG', 'to_client', 'crop', 'is_calibrated',
-    'gold_roi', 'slot_center',
+    'slot_center',
 ]

@@ -1,11 +1,21 @@
 # -*- coding: utf-8 -*-
 """Dolch-Modus-State-Maschine (Aktion 2 @ Waffenhaendler) als Mixin.
 
-Kauft am Waffenhaendler EINZELNE Dolche (A1) und verarbeitet sie 1:1 per Drag
-(Hammer -> verifizierter Dolch-Slot) zu Energiesplittern. Diese Methoden werden
-per Mehrfachvererbung Teil von
+Mechanik (User-Grundwahrheit 2026-06-16): EIN Drag eines Hammer-STACKS auf einen
+Dolch verbraucht 1 Hammer + 1 Dolch (NICHT den ganzen Stack). Ablauf:
+
+  Schleife bis keine Haemmer mehr im Inventar:
+    1. ``daggers_per_round`` Dolche am Waffenhaendler kaufen (template-verifiziert,
+       Rechtsklick je Dolch) -> Lande-Slots sammeln.
+    2. Die gekauften Dolche EINZELN NACHEINANDER verarbeiten: fuer JEDEN Dolch den
+       Hammer-STACK-Slot (Template=Hammer) auf den Dolch-Slot (Template=Dolch)
+       ziehen -> Re-Read-Verifikation (Dolch weg + Hammer dekrementiert). KEIN
+       Bestaetigungsfenster. Erkennung-vor-Aktion (src=Hammer, dst=Dolch live
+       verifiziert) bleibt zwingend.
+
+YANG spielt keine Rolle. Diese Methoden werden per Mehrfachvererbung Teil von
 :class:`energiesplitter.bot.EnergiesplitterBot`; sie operieren auf der Bot-
-Instanz (``self``). Verhalten unveraendert -- reine Extraktion aus ``bot.py``.
+Instanz (``self``).
 """
 
 from debuglog import log
@@ -17,7 +27,7 @@ PROCESS_DRIFT_MAX = 2
 
 
 class DaggerFlowMixin:
-  """Dolch-Kauf + 1:1-Verarbeitung (siehe Modul-Docstring, CONTRACT §1)."""
+  """Dolch-Kauf + sequenzielle Verarbeitung (siehe Modul-Docstring, CONTRACT §1)."""
 
   def _tick_dagger(self):
     st = self.state
@@ -78,6 +88,9 @@ class DaggerFlowMixin:
         self._stop('item_not_in_shop')
         return
       self._dolch_shop_slot = slot
+      # Neue Runde: Dolch-Kauf-Zaehler dieser Runde + Warteschlange ruecksetzen.
+      self._round_to_buy = max(1, int(self.daggers_per_round))
+      self._dagger_queue = []
       self.state = self.ST_BUY_ONE_DOLCH
       return
 
@@ -94,10 +107,11 @@ class DaggerFlowMixin:
       return
 
     if st == self.ST_RESCAN:
-      # Drift-Korrektur (glow-aware Re-Scan via A); Fortschritt am Splitter,
-      # nicht am Hammer-Bestand. Read-only -> direkt weiter.
+      # Eine Runde ist abgearbeitet -> Hammer-Bestand neu lesen; sind noch
+      # Haemmer da, naechste Runde (zurueck zum Dolch-Lokalisieren), sonst fertig.
+      self.hammer_remaining = self._count_hammers()
       if self.hammer_remaining > 0:
-        self.state = self.ST_BUY_ONE_DOLCH
+        self.state = self.ST_LOCATE_DOLCH
       else:
         self._stop('done')
       return
@@ -105,25 +119,29 @@ class DaggerFlowMixin:
     self._stop('unknown_state')
 
   def _dagger_buy_one(self):
-    """Kauft GENAU 1 Dolch (A1), bestimmt den realen Lande-Slot per Diff."""
+    """Kauft GENAU 1 Dolch (Rechtsklick), bestimmt den realen Lande-Slot per Diff
+    und legt ihn in die Verarbeitungs-Warteschlange. Sind ``daggers_per_round``
+    Dolche gekauft, geht es in die sequenzielle Verarbeitung."""
     if self._action_cap_hit():
       return
-    cost = int(self.price_per_item)
+    if self._round_to_buy <= 0:
+      # Runde fertig gekauft -> sequenziell verarbeiten (erster Dolch aus der Queue).
+      self._start_processing_queue()
+      return
+
     try:
       verb = ('[SIM] wuerde' if not self.scharf else 'SCHARF:')
-      log.event(self.state, verb + ' GENAU 1 Dolch kaufen', kosten=cost,
+      log.event(self.state, verb + ' GENAU 1 Dolch kaufen',
+                rest_runde=self._round_to_buy,
                 hammer_rest=self.hammer_remaining,
                 dolche_gekauft=self._dolche_gekauft)
     except Exception:  # pragma: no cover
       pass
-    gold_before = self.gold_guard(cost)
-    if gold_before is None:
-      return
 
     # ERKENNUNG VOR AKTION (pro Kauf): den Shop-Dolch JEDESMAL per TEMPLATE neu
     # lokalisieren -- nie eine stale Koordinate rechtsklicken. Re-Lokalisierung
-    # fehlgeschlagen -> Rueckfall auf den in ST_LOCATE_DOLCH verifizierten Slot;
-    # auch der unbekannt -> sauberer Stop (kein Blind-Kauf eines Fremd-Items).
+    # fehlgeschlagen -> Rueckfall auf den verifizierten Slot; auch der unbekannt
+    # -> sauberer Stop (kein Blind-Kauf eines Fremd-Items).
     slot = self._locate_shop_item('dolch')
     if slot is None:
       slot = getattr(self, '_dolch_shop_slot', None)
@@ -136,55 +154,54 @@ class DaggerFlowMixin:
     before = self._inventory_signature()
     try:
       verb = ('[SIM] wuerde' if self._guarded() else 'SCHARF:')
-      log.event(self.state, verb + ' Dolch rechtsklicken (Kauf)', ziel=tuple(slot),
-                kosten=cost, gold_before=self._fmt_gold(gold_before))
+      log.event(self.state, verb + ' Dolch rechtsklicken (Kauf)', ziel=tuple(slot))
     except Exception:  # pragma: no cover
       pass
     self._right_click(*slot)
     self.actions_done += 1
-    # GEPLANTE Ausgabe (echte Kosten = price je Einzel-Dolch) OCR-unabhaengig
-    # fortschreiben -- Bezugsgroesse des yang_check=FALSE-Deckels (siehe bot.py
-    # _gold_guard_no_yang).
-    self._note_planned_spend(cost)
 
-    ok, gold_after = self.verify_purchase(gold_before, cost)
-    # Cap-Drift-Haertung: die REAL GELESENE Yang-Abnahme IMMER fortschreiben --
-    # auch auf dem nicht-verifizierten Pfad unten -- damit der max_gold_spend-
-    # Deckel die tatsaechliche kumulierte Abnahme begrenzt (ein real bezahlter,
-    # aber unverifizierter Kauf darf den Deckel nicht umgehen).
-    self._note_real_spend(gold_before, gold_after)
-    if not ok:
+    after = self._inventory_signature()
+    land = self._diff_landing_slot(before, after)
+    if land is None:
+      # Lande-Slot des gekauften Dolchs unklar -> nicht verifiziert.
       self._buy_retries += 1
       if self._buy_retries > 2 or self._note_unverified():
         if self.botting:
+          self._snapshot('dolch_slot_unknown')
           log.event(self.state, t('energiesplitter.buy_unverified',
                                   retries=self._buy_retries))
           self._stop('buy_unverified')
       return
 
-    after = self._inventory_signature()
-    land = self._diff_landing_slot(before, after)
-    if land is None:
-      # Kauf verifiziert (Gold sank), aber Lande-Slot unklar -> kein Drag.
-      self._snapshot('dolch_slot_unknown')
-      self._stop('process_unverified')
-      return
-
-    self._dolch_inv_slot = land
+    self._dagger_queue.append(land)
     self._dolche_gekauft += 1
+    self._round_to_buy -= 1
     self.consecutive_unverified = 0
     self._buy_retries = 0
     try:
       log.event(self.state, 'ZUSTAND: Dolch gekauft + Lande-Slot bestimmt',
                 lande_slot=(tuple(land) if isinstance(land, (tuple, list)) else land),
+                rest_runde=self._round_to_buy,
                 dolche_gekauft=self._dolche_gekauft)
     except Exception:  # pragma: no cover
       pass
+    if self._round_to_buy <= 0:
+      self._start_processing_queue()
+    # sonst: noch im selben State, naechster Dolch wird im naechsten Tick gekauft.
+
+  def _start_processing_queue(self):
+    """Beginnt die sequenzielle Verarbeitung der gekauften Dolche (EINZELN)."""
+    if not self._dagger_queue:
+      # Nichts gekauft -> Runde leer; Hammer-Bestand neu pruefen.
+      self.state = self.ST_RESCAN
+      return
+    self._dolch_inv_slot = self._dagger_queue.pop(0)
     self.state = self.ST_PROCESS_DRAG
 
   def _dagger_process_drag(self):
-    """Drag 1 Hammer -> verifizierter Dolch-Slot. NUR wenn Quelle=Hammer UND
-    Ziel=Dolch (beide Template-positiv). Sonst Stop, KEIN Drag (R11)."""
+    """Drag 1 Hammer-STACK -> verifizierter Dolch-Slot (verbraucht 1 Hammer + 1
+    Dolch). NUR wenn Quelle=Hammer UND Ziel=Dolch (beide Template-positiv). Sonst
+    Stop, KEIN Drag (R11)."""
     if self._action_cap_hit():
       return
     src = self._classified_hammer_slot()
@@ -210,16 +227,16 @@ class DaggerFlowMixin:
       self._stop('drag_unsafe')
       return
 
-    # Re-Read-Anker fuer die Verifikation (neue Grundwahrheit, KEIN Dialog):
-    # Hammer-Bestand VOR dem Drag merken -> nach dem Drag muss er um genau 1
-    # gesunken sein (Hammer verbraucht), zusaetzlich zum jetzt-leeren Dolch-Slot.
+    # Re-Read-Anker fuer die Verifikation (KEIN Dialog): Hammer-Bestand VOR dem
+    # Drag merken -> nach dem Drag muss er um genau 1 gesunken sein (Hammer
+    # verbraucht), zusaetzlich zum jetzt-leeren Dolch-Slot.
     self._before_proc = self._shot()
     self._hammer_count_before_proc = self._count_hammers()
     sx, sy = self._slot_center(src)
     dx, dy = self._slot_center(self._dolch_inv_slot)
     try:
       verb = ('[SIM] wuerde' if self._guarded() else 'SCHARF:')
-      log.event(self.state, verb + ' Dolch verarbeiten -- Hammer auf Dolch-Slot ziehen',
+      log.event(self.state, verb + ' Dolch verarbeiten -- Hammer-Stack auf Dolch-Slot ziehen',
                 von=(sx, sy), nach=(dx, dy),
                 hammer_vor_drag=self._hammer_count_before_proc)
     except Exception:  # pragma: no cover
@@ -229,13 +246,11 @@ class DaggerFlowMixin:
     self.state = self.ST_VERIFY_PROCESS
 
   def _dagger_verify_process(self):
-    """Verifiziert die 1:1-Verarbeitung NACH der neuen Grundwahrheit (KEIN
-    Bestaetigungsfenster): ``verify_process`` belegt den Erfolg per Re-Read
-    (Dolch-Slot jetzt LEER UND Hammer-Bestand um 1 gesunken) und liefert ``> 0``
-    nur dann. NUR bei positivem Beleg wird dekrementiert (R5) -- nie ein blindes
-    logisches ``-1``. ``splitter_summe`` zaehlt die verifiziert VERARBEITETEN
-    Haemmer (der erzeugte Splitter selbst muss laut Grundwahrheit nicht gezaehlt
-    werden)."""
+    """Verifiziert die Verarbeitung per Re-Read (KEIN Bestaetigungsfenster):
+    ``verify_process`` belegt den Erfolg (Dolch-Slot jetzt LEER UND Hammer-Bestand
+    um 1 gesunken) und liefert ``> 0`` nur dann. NUR bei positivem Beleg wird
+    dekrementiert (R5). Danach den NAECHSTEN Dolch der Runde verarbeiten (Queue),
+    sonst zurueck zum Hammer-Re-Scan."""
     after = self._shot()
     processed = self.verify_process(self._before_proc, after)
     if processed > 0:
@@ -250,7 +265,12 @@ class DaggerFlowMixin:
         log.event(self.state, t('energiesplitter.process_unverified'))
         self._stop('process_unverified')
         return
-      self.state = self.ST_RESCAN
+      # Naechsten Dolch der Runde verarbeiten, falls die Queue noch welche hat.
+      if self._dagger_queue:
+        self._dolch_inv_slot = self._dagger_queue.pop(0)
+        self.state = self.ST_PROCESS_DRAG
+      else:
+        self.state = self.ST_RESCAN
     else:
       if not self._note_unverified():
         log.event(self.state, t('energiesplitter.process_unverified'))

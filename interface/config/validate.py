@@ -21,22 +21,16 @@ from .defaults import (
     DELAY_MAX,
     DELAY_MIN,
     DETECTION_MODES,
-    ES_BATCH_MAX,
-    ES_BATCH_MIN,
-    ES_GOLD_FLOOR_MAX,
-    ES_GOLD_FLOOR_MIN,
-    ES_HAMMER_MAX,
-    ES_HAMMER_MIN,
+    ES_DAGGERS_MAX,
+    ES_DAGGERS_MIN,
     ES_JITTER_MAX,
     ES_JITTER_MIN,
     ES_MAXACT_MAX,
     ES_MAXACT_MIN,
-    ES_MAXSPEND_MAX,
-    ES_MAXSPEND_MIN,
     ES_PAUSE_MAX,
     ES_PAUSE_MIN,
-    ES_PRICE_MAX,
-    ES_PRICE_MIN,
+    ES_STACK_MAX,
+    ES_STACK_MIN,
     ES_UNVERIF_MAX,
     ES_UNVERIF_MIN,
     EVENT_WARN_MIN_MAX,
@@ -46,8 +40,6 @@ from .defaults import (
     KEYPOINT_KEYS,
     OVERLAY_OPACITY_MAX,
     OVERLAY_OPACITY_MIN,
-    PREFER_STACK_MODES,
-    PROCESS_MODES,
     SPEED_PROFILES,
     TIMER_ACTIONS,
     PUZZLE_DELAY_MAX,
@@ -409,9 +401,10 @@ def _validate_energiesplitter(value):
 
     int/float werden geklemmt + auf ihren Typ gebracht, Enums via ``_enum``,
     bools via ``bool()``. Unbekannte Sub-Keys werden verworfen (es wird ein
-    NEUES, vollstaendiges Dict aus den Defaults heraus aufgebaut). ``max_gold_spend``
-    bleibt der Config-Wert (0 = auto); die Auto-Ableitung passiert in
-    ``set_to_begin`` (validate bleibt rein/deterministisch). Wirft nie.
+    NEUES, vollstaendiges Dict aus den Defaults heraus aufgebaut). YANG spielt
+    keine Rolle mehr (kein Preis/Floor/Spend). ``max_actions`` bleibt der
+    Config-Wert (0 = auto); die Auto-Ableitung passiert in ``set_to_begin``
+    (validate bleibt rein/deterministisch). Wirft nie.
     """
     src = value if isinstance(value, dict) else {}
     d_h = DEFAULTS['energiesplitter']['hammer']
@@ -422,38 +415,16 @@ def _validate_energiesplitter(value):
     src_s = src.get('shared') if isinstance(src.get('shared'), dict) else {}
 
     hammer = {
-        'hammer_count': int(_clamp(
-            _coerce_int(src_h.get('hammer_count'), d_h['hammer_count']),
-            ES_HAMMER_MIN, ES_HAMMER_MAX, d_h['hammer_count'])),
+        'stack_count': int(_clamp(
+            _coerce_int(src_h.get('stack_count'), d_h['stack_count']),
+            ES_STACK_MIN, ES_STACK_MAX, d_h['stack_count'])),
         'energie_freischalten': bool(
             src_h.get('energie_freischalten', d_h['energie_freischalten'])),
-        'price_per_item': int(_clamp(
-            _coerce_int(src_h.get('price_per_item'), d_h['price_per_item']),
-            ES_PRICE_MIN, ES_PRICE_MAX, d_h['price_per_item'])),
-        'gold_floor': int(_clamp(
-            _coerce_int(src_h.get('gold_floor'), d_h['gold_floor']),
-            ES_GOLD_FLOOR_MIN, ES_GOLD_FLOOR_MAX, d_h['gold_floor'])),
-        'max_gold_spend': int(_clamp(
-            _coerce_int(src_h.get('max_gold_spend'), d_h['max_gold_spend']),
-            ES_MAXSPEND_MIN, ES_MAXSPEND_MAX, d_h['max_gold_spend'])),
-        'prefer_stack': _enum(
-            src_h.get('prefer_stack'), PREFER_STACK_MODES, d_h['prefer_stack']),
     }
     dagger = {
-        'process_mode': _enum(
-            src_d.get('process_mode'), PROCESS_MODES, d_d['process_mode']),
-        'price_per_item': int(_clamp(
-            _coerce_int(src_d.get('price_per_item'), d_d['price_per_item']),
-            ES_PRICE_MIN, ES_PRICE_MAX, d_d['price_per_item'])),
-        'gold_floor': int(_clamp(
-            _coerce_int(src_d.get('gold_floor'), d_d['gold_floor']),
-            ES_GOLD_FLOOR_MIN, ES_GOLD_FLOOR_MAX, d_d['gold_floor'])),
-        'max_gold_spend': int(_clamp(
-            _coerce_int(src_d.get('max_gold_spend'), d_d['max_gold_spend']),
-            ES_MAXSPEND_MIN, ES_MAXSPEND_MAX, d_d['max_gold_spend'])),
-        'batch_size': int(_clamp(
-            _coerce_int(src_d.get('batch_size'), d_d['batch_size']),
-            ES_BATCH_MIN, ES_BATCH_MAX, d_d['batch_size'])),
+        'daggers_per_round': int(_clamp(
+            _coerce_int(src_d.get('daggers_per_round'), d_d['daggers_per_round']),
+            ES_DAGGERS_MIN, ES_DAGGERS_MAX, d_d['daggers_per_round'])),
     }
     shared = {
         'speed_profile': _enum(
@@ -480,9 +451,6 @@ def _validate_energiesplitter(value):
         'birdseye_on_miss': bool(
             src_s.get('birdseye_on_miss', d_s['birdseye_on_miss'])),
         'dry_run': bool(src_s.get('dry_run', d_s['dry_run'])),
-        # yang_check: TRUE (sicher, Default) = live Yang-Gold-Wand aktiv; FALSE =
-        # nur max_actions + fester max_gold_spend-Deckel begrenzen (RISIKO).
-        'yang_check': bool(src_s.get('yang_check', d_s['yang_check'])),
     }
     return {'hammer': hammer, 'dagger': dagger, 'shared': shared}
 

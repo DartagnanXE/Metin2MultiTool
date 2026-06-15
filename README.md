@@ -9,6 +9,17 @@ behaviour is fully preserved as the default.
 > violates the game's Terms of Service and may get your account banned. Use at
 > your own risk. See [`LICENSE.txt`](LICENSE.txt).
 
+## 🆕 What's new in 1.2.8
+
+- **Energiesplitter simplified + settings cleaned up.** Yang no longer matters
+  (price/balance/spend tracking and the Yang reader were removed entirely; the
+  bot just buys and processes, with action caps and detect-before-action as the
+  safety net). Hammers are always bought as **200-stacks** (you only enter how
+  many stacks); daggers are processed **one after another**. The settings panel
+  is now fully German, grouped and scrollable, with the risky timing knobs under
+  an "Advanced" group. Default stays simulation; you consciously flip "Scharf/
+  Live" for real purchases.
+
 ## 🆕 What's new in 1.2.6
 
 - **Energiesplitter module: now calibrated and armable.** Inventory grid, hammer/

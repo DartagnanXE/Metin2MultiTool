@@ -1,11 +1,14 @@
 # -*- coding: utf-8 -*-
 """Hammer-Modus-State-Maschine (Aktion 1 @ Alchemist) als Mixin.
 
-Kauft am Alchemisten die gewuenschte Hammer-Anzahl in greedy gewaehlten Stacks
-(1/50/200, groesster zuerst). Diese Methoden werden per Mehrfachvererbung Teil
-von :class:`energiesplitter.bot.EnergiesplitterBot`; sie operieren auf der Bot-
-Instanz (``self``) und nutzen deren Eingabe-Wrapper, Backstops und Bruecken.
-Verhalten unveraendert -- reine Extraktion aus ``bot.py``.
+Kauft am Alchemisten ``stack_count`` (X) mal einen **200er-Hammer-Stack**: pro
+Kauf-Schritt wird der 200er-Hammer per Template + Shop-Anker (SHOP_HAMMER_ANCHOR,
+laut Kalibrierung der 200er) lokalisiert, rechtsgeklickt und der Kauf per Re-Read
+des Hammer-Bestands verifiziert -- bis X Stacks gekauft sind, dann Auto-Stop.
+YANG spielt keine Rolle (kein Preis, kein Kontostand). Diese Methoden werden per
+Mehrfachvererbung Teil von :class:`energiesplitter.bot.EnergiesplitterBot`; sie
+operieren auf der Bot-Instanz (``self``) und nutzen deren Eingabe-Wrapper,
+Backstops und Bruecken.
 """
 
 from debuglog import log
@@ -20,7 +23,7 @@ class HammerFlowMixin:
     if st == self.ST_INIT:
       self._log_section()
       log.event(st, t('energiesplitter.started', mode=self.mode))
-      self.hammer_remaining = max(0, int(self.hammer_count))
+      self.hammer_remaining = max(0, int(self.stack_count))
       self.state = self.ST_INVENTORY_BASE
       return
 
@@ -94,7 +97,7 @@ class HammerFlowMixin:
       return
 
     if st == self.ST_CHECK_DONE:
-      if self.gekauft >= int(self.hammer_count):
+      if self.gekauft >= int(self.stack_count):
         self._stop('done')
       else:
         self.state = self.ST_BUY_LOOP
@@ -103,50 +106,36 @@ class HammerFlowMixin:
     self._stop('unknown_state')
 
   def _hammer_buy_step(self):
-    """Ein Kauf-Schritt: Stack greedy waehlen, gold_guard, Rechtsklick,
-    verify_purchase. Alle Backstops vorgeschaltet."""
+    """Kauft GENAU EINEN 200er-Stack: Anker-/Template-verifiziert lokalisieren,
+    Rechtsklick, Re-Read-Verifikation (Hammer-Bestand stieg). Backstops vorab."""
     if self._action_cap_hit():
       return
-    remaining = int(self.hammer_count) - self.gekauft
-    free = self._free_slot_count()
-    stacks = self._plan_stacks(remaining, free)
-    try:
-      log.event(self.state, 'ABSICHT: Hammer-Kaufplan (greedy)',
-                rest=remaining, ziel=self.hammer_count, gekauft=self.gekauft,
-                freie_slots=free, plan=list(stacks), prefer_stack=self.prefer_stack)
-    except Exception:  # pragma: no cover
-      pass
-    if not stacks:
-      # Kein sicherer Kaufplan (kein Platz / Zielzahl erreicht).
-      if remaining <= 0:
-        self.state = self.ST_CHECK_DONE
-      else:
-        log.event(self.state, t('energiesplitter.no_space'))
-        self._stop('no_space')
+    if self.gekauft >= int(self.stack_count):
+      self.state = self.ST_CHECK_DONE
+      return
+    if not self._has_free_slot():
+      log.event(self.state, t('energiesplitter.no_space'))
+      self._stop('no_space')
       return
 
-    stack = stacks[0]
-    cost = stack * int(self.price_per_item)
     try:
       verb = ('[SIM] wuerde' if not self.scharf else 'SCHARF:')
-      log.event(self.state, verb + ' Hammer-Stack kaufen', stack=stack,
-                kosten=cost, slot=getattr(self, '_hammer_slot', None))
+      log.event(self.state, verb + ' 200er-Hammer-Stack kaufen',
+                stack=self.HAMMER_STACK_SIZE, gekauft=self.gekauft,
+                soll=self.stack_count, slot=getattr(self, '_hammer_slot', None))
     except Exception:  # pragma: no cover
       pass
-    gold_before = self.gold_guard(cost)
-    if gold_before is None:
-      return  # gold_guard hat gestoppt
 
     if self._guarded():
       # Sollte hier nie erreichbar sein (GATE in runHack) -- doppelter Riegel.
       self._stop('phase0_not_ready')
       return
 
-    # ERKENNUNG VOR AKTION (pro Kauf): den Shop-Hammer JEDESMAL per TEMPLATE
-    # neu lokalisieren -- nie eine fixe/stale Koordinate rechtsklicken. Schlaegt
-    # die Re-Lokalisierung fehl, faellt der Bot auf den in ST_LOCATE_HAMMER
-    # verifizierten Slot zurueck; ist auch der unbekannt -> sauberer Stop, KEIN
-    # Blind-Klick.
+    # ERKENNUNG VOR AKTION (pro Kauf): den 200er-Shop-Hammer JEDESMAL per TEMPLATE
+    # + Shop-Anker neu lokalisieren -- nie eine fixe/stale Koordinate rechtsklicken.
+    # Schlaegt die Re-Lokalisierung fehl, faellt der Bot auf den in
+    # ST_LOCATE_HAMMER verifizierten Slot zurueck; ist auch der unbekannt ->
+    # sauberer Stop, KEIN Blind-Klick.
     slot = self._locate_shop_item('hammer')
     if slot is None:
       slot = getattr(self, '_hammer_slot', None)
@@ -156,40 +145,27 @@ class HammerFlowMixin:
       return
     self._hammer_slot = slot
 
-    # Bag-Stack VOR dem Kauf merken (zweiter, OCR-unabhaengiger Verifikations-
-    # Beleg: der Hammer-Bestand im Beutel muss nach dem Kauf um ``stack``
-    # gewachsen sein -- nicht nur das Gold gesunken).
+    # Bag-Stack VOR dem Kauf merken (OCR-unabhaengiger Verifikations-Beleg: der
+    # Hammer-Bestand im Beutel muss nach dem Kauf gewachsen sein).
     bag_before = self._count_hammers()
 
     try:
       verb = ('[SIM] wuerde' if self._guarded() else 'SCHARF:')
-      log.event(self.state, verb + ' Hammer rechtsklicken (Kauf)',
-                ziel=tuple(slot), stack=stack, kosten=cost,
-                gold_before=self._fmt_gold(gold_before))
+      log.event(self.state, verb + ' 200er-Hammer rechtsklicken (Kauf)',
+                ziel=tuple(slot), stack=self.HAMMER_STACK_SIZE)
     except Exception:  # pragma: no cover
       pass
     self._right_click(*slot)
     self.actions_done += 1
-    # GEPLANTE Ausgabe (echte Stack-Kosten = stack*price) OCR-unabhaengig
-    # fortschreiben -- Bezugsgroesse des yang_check=FALSE-Deckels, der sonst bei
-    # Stacks>1 die bereits getaetigte Ausgabe unterzaehlt (Safety-Audit MEDIUM).
-    self._note_planned_spend(cost)
 
-    ok, gold_after = self.verify_purchase(gold_before, cost)
-    # Cap-Drift-Haertung: die REAL GELESENE Yang-Abnahme IMMER fortschreiben --
-    # auch wenn der Kauf gleich als nicht-verifiziert gewertet wird -- damit der
-    # max_gold_spend-Deckel die tatsaechliche kumulierte Abnahme begrenzt (sonst
-    # advanciert ein bezahlter, aber unverifizierter Kauf den Deckel nicht).
-    self._note_real_spend(gold_before, gold_after)
-    bag_ok = self._verify_bag_growth(bag_before, stack)
-    if ok and bag_ok:
-      self.gekauft += stack
+    ok = self.verify_hammer_purchase(bag_before)
+    if ok:
+      self.gekauft += 1
       self.consecutive_unverified = 0
       self._buy_retries = 0
       log.event(self.state, t(
-          'energiesplitter.bought', stack=stack, done=self.gekauft,
-          soll=self.hammer_count, gold_before=gold_before,
-          gold_after=self._fmt_gold(gold_after)))
+          'energiesplitter.bought', stack=self.HAMMER_STACK_SIZE,
+          done=self.gekauft, soll=self.stack_count))
       self.state = self.ST_CHECK_DONE
     else:
       # Doppelkauf-Schutz: NICHT sofort erneut rechtsklicken.

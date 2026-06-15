@@ -10,7 +10,8 @@ Headless mit ECHTEM cv2/numpy gegen die 26 echten Fixtures. Geprueft wird:
   * **Selektions-Ring**: Treffer am echten roten Ring, KEIN Treffer bei
     HP-Leiste / leerer Wiese / NPC-loser Szene (Ring-Form-Test).
   * **Phase-0-Gate** (``assets_ready``): meldet die noch fehlenden Assets
-    (Wortbild-Templates, Item-Icons, gold_digits) ehrlich als ``missing``.
+    (Wortbild-Templates, Item-Icons) ehrlich als ``missing``. YANG spielt keine
+    Rolle mehr (kein Gold-Reader, keine Yang-Ziffern).
   * **NotReady-Pfade**: asset-gebundene Detektoren (``dialog_state``/``shop_open``/
     ``panel_is_bag``) liefern sauber None/False, solange ihre Marker-Templates
     fehlen; werden echte Marker-Templates injiziert, diskriminieren sie korrekt.
@@ -114,11 +115,11 @@ class TestGeometry(unittest.TestCase):
 
 # ---------------------------------------------------------------------------
 class TestAssetsGate(unittest.TestCase):
-    """Asset-Lieferung VOLLSTAENDIG (Phase 1, 2026-06-15): Item-/NPC-Templates +
-    der komplette Yang-Ziffernsatz (0..9 + dot; die zuvor fehlenden 3/4/6/8 sind
-    nachgeliefert) liegen vor -> ``assets_ready`` ist fuer beide Modi GRUEN
-    (``missing == []``). Das Phase-0-Gate KANN damit gruen werden (die restliche
-    Absicherung leistet die Live-Re-Verifikation + die Backstops im Bot)."""
+    """Asset-Lieferung: Item-/NPC-Templates + Shop-Anker liegen vor ->
+    ``assets_ready`` ist fuer beide Modi GRUEN (``missing == []``). YANG spielt
+    keine Rolle mehr -> keine ``yang_digits``-Luecke. Das Phase-0-Gate KANN damit
+    gruen werden (die restliche Absicherung leistet die Grid-/Fenster-
+    Kalibrierung + die Backstops im Bot)."""
 
     def test_hammer_item_and_npc_present(self):
         # Die in CALIBRATION.md gemessenen Live-Templates sind gebundelt.
@@ -129,18 +130,26 @@ class TestAssetsGate(unittest.TestCase):
 
     def test_hammer_gate_green_assets_complete(self):
         ready, missing = d.assets_ready('hammer')
-        # Yang-Ziffern 3/4/6/8 nachgeliefert -> kein fehlendes Asset mehr.
         self.assertEqual(missing, [])
         self.assertTrue(ready)
+
+    def test_no_yang_digits_in_missing(self):
+        # YANG entfernt -> assets_ready meldet niemals 'yang_digits'.
+        for mode in ('hammer', 'dagger'):
+            _ready, missing = d.assets_ready(mode)
+            self.assertNotIn('yang_digits', missing)
 
     def test_dagger_includes_dolch_and_waffenhaendler(self):
         self.assertTrue(d.item_template_available('dolch'))
         ready, missing = d.assets_ready('dagger')
         self.assertNotIn('item:dolch', missing)
         self.assertNotIn('npc:waffenhaendler', missing)
-        # Vollstaendiger Ziffernsatz -> Gate gruen (keine Luecke mehr).
         self.assertEqual(missing, [])
         self.assertTrue(ready)
+
+    def test_grid_present(self):
+        # Der GATE-Grid-Check (ersetzt gold_reader._grid_present) loest auf.
+        self.assertTrue(d.grid_present())
 
     def test_unknown_mode_rejected(self):
         ready, missing = d.assets_ready('bogus')

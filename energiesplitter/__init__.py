@@ -7,7 +7,7 @@ Exportiert die oeffentliche Paket-Oberflaeche: die Bot-Klasse
 LAZY-Export (PEP 562): ``bot`` wird ERST beim ersten Zugriff auf eines dieser
 Symbole importiert -- nicht schon beim Paket-Import. Damit aendert dieses
 ``__init__`` den Import-Graphen der Schwester-Module NICHT: ``from
-energiesplitter import calc`` (bzw. ``detect``/``geometry``/``gold_reader``)
+energiesplitter import calc`` (bzw. ``detect``/``geometry``)
 zieht ``bot`` (und dessen weichen ``pydirectinput``-Import) nicht mit herein.
 Das haelt die Headless-Tests isoliert: wer den Eingabe-Treiber stubben will
 (``tests/test_energiesplitter_flow.py``), importiert ``energiesplitter.bot``

@@ -59,9 +59,8 @@ class _FakeWincap:
 
 def _values(**over):
   base = {
-      '-ES_HAMMER_COUNT-': 200, '-ES_FREISCHALTEN-': False,
-      '-ES_PRICE-': 15000, '-ES_GOLD_FLOOR-': 50000,
-      '-ES_MAX_SPEND-': 0, '-ES_MAX_ACTIONS-': 0,
+      '-ES_STACK_COUNT-': 1, '-ES_FREISCHALTEN-': False,
+      '-ES_DAGGERS_PER_ROUND-': 1, '-ES_MAX_ACTIONS-': 0,
       '-ES_UNVERIF_STOP-': 3, '-ES_DRY_RUN-': True,
   }
   base.update(over)
@@ -112,8 +111,8 @@ class TestConfigSectionLogged(unittest.TestCase):
     with _Capture() as cap:
       bot._log_section()
     self.assertTrue(cap.has('Konfiguration'), cap.lines)
-    self.assertTrue(cap.has('hammer_count=200'), cap.lines)
-    self.assertTrue(cap.has('max_gold_spend='), cap.lines)
+    self.assertTrue(cap.has('stack_count=1'), cap.lines)
+    self.assertTrue(cap.has('daggers_per_round='), cap.lines)
     # Simulation-Kennzeichnung im Config-Log.
     self.assertTrue(cap.has('SIMULATION') or cap.has('betrieb='), cap.lines)
 
@@ -136,15 +135,12 @@ class TestGatePerceptionLogged(unittest.TestCase):
 
   def test_phase0_logs_green(self):
     bot = _make_bot()
-    fake_detect = types.SimpleNamespace(assets_ready=lambda mode: (True, []))
-    fake_geo = types.SimpleNamespace(is_calibrated=lambda w: True,
-                                     gold_roi=lambda mode=None: (0, 0, 1, 1))
-    fake_gold = types.SimpleNamespace(read_gold=lambda b, r: 1,
-                                      is_calibrated=lambda b, r=None: True)
+    fake_detect = types.SimpleNamespace(assets_ready=lambda mode: (True, []),
+                                        grid_present=lambda: True)
+    fake_geo = types.SimpleNamespace(is_calibrated=lambda w: True)
     with _Capture() as cap, \
          mock.patch.object(esbot_mod, '_detect', fake_detect), \
-         mock.patch.object(esbot_mod, '_geometry', fake_geo), \
-         mock.patch.object(esbot_mod, '_gold_reader', fake_gold):
+         mock.patch.object(esbot_mod, '_geometry', fake_geo):
       bot.phase0_gate()
     self.assertTrue(cap.has('Phase-0-GATE: gruen'), cap.lines)
 
@@ -159,58 +155,38 @@ class TestGateStopLogged(unittest.TestCase):
     self.assertTrue(cap.has('Phase-0') or cap.has('GATE rot'), cap.lines)
 
 
-class TestGoldGuardLogged(unittest.TestCase):
-  def test_yang_reading_logged_then_unreadable_stop(self):
+class TestHammerVerifyLogged(unittest.TestCase):
+  def test_hammer_purchase_verification_logged(self):
     bot = _make_bot()
     _arm(bot)
-    bot.gold_floor = 0
-    bot.max_gold_spend = 10 ** 9
-    bot._read_gold = lambda: None
-    bot.botting = True
-    with _Capture() as cap, mock.patch.object(bot, '_snapshot'):
-      out = bot.gold_guard(15000)
-    self.assertIsNone(out)
-    self.assertEqual(bot._stop_reason, 'gold_unreadable')
-    self.assertTrue(cap.has('WAHRNEHMUNG: Yang-Lesung vor Kauf'), cap.lines)
-    self.assertTrue(cap.has('lesbar=False'), cap.lines)
-
-  def test_yang_reading_logs_value(self):
-    bot = _make_bot()
-    _arm(bot)
-    bot.gold_floor = 50000
-    bot.max_gold_spend = 10 ** 9
-    bot._read_gold = lambda: 500000
-    bot.botting = True
+    bot._bag_count_measurable = lambda: True
+    bot._count_hammers = lambda: 1
     with _Capture() as cap:
-      out = bot.gold_guard(15000)
-    self.assertEqual(out, 500000)
-    self.assertTrue(cap.has('gelesen=500000'), cap.lines)
+      bot.verify_hammer_purchase(0)
+    self.assertTrue(cap.has('WAHRNEHMUNG: Hammer-Kauf-Verifikation (Re-Read)'),
+                    cap.lines)
 
 
 class TestSimIntentLogged(unittest.TestCase):
   """Im Simulations-Modus (dry_run/nicht scharf) wird die VOLLE Absicht als
-  '[SIM] wuerde ...' geloggt -- ohne dass Yang ausgegeben wird."""
+  '[SIM] wuerde ...' geloggt -- ohne dass etwas gekauft wird."""
 
   def test_sim_hammer_buy_intent_logged(self):
     bot = _make_bot(mode=MODE_HAMMER)
-    # armed, aber NICHT scharf -> Simulation. gold_guard liefert Sentinel.
+    # armed, aber NICHT scharf -> Simulation.
     bot.armed = True
     bot.dry_run = True
     bot.state = EnergiesplitterBot.ST_BUY_LOOP
     bot._hammer_slot = (100, 90)
-    bot.hammer_count = 10
+    bot.stack_count = 3
     bot.gekauft = 0
-    bot.gold_floor = 0
-    bot.max_gold_spend = 10 ** 9
     bot.botting = True
-    bot._read_gold = lambda: 500000
-    bot._plan_stacks = lambda target, free: [10]
+    bot._free_slot_count = lambda: 5
     bot._locate_shop_item = lambda item: (100, 90)
     with _Capture() as cap:
       bot._hammer_buy_step()
-    self.assertTrue(cap.has('ABSICHT: Hammer-Kaufplan'), cap.lines)
     self.assertTrue(cap.has('[SIM] wuerde'), cap.lines)
-    self.assertTrue(cap.has('Hammer-Stack kaufen'), cap.lines)
+    self.assertTrue(cap.has('200er-Hammer-Stack kaufen'), cap.lines)
 
   def test_sim_dagger_drag_intent_logged(self):
     bot = _make_bot(mode=MODE_DAGGER)
@@ -228,7 +204,7 @@ class TestSimIntentLogged(unittest.TestCase):
       bot._dagger_process_drag()
     self.assertTrue(cap.has('WAHRNEHMUNG: Slot-Klassifikation vor Drag'), cap.lines)
     self.assertTrue(cap.has('[SIM] wuerde'), cap.lines)
-    self.assertTrue(cap.has('Hammer auf Dolch-Slot ziehen'), cap.lines)
+    self.assertTrue(cap.has('Hammer-Stack auf Dolch-Slot ziehen'), cap.lines)
 
 
 class TestPerceptionLogged(unittest.TestCase):

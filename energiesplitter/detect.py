@@ -20,10 +20,10 @@ via NCC ueber das kalibrierte Lattice, Glow-aware), freie Plaetze, Inventar-
 Signatur/Diff, Shop-Item-Lokalisierung, NPC-Name + Selektions-Ring.
 
 SICHERHEITS-INVARIANTE (oberste Prioritaet): **Erkennung vor Aktion.** Jede
-'finde X'-Funktion liefert bei Nichttreffer ``None``/``False`` (NIE raten). Die
-Yang-Ziffern 3/4/6/8 fehlen weiterhin (kein Beleg-Bild) -> ``assets_ready``
-meldet ``yang_digits`` als fehlend und das Phase-0-Gate bleibt korrekt rot, bis
-der vollstaendige Ziffernsatz geliefert ist (Stopp statt Blind-Kauf).
+'finde X'-Funktion liefert bei Nichttreffer ``None``/``False`` (NIE raten).
+``assets_ready`` meldet fehlende Item-/NPC-Templates ehrlich als ``missing`` ->
+das Phase-0-Gate bleibt korrekt rot (Stopp statt Blind-Kauf). YANG spielt seit
+dem Umbau 2026-06-16 KEINE Rolle mehr (kein Gold-Reader, keine ``yang_digits``).
 """
 
 import os
@@ -208,13 +208,12 @@ def assets_ready(mode):
 
     ``mode`` in ``('hammer', 'dagger')``. Liefert ``(ready, missing)``: ``ready``
     nur True, wenn KEIN Artefakt fehlt. Jedes fehlende landet als Klartext-String
-    in ``missing`` (z.B. ``'item:hammer'``, ``'npc:waffenhaendler'``,
-    ``'yang_digits'``). Reine Dateisystem-Pruefung; wirft NIE.
+    in ``missing`` (z.B. ``'item:hammer'``, ``'npc:waffenhaendler'``). Reine
+    Dateisystem-Pruefung; wirft NIE.
 
-    Die Item-/NPC-Templates liegen vor (Phase 1, CALIBRATION.md). Der Yang-Reader
-    bleibt unvollstaendig (Ziffern 3/4/6/8 fehlen) -> ``yang_digits`` bleibt als
-    fehlend gelistet -> das Gate bleibt korrekt rot (Stopp statt Blind-Kauf),
-    bis der volle Ziffernsatz geliefert ist.
+    Die Item-/NPC-Templates + der Shop-Anker liegen vor (Phase 1, CALIBRATION.md).
+    Yang spielt seit dem Umbau 2026-06-16 KEINE Rolle mehr -- es gibt keinen
+    Gold-Reader und keine Yang-Ziffern, also auch keine ``yang_digits``-Luecke.
     """
     missing = []
     m = (mode or '').lower()
@@ -231,13 +230,25 @@ def assets_ready(mode):
     for npc in npcs:
         if not _npc_template_available(npc):
             missing.append('npc:%s' % npc)
-    try:
-        from . import gold_reader as _gr
-        if not _gr.templates_complete():
-            missing.append('yang_digits')
-    except Exception:
-        missing.append('yang_digits')
     return (len(missing) == 0, missing)
+
+
+def grid_present():
+    """``True``, wenn die Inventar-Grid-Geometrie aufloesbar ist (Slot 1 -> Pixel).
+
+    Reiner Kalibrier-Check (``calibration.slot_center``) -- die NICHT-Yang-Saeule
+    des Phase-0-GATE (sichere Drag-/Slot-Ziele). Loest die Kalibrierung nicht in
+    einen plausiblen Punkt auf -> ``False``. Read-only, wirft nie.
+    """
+    if _cal is None:
+        return False
+    try:
+        c = _cal.slot_center(1)
+    except Exception:  # pragma: no cover - defensiv
+        return False
+    return (isinstance(c, (tuple, list)) and len(c) == 2
+            and all(isinstance(v, int) for v in c)
+            and c[0] > 0 and c[1] > 0)
 
 
 # ----------------------------------------------------------------------------
@@ -825,7 +836,7 @@ def diff_landing_slot(before, after):
 
 
 __all__ = [
-    'assets_ready', 'match_word', 'find_npc_name', 'selection_ring_present',
+    'assets_ready', 'grid_present', 'match_word', 'find_npc_name', 'selection_ring_present',
     'dialog_state', 'shop_open', 'panel_is_bag', 'find_shop_item', 'shop_item_roi',
     'read_shop_stack', 'read_shop_stack_sizes', 'read_splitter_growth',
     'load_template', 'item_template_available', 'count_item',

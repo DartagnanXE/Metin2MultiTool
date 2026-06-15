@@ -81,22 +81,6 @@ def slot_cell(slot, size=32):
     return c[0] - half, c[1] - half, int(size), int(size)
 
 
-# -- Yang-Reader (RECHTE Zahl unten rechts = rohes Yang) --------------------
-# Waehrung = YANG. Die RECHTE Zahl ist das rohe Yang (deutsches Format mit '.'
-# als Tausendertrenner: 207.295 / 192.295). Die LINKE Zahl = Won (1 Won = 100
-# Mio Yang) und wird IGNORIERT. Gemessen: Ziffernband y552..558 (Glyph-Hoehe 7px,
-# wie gold_reader.DIGIT_BAND_H), Ziffern rechtsbuendig bis ~x788. ROI deckt bis
-# zu 6 Stellen + Tausenderpunkt ab und ist identisch mit der bestehenden
-# geometry.ROI_GOLD-Messung (beide Shop-/Szene-Zustaende, gleiche Stelle).
-ROI_YANG = (747, 552, 44, 9)       # KALIBRIER-BAR (x,y,w,h; == geometry.ROI_GOLD)
-YANG_DIGIT_BAND_H = 7              # KALIBRIER-BAR (gemessene Glyph-Hoehe)
-
-
-def yang_roi():
-    """ROI ``(x, y, w, h)`` der RECHTEN Yang-Zahl im 800x600-Client. Read-only."""
-    return ROI_YANG
-
-
 # -- Glow-Erkennung ("frisch gekauft", noch nicht gehovert) -----------------
 # Frisch gekaufte Items haben einen blau-weissen Glow-Halo. Gemessen am
 # Slot-Rand-Ring (4px): nicht-leuchtend -> min-Kanal-Mittel ~11..21, Glow-Anteil
@@ -159,7 +143,6 @@ __all__ = [
     'GRID_PITCH_X', 'GRID_PITCH_Y', 'GRID_CELL_W', 'GRID_CELL_H',
     'GRID_ORIGIN_TL', 'INV_HEADER_BAND', 'INV_TAB_BAND', 'INV_GRID_TOP_Y',
     'slot_center', 'slot_cell',
-    'ROI_YANG', 'YANG_DIGIT_BAND_H', 'yang_roi',
     'GLOW_REF_BGR', 'GLOW_RING_PX', 'GLOW_MINCH_THR', 'GLOW_FRACTION_THR',
     'SHOP_HAMMER_ANCHOR', 'SHOP_HAMMER_CELL', 'SHOP_BUY_BUTTON',
     'SHOP_DAGGER_ANCHOR', 'SHOP_DAGGER_CELL',

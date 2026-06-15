@@ -1,19 +1,25 @@
 # Energiesplitter — Implementierungsreifes Design (Synthese-Lead)
 
-> Stand 2026-06-15. Synthese aus Bild-Grundwahrheit (26 Referenzbilder, 4 Gruppen),
-> Design-Entwurf und 3 Red-Team-Verdikten. **Verdikt der Synthese: NO-GO bis Phase-0
-> erfüllt.** Architektur und Sicherheitsdenken sind tragfähig, aber das Modul steht
-> auf vier Subsystemen ohne Bild-Ground-Truth UND ohne Code-Backing (freies OCR,
-> Item-Templates, Gold-Reader, Verarbeitungs-Feedback). Dieses Dokument macht die
-> Blocker explizit und beschreibt den verantwortbaren Bauplan **nach** ihrer Behebung.
+> Stand 2026-06-16. Synthese aus Bild-Grundwahrheit (26 Referenzbilder, 4 Gruppen),
+> Design-Entwurf und 3 Red-Team-Verdikten. **Großumbau 2026-06-16: Yang/Gold-
+> Subsystem KOMPLETT ENTFERNT** (kein Preis, kein Kontostand, kein Gold-Reader,
+> keine Yang-Ziffern-Templates, kein ROI/Rechner). Die Sicherung läuft nur noch
+> über `max_actions` + `consecutive_unverified_stop` + Erkennung-vor-Aktion +
+> Re-Read-Verifikation. Architektur und Sicherheitsdenken bleiben tragfähig; die
+> verbleibenden Subsysteme ohne Bild-Ground-Truth sind Item-Templates und
+> Verarbeitungs-Feedback. Dieses Dokument macht die Blocker explizit und beschreibt
+> den verantwortbaren Bauplan **nach** ihrer Behebung.
 >
-> **Verbindlich vorrangig:** `energiesplitter/REQUIREMENTS_ADDENDUM.md` (User, A1–A3).
-> Wo Addendum und Bild kollidieren, gilt das Addendum als Soll — aber Stack-Größen
-> werden zur Laufzeit per Reader bestätigt (siehe Offene Frage 2).
+> **Verbindlich vorrangig:** `energiesplitter/REQUIREMENTS_ADDENDUM.md` (User).
 
 ---
 
-## 0. Phase-0-GATE (HARTER BLOCKER — vor jeder Gold-/Item-Logik)
+## 0. Phase-0-GATE (HARTER BLOCKER — vor jeder Item-/Kauf-Logik)
+
+`armed = detect.assets_ready(mode)` (Item-/NPC-Templates + Shop-Anker, OHNE
+Yang-Ziffern) **AND** `geometry.is_calibrated(wincap)` (Client ~800×600) **AND**
+`detect.grid_present()` (Inventar-Raster auflösbar, Slot1→Pixel; ersetzt das
+frühere `_grid_present`). Es gibt **keine** Gold-/Content-Calibration-Prüfung mehr.
 
 Verifiziert gegen den echten Code (nicht behauptet):
 
@@ -24,10 +30,8 @@ Verifiziert gegen den echten Code (nicht behauptet):
   alle Fische/Färbemittel/Keys/Boxen). `inventory/types.py`: Nicht-DB-Item →
   `STATE_UNKNOWN`; `find()`/`stack_total()` filtern auf `STATE_ITEM` →
   **`stack_total('Hammer')` ist strukturell IMMER 0.**
-- `inventory/digits.py`: `MAX_DIGITS=4`, `BAND_TOP=13`, `WHITE_MIN=175`, kein
-  Tausenderpunkt → kann den 6-stelligen Gold-Zähler „312.295" **nicht** lesen.
 - `inventory_discard.drag()` existiert mit `mouseUp` im `finally` (Zeile 347–349) →
-  **das ist das wiederzuverwendende Drag-Primitiv (Addendum A2).**
+  **das ist das wiederzuverwendende Drag-Primitiv.**
 
 **Das Modul DARF NICHT klicken/kaufen/draggen, solange nicht vorliegt:**
 
@@ -35,13 +39,12 @@ Verifiziert gegen den echten Code (nicht behauptet):
 | ---- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------- | ---------------------------------- |
 | P0.1 | Live-Crops: Hammer-, Dolch-, Energiesplitter-Icon **im Inventar**                                                                                                                                                                                                 | `inventory_icons/` + itemdb-Templates; ohne sie kein Bestand, keine Kauf-Verifikation, kein sicheres Drag-Ziel | **FEHLT**                          |
 | P0.2 | Wortbild-Templates (de+en) aller zu klickenden Dialogzeilen + NPC-Namen + Header (`Laden öffnen`, `Eine neue Technik!`, `Energiesplitter extrahieren`, `Ein neuer Duft`, `Weiter`, `OK`, `Alchemist`, `Waffenhändler`, `Laden`, `Inventar`, `Ausrüstungsfenster`) | Text-Diskriminierung per **NCC**, da kein freies OCR existiert                                                 | **FEHLT**                          |
-| P0.3 | Gold-ROI-Crops aus **beiden** Shop-Zuständen (Alchemist + Waffenhändler) inkl. Tausenderpunkt                                                                                                                                                                     | eigener Gold-Reader                                                                                            | **FEHLT**                          |
 | P0.4 | Screenshot des **Waffenhändler-Shops geöffnet** (Gruppe „Waffenschmied" hat keinen)                                                                                                                                                                               | shop_open/Dolch-Slot kalibrieren                                                                               | nur 1× aus Gruppe „Einkauf Dolche" |
-| P0.5 | Screenshot des **Verarbeitungs-Vorgangs** (Drag Hammer→Dolch, evtl. Bestätigungsdialog, Splitter-Ergebnis)                                                                                                                                                        | `process_drag`/Result-Reader                                                                                   | **FEHLT komplett**                 |
+| P0.5 | Screenshot des **Verarbeitungs-Vorgangs** (Drag Hammer-Stack→Dolch, Splitter-Ergebnis)                                                                                                                                                                            | `process_drag`/Result-Reader                                                                                   | **FEHLT komplett**                 |
 | P0.6 | Re-Kalibrierung aller Geometrie am echten **800×600-Client** (Bilder sind 802×632 mit OS-Rahmen)                                                                                                                                                                  | jede Pixel-Konstante                                                                                           | offen                              |
 
-Solange P0.1/P0.2/P0.3/P0.5 fehlen, ist nur Read-only-Detektor-Kalibrierung
-zulässig — **kein Gold-ausgebender Lauf.**
+Solange P0.1/P0.2/P0.5 fehlen, ist nur Read-only-Detektor-Kalibrierung
+zulässig — **kein scharfer Kauf-/Verarbeitungs-Lauf.**
 
 ---
 
@@ -57,21 +60,24 @@ Erweitert um die Red-Team-Pflichten. „Erfüllt" heißt: gegen Fixtures grün *
 - **R2 Bild-Treue (ehrlich):** Dialog-Diskriminierung via **NCC-Wortbild-Templates**
   (NICHT „OCR"): LOCKED = Zeile `Eine neue Technik!` vorhanden; UNLOCKED = Zeile
   `Energiesplitter extrahieren` vorhanden; `Laden öffnen` existiert in BEIDEN
-  Zuständen → für reinen Hammerkauf ausreichend. Shop-Stacks werden **gelesen**,
-  nicht angenommen.
-- **R3 Gold-Schutz (hart, doppelt):** Vor JEDEM Kauf Gold lesen; kaufen nur wenn
-  `gelesenes_Gold − geplante_Kosten ≥ gold_floor`. **Zweiter, OCR-unabhängiger
-  Backstop:** absolutes `max_gold_spend = soll_menge × 30.000` (Hammer 15k + Dolch
-  15k, Addendum A3). Gold nicht lesbar → **Stop + Snapshot**, nie blind kaufen.
+  Zuständen → für reinen Hammerkauf ausreichend.
+- **R3 Kauf-Schutz (hart, ergebnisgebunden):** Jeder Kauf wird per **Re-Read**
+  verifiziert (Hammer-/Dolch-Bestand stieg via Template-Diff); nicht verifiziert →
+  Retry, dann Stop. Backstops sind OCR-unabhängig: `max_actions` (Aktions-Obergrenze)
+  - `consecutive_unverified_stop` (N nicht-verifizierte Aktionen in Folge → Stop).
+    Kein Yang-/Budget-Check mehr.
 - **R4 NPC-Robustheit:** NPC lagenunabhängig per Grün-Maske + NCC-Wortbild
   (`Alchemist` / `Waffenhändler` — NICHT „Waffenschmied"); Selektion = **erst
   Rechtsklick → roten Ring formbasiert bestätigen → dann Linksklick**; kein Ring →
   Retry/Vogelperspektive (**Keypress, nicht Rechtsklick-Drag**), nie blind Linksklick.
-- **R5 1:1-Verarbeitung (verifiziert):** Aktion 2 kauft 1 Dolch (Rechtsklick),
-  bestimmt den **realen Lande-Slot per Inventar-Diff**, draggt 1 Hammer via
-  `inventory_discard.drag` auf diesen Slot, **dekrementiert NUR nach positiver
-  Verifikation** (Dolch-Slot jetzt leer UND Splitter-Stack gewachsen). Kein
-  blindes logisches `-1`.
+- **R5 Sequenzielle Verarbeitung (Dolche pro Runde, einzeln nacheinander):**
+  Aktion 2 kauft pro Runde `daggers_per_round` Dolche (Rechtsklick je Dolch,
+  template-verifiziert), verarbeitet sie dann **EINZELN NACHEINANDER**: je Dolch
+  den Hammer-STACK-Slot (Template=Hammer) via `inventory_discard.drag` auf den
+  Dolch-Slot (Template=Dolch) ziehen. **EIN Drag verbraucht 1 Hammer + 1 Dolch
+  (NICHT den ganzen Stack).** Dekrement NUR nach positiver Re-Read-Verifikation
+  (Dolch-Slot leer UND Hammer dekrementiert). Kein blindes logisches `-1`, KEIN
+  Bestätigungsfenster.
 - **R6 Smartes persistentes Inventar:** Layout-Sidecar + Re-Validierung; freie
   Slots/Hammer-Stacks **glow-aware** (GLOW_REF=(176,177,203) verifiziert) mit
   Hover-Clear; Item-Identität NUR via P0.1-Templates; nie auf Vorrat über Bedarf.
@@ -87,8 +93,8 @@ Erweitert um die Red-Team-Pflichten. „Erfüllt" heißt: gegen Fixtures grün *
   `abort_fn`-Seam ab (nicht Polling — `stop_signal`-Tick konsumiert zu schnell).
 - **R10 Endlos-Schutz (ergebnisgebunden):** `max_actions` als das ~1.2-fache der
   Sollzahl (NICHT 5000); zusätzlich `consecutive_unverified ≥ 3 → Stop`; jede
-  Schleife hat eine Abbruchbedingung, die NICHT von der schwächsten OCR abhängt
-  (Gold-Budget + Splitter-Ergebnis-Fortschritt).
+  Schleife hat eine Abbruchbedingung, die am beobachtbaren Ergebnis hängt
+  (Kauf-Re-Read + Verarbeitungs-Fortschritt), nicht an einer logischen Zählung.
 - **R11 Drag-Sicherheit:** Drag NUR von einem als **Hammer** klassifizierten
   Quell-Slot auf einen als **Dolch** klassifizierten Ziel-Slot (beide P0.1-Templates,
   positiv bestätigt). Bei Unklarheit → Stop, kein Drag (sonst Equipment-Verlust).
@@ -110,6 +116,8 @@ energiesplitter/geometry.py        ALLE Pixelkonstanten relativ zum 800×600-Cli
                                    + WindowCapture.offset_x/y. Anker-RELATIV (Header-
                                    NCC) statt absolut. ALLES als KALIBRIER-BAR markiert.
 energiesplitter/detect.py          reine Vision (numpy/cv2, kein IO):
+                                     assets_ready(mode) Phase-0-Asset-Check (OHNE Yang)
+                                     grid_present() Inventar-Raster auflösbar (Slot1->Pixel)
                                      find_npc_name(bgr, word_template) Grün+NCC
                                      selection_ring_present(bgr, near, y_min=240) formbasiert
                                      dialog_state(bgr) -> 'locked'|'unlocked'|None (NCC-Marker)
@@ -117,14 +125,14 @@ energiesplitter/detect.py          reine Vision (numpy/cv2, kein IO):
                                      panel_is_bag(bgr) 'Inventar' vs 'Ausrüstungsfenster'
                                      find_shop_item(bgr, item_template)
                                      read_shop_stack(slot_bgr) Digit-Reader (Shop-Geometrie!)
-                                     read_gold(bgr, roi) EIGENER 6-Stellen+Punkt-Reader
                                      read_splitter_growth(before, after) Diff
 energiesplitter/bot.py             HammerBot + DaggerBot, seher_runner-Stil:
                                    set_to_begin(values), botting-Flag, runHack()
                                    (ein Tick = Erkennung→Entscheidung→Aktion),
                                    abort_fn=stop_signal. Gemeinsame Helfer:
                                    approach_npc, open_shop_via_dialog, buy_rightclick,
-                                   gold_guard, verify_purchase.
+                                   verify_hammer_purchase, verify_process,
+                                   _verify_bag_growth.
 energiesplitter/templates/         NCC-Templates (aus P0.2-Crops):
                                    de/ + en/ je Wortbild; laden_header, inventar_header,
                                    ausruestung_header, dialog-Buttons.
@@ -138,10 +146,10 @@ interface/energiesplitter_runner.py  Live-Runner analog seher_runner.py:
                                      JSONL energiesplitter_results.jsonl in %APPDATA%.
 interface/app/views_energiesplitter.py  EnergiesplitterViewMixin:
                                      _build_energiesplitter_view; zwei Sektionen
-                                     (Hammer/Dolch) je Start/Stop + Settings + Yang-
-                                     Rechner (Addendum A3) + Status/Log; mirror views_seher.
+                                     (Hammer/Dolch) je Start/Stop + Settings +
+                                     Status/Log; mirror views_seher.
 tests/test_energiesplitter_detect.py   Detektoren gegen 26 Fixtures.
-tests/test_energiesplitter_flow.py     State-Machine-Logik, Gold-Guard, 1:1, Stops.
+tests/test_energiesplitter_flow.py     State-Machine-Logik, Verarbeitung, Stops.
 tests/test_energiesplitter_config.py    defaults/validate/clamp/enum.
 ```
 
@@ -170,13 +178,12 @@ Tick). Pflicht-Abbruchbedingungen (rot) stammen aus dem Red-Team.
 ```
 init
   set_to_begin(values): WindowCapture('METIN2'), config einfrieren
-    (soll_haemmer, energie_freischalten, gold_floor, max_gold_spend, prefer_stack)
+    (stack_count, energie_freischalten, max_actions, consecutive_unverified_stop)
   Fenster fehlt -> STOP 'kein Fenster'
 
 inventory_baseline
   run_inventory_scan -> InventoryMap; freie Slots + Hammer-Stacks
     [ABBRUCH] P0.1-Hammer-Template fehlt -> STOP 'Item-Template fehlt'
-  Kaufbedarf berechnen (siehe §5)
   0 freie Slots UND Kauf nötig -> STOP 'kein Platz'
 
 approach_npc
@@ -216,21 +223,18 @@ locate_hammer
   kein Hammer-Icon -> STOP 'Hammer nicht im Shop' (Sortiment-Mismatch loggen)
 
 buy_loop
-  gold_guard: Gold lesen; (Gold - kosten) < gold_floor ODER kumuliert > max_gold_spend -> STOP
-    [ABBRUCH] Gold unlesbar -> Snapshot + STOP (nie blind)
-  greedy Stack-Wahl (Addendum A1: 200 bevorzugt; 50/1 nur für exakte Zielzahl
-    oder freien-Platz-Fit; 200er braucht >=1 EMPTY-Slot)
-    [ABBRUCH] Stack-Read nicht confident -> kleinster sicherer Stack ODER STOP
-  Rechtsklick Stack-Slot
-  verify_purchase: BEIDE Signale - Gold sank ~stack*15k UND (neuer Hammer-Slot
-    ODER bestehender Hammer-Stack +stack via Diff)
+  Kauft IMMER 200er-Stacks, stack_count-mal: pro Kauf-Schritt EIN 200er-Stack.
+  max_actions / consecutive_unverified_stop erreicht -> STOP
+  Rechtsklick 200er-Stack-Slot (Template + SHOP_HAMMER_ANCHOR = der 200er)
+  verify_hammer_purchase / _verify_bag_growth: Hammer-Bestand stieg via Re-Read
+    (neuer Hammer-Slot ODER bestehender Hammer-Stack +200 via Diff)
     nicht verifiziert -> max 2 Retry, danach STOP 'Kauf nicht verifiziert'
     [ABBRUCH] kein Retry-Rechtsklick bevor bewiesen, dass voriger NICHT kaufte
       (Doppelkauf-Schutz)
-  gekauft += stack; glow-aware Re-Scan freier Platz nach 200er-Kauf
+  gekauft += 1 (Stack); glow-aware Re-Scan freier Platz nach Stack-Kauf
 
 check_done
-  gekauft >= soll_haemmer -> stop ; sonst buy_loop
+  gekaufte_stacks >= stack_count -> Auto-Stop ; sonst buy_loop
 
 stop
   Shop schließen (X) optional, Cursor parken, Bilanz loggen, botting=False, JSONL
@@ -240,8 +244,8 @@ stop
 
 ```
 init
-  set_to_begin: wincap, config (process_mode=one_to_one default, gold_floor,
-    max_gold_spend, speed). Fenster fehlt -> STOP
+  set_to_begin: wincap, config (daggers_per_round default 1, max_actions,
+    consecutive_unverified_stop, speed). Fenster fehlt -> STOP
 
 inventory_baseline
   run_inventory_scan -> Hammer-Bestand + Slots
@@ -270,40 +274,39 @@ locate_dolch
   find_shop_item(bgr, dolch_icon)  [Template, NICHT feste Koordinate]
   kein Dolch -> STOP 'Dolch nicht im Shop'
 
-buy_one_dolch  (Addendum A1: Dolche IMMER einzeln=1)
-  gold_guard (wie Hammer) -> Rechtsklick Dolch-1er-Slot
-  verify_purchase: realen Lande-Slot per Inventar-Diff bestimmen
-    (Glow per Hover-Clear entfernen vor Diff), Gold sank ~15k
-    [ABBRUCH] nicht verifiziert -> Retry -> STOP
+buy_round  (daggers_per_round Dolche pro Runde kaufen)
+  Schleife bis keine Hämmer mehr im Inventar:
+  daggers_per_round mal: Rechtsklick Dolch-Slot je Dolch (template-verifiziert)
+    _verify_bag_growth: realen Lande-Slot per Inventar-Diff bestimmen
+      (Glow per Hover-Clear entfernen vor Diff)
+      [ABBRUCH] nicht verifiziert -> Retry -> STOP
+    max_actions / consecutive_unverified_stop erreicht -> STOP
 
-process_drag
-  Quell-Slot = ein als HAMMER klassifizierter Slot (P0.1, positiv)
-  Ziel-Slot  = der eben verifizierte Dolch-Slot (P0.1, positiv)
+process_drag  (EINZELN NACHEINANDER, je gekauftem Dolch)
+  Quell-Slot = der HAMMER-STACK-Slot (Template=Hammer, P0.1, positiv)
+  Ziel-Slot  = der jeweilige verifizierte Dolch-Slot (Template=Dolch, P0.1, positiv)
     [ABBRUCH] Quelle nicht Hammer ODER Ziel nicht Dolch -> STOP (kein Drag)
   inventory_discard.drag(api, x_hammer, y_hammer, x_dolch, y_dolch)
+    EIN Drag verbraucht 1 Hammer + 1 Dolch (NICHT den ganzen Stack); KEIN
+    Bestätigungsfenster.
     (mouseUp im finally; abort erst NACH dem atomaren Drag prüfen)
-    [ABBRUCH-Plan] falls P0.5 einen Bestätigungsdialog zeigt -> eigener State
   _wait_for Bildzustand stabil
 
 verify_process
-  Dolch-Slot jetzt LEER ? UND Splitter-Stack gewachsen (read_splitter_growth) ?
-    JA -> splitter_summe += wert; hammer_remaining -= 1 (NUR jetzt)
+  Dolch-Slot jetzt LEER ? UND Hammer-Stack dekrementiert (Re-Read) ?
+    JA -> hammer_remaining -= 1 (NUR jetzt)
     NEIN -> max 1 Retry -> STOP 'Verarbeitung nicht verifiziert'
-    [ABBRUCH] dolche_gekauft − splitter_erzeugt > 2 -> STOP (kauft ohne zu verarbeiten)
 
 decrement / re-scan
   alle K=~10 Iter glow-aware Re-Scan zur Drift-Korrektur; Fortschritt am
-  SPLITTER-Ergebnis festmachen, NICHT am unbeobachtbaren Hammer-Bestand
+  beobachtbaren Bestand festmachen (Re-Read), NICHT an logischer Zählung
 
 check_done
-  hammer_remaining > 0 -> buy_one_dolch ; ==0 -> stop
+  hammer_remaining > 0 -> buy_round ; ==0 -> stop
 
 stop
-  Shop schließen, Cursor parken, Bilanz (verarbeitet, Splitter-Summe, Dolche, Gold), JSONL
+  Shop schließen, Cursor parken, Bilanz (verarbeitet, Dolche), JSONL
 ```
-
-Batch-Variante (`process_mode='batch'`) bleibt optional/zurückgestellt — Default
-1:1 wegen einfacher Verifikation + Tempo.
 
 ---
 
@@ -311,31 +314,28 @@ Batch-Variante (`process_mode='batch'`) bleibt optional/zurückgestellt — Defa
 
 Format: Element — Datei(en) — Region (802×632, **re-kalibrieren!**) — Methode — Schwelle.
 
-| Element                               | Beleg-Bild                                                           | Region (roh)                                    | Methode                                                                       | Schwelle                          |
-| ------------------------------------- | -------------------------------------------------------------------- | ----------------------------------------------- | ----------------------------------------------------------------------------- | --------------------------------- |
-| NPC-Name Alchemist                    | Alchemist BlRG/Fmx/PeEEl/… (wandert)                                 | Vollbild Spielbereich x150–620,y100–420         | Grün-HSV (G>120,G−R>25,G−B>25) → CC → **NCC-Wortbild** `Alchemist`            | NCC ≥0.8; **kein** Blindfallback  |
-| NPC-Name Waffenhändler                | Einkauf Dolche `angesprochen1`; Waffenschmied ARiPje/bTTNAi          | gleiche Maske                                   | Grün+NCC `Waffenhändler` (umlaut-/varianten-tolerant)                         | NCC ≥0.8                          |
-| Selektions-Ring                       | BlRG/PeEEl/TYu/jSBNb/s4nZ/x9TD; angesprochen1; ARiPje/bTTNAi/VEmBIfd | ~80px um NPC, **y>240**                         | Rot-HSV (R>120,R−G>30,R−B>40) + **Ring-FORM** (elliptisch, Loch mittig)       | Cluster ≥ MIN_RING_PX, ringförmig |
-| (Negativ) eigene HP-Leiste / X-Button | Waffenschmied (rot unter gelbem Namen), Titel-X y<32                 | —                                               | y<32 maskieren; HUD x>595 maskieren; nur near-NPC werten                      | MUSS False liefern                |
-| Dialog locked                         | `erstgespräch1.png`                                                  | Dialog-Zeilenblock (dynamisch)                  | NCC-Marker `Eine neue Technik!` vorhanden                                     | ≥0.85                             |
-| Dialog unlocked                       | `nachErstgesprächnormal.png`                                         | dito                                            | NCC-Marker `Energiesplitter extrahieren` vorhanden                            | ≥0.85                             |
-| Dialogzeile `Laden öffnen`            | erstgespräch1 / angesprochen1                                        | Zeilen-Y **dynamisch** (6 vs 7 Zeilen!)         | NCC-Wortbild, eindeutig (kein 2. Treffer nah)                                 | ≥0.85                             |
-| Story-Buttons `Weiter`/`OK`           | erstgespräch2/3 (`Weiter`), erstgespräch4 (`OK`)                     | Box rechts-unten                                | NCC                                                                           | ≥0.8                              |
-| Shop offen (Alchemist)                | `Shopgeöffnetalchemist.png`                                          | Header x350–545,y50–70                          | NCC `Laden`-Header                                                            | ≥0.7                              |
-| Shop offen (Waffenhändler)            | Einkauf Dolche Shop (P0.4 dünn)                                      | Header x412–552,y56–75                          | NCC `Laden`                                                                   | ≥0.7                              |
-| Panel Bag vs Equip                    | Inventar.png vs alle Shop-Bilder                                     | Header rechts                                   | NCC `Inventar` vs `Ausrüstungsfenster`                                        | ≥0.7                              |
-| Hammer-Slot im Shop                   | Shopgeöffnetalchemist Zeile1 (Stacks 1/50/200, Addendum A1)          | x372–482,y78–104                                | `find_shop_item(hammer_icon)`                                                 | NCC ≥0.7                          |
-| Shop-Stack-Größe                      | dito                                                                 | Slot unten-rechts                               | **Shop-Geometrie**-Digit-Reader (NICHT Inventar-grid)                         | confident-Gate                    |
-| Dolch-Slot im Shop                    | Einkauf Dolche Shop, untere rechte Slots                             | ~x510–550,y330–345                              | `find_shop_item(dolch_icon)` Template                                         | NCC ≥0.7                          |
-| Gold                                  | BlRG (~312.xxx); Aktion-2 (282/312.295)                              | Alchemist x720–795,y455–466; Aktion-2 x740,y405 | **eigener Reader**: 6 Stellen + Tausenderpunkt, 2–3× Upscale, Confidence-Gate | unlesbar → STOP                   |
-| Inventar-Slot frei/belegt             | alle Inventar-Bilder                                                 | grid_lock-relativ                               | Helligkeit/Varianz **glow-aware** (GLOW_REF) + Hover-Clear                    | EMPTY-Klassifikation              |
-| Hammer/Dolch/Splitter im Inventar     | **FEHLT in allen 26**                                                | —                                               | itemdb-Template (P0.1)                                                        | **Blocker**                       |
-| Splitter-Ergebnis 0–15                | **FEHLT (P0.5)**                                                     | Splitter-Slot                                   | `read_splitter_growth(before,after)` Diff; Fallback Bool „gewachsen?"         | —                                 |
-| Inventar-Tabs I–IV                    | BlRG / Shopgeöffnetalchemist                                         | y~205–272                                       | NCC pro Tab; aktiv per Helligkeit, **MAD-Schwelle ~15** (semi-transparent!)   | aktiv > inaktiv                   |
+| Element                               | Beleg-Bild                                                           | Region (roh)                            | Methode                                                                     | Schwelle                          |
+| ------------------------------------- | -------------------------------------------------------------------- | --------------------------------------- | --------------------------------------------------------------------------- | --------------------------------- |
+| NPC-Name Alchemist                    | Alchemist BlRG/Fmx/PeEEl/… (wandert)                                 | Vollbild Spielbereich x150–620,y100–420 | Grün-HSV (G>120,G−R>25,G−B>25) → CC → **NCC-Wortbild** `Alchemist`          | NCC ≥0.8; **kein** Blindfallback  |
+| NPC-Name Waffenhändler                | Einkauf Dolche `angesprochen1`; Waffenschmied ARiPje/bTTNAi          | gleiche Maske                           | Grün+NCC `Waffenhändler` (umlaut-/varianten-tolerant)                       | NCC ≥0.8                          |
+| Selektions-Ring                       | BlRG/PeEEl/TYu/jSBNb/s4nZ/x9TD; angesprochen1; ARiPje/bTTNAi/VEmBIfd | ~80px um NPC, **y>240**                 | Rot-HSV (R>120,R−G>30,R−B>40) + **Ring-FORM** (elliptisch, Loch mittig)     | Cluster ≥ MIN_RING_PX, ringförmig |
+| (Negativ) eigene HP-Leiste / X-Button | Waffenschmied (rot unter gelbem Namen), Titel-X y<32                 | —                                       | y<32 maskieren; HUD x>595 maskieren; nur near-NPC werten                    | MUSS False liefern                |
+| Dialog locked                         | `erstgespräch1.png`                                                  | Dialog-Zeilenblock (dynamisch)          | NCC-Marker `Eine neue Technik!` vorhanden                                   | ≥0.85                             |
+| Dialog unlocked                       | `nachErstgesprächnormal.png`                                         | dito                                    | NCC-Marker `Energiesplitter extrahieren` vorhanden                          | ≥0.85                             |
+| Dialogzeile `Laden öffnen`            | erstgespräch1 / angesprochen1                                        | Zeilen-Y **dynamisch** (6 vs 7 Zeilen!) | NCC-Wortbild, eindeutig (kein 2. Treffer nah)                               | ≥0.85                             |
+| Story-Buttons `Weiter`/`OK`           | erstgespräch2/3 (`Weiter`), erstgespräch4 (`OK`)                     | Box rechts-unten                        | NCC                                                                         | ≥0.8                              |
+| Shop offen (Alchemist)                | `Shopgeöffnetalchemist.png`                                          | Header x350–545,y50–70                  | NCC `Laden`-Header                                                          | ≥0.7                              |
+| Shop offen (Waffenhändler)            | Einkauf Dolche Shop (P0.4 dünn)                                      | Header x412–552,y56–75                  | NCC `Laden`                                                                 | ≥0.7                              |
+| Panel Bag vs Equip                    | Inventar.png vs alle Shop-Bilder                                     | Header rechts                           | NCC `Inventar` vs `Ausrüstungsfenster`                                      | ≥0.7                              |
+| Hammer-Slot im Shop (200er)           | Shopgeöffnetalchemist Zeile1 (nur 200er sichtbar)                    | SHOP_HAMMER_ANCHOR=(425,121)            | `find_shop_item(hammer_icon)`                                               | NCC ≥0.7                          |
+| Dolch-Slot im Shop                    | Einkauf Dolche Shop, obere Reihe                                     | SHOP_DAGGER_ANCHOR=(556,59)             | `find_shop_item(dolch_icon)` Template                                       | NCC ≥0.7                          |
+| Inventar-Slot frei/belegt             | alle Inventar-Bilder                                                 | grid_lock-relativ                       | Helligkeit/Varianz **glow-aware** (GLOW_REF) + Hover-Clear                  | EMPTY-Klassifikation              |
+| Hammer/Dolch/Splitter im Inventar     | **FEHLT in allen 26**                                                | —                                       | itemdb-Template (P0.1)                                                      | **Blocker**                       |
+| Inventar-Tabs I–IV                    | BlRG / Shopgeöffnetalchemist                                         | y~205–272                               | NCC pro Tab; aktiv per Helligkeit, **MAD-Schwelle ~15** (semi-transparent!) | aktiv > inaktiv                   |
 
 Kauf-Mechanik: **Rechtsklick auf Slot-Center** (kein Preis-/Mengenfeld im Bild).
-Verifikation PFLICHT über §3. (Ist Rechtsklick wirklich Sofortkauf ohne Popup? →
-Offene Frage 5.)
+Re-Read-Verifikation PFLICHT über §3 (Bestand stieg). Aktion 1 kauft IMMER den
+200er-Stack (SHOP_HAMMER_ANCHOR = der 200er-Slot), `stack_count`-mal.
 
 ---
 
@@ -363,12 +363,12 @@ Offene Frage 5.)
   Seite I (max I+II) liegen, kein Tab-Wechsel. Vor jeder seitenabhängigen Aktion
   aktiven Tab UND Panel verifizieren; nach Tab-Klick event-getrieben bis Stabil.
 - **Drift-Wahrheit = der Scan**, nicht die logische Zählung. Fortschritt von
-  Aktion 2 am **Splitter-Ergebnis** messen (Stack-Zuwachs), nicht am
-  unbeobachtbaren Hammer-Bestand.
-- **Kaufmenge Aktion 1 (Addendum A1/A3):** genau `soll_haemmer` (UI-Eingabe als
-  ANZAHL); greedy 200 bevorzugt, 50/1 nur für exakte Zielzahl / freien-Platz-Fit;
-  begrenzt durch `(Gold−gold_floor)/15000` und freie Slots; 200er nur bei ≥1 EMPTY.
-- **Kaufmenge Aktion 2:** 1 Dolch pro zu verarbeitendem Hammer (1:1), kein Vorrat.
+  Aktion 2 am **beobachtbaren Bestand** messen (Re-Read), nicht an logischer Zählung.
+- **Kaufmenge Aktion 1:** `stack_count` 200er-Stacks (UI-Eingabe „Anzahl 200er-Stacks",
+  default 1); kauft IMMER den 200er, X-mal; begrenzt durch freie Slots
+  (200er braucht ≥1 EMPTY) + `max_actions`.
+- **Kaufmenge Aktion 2:** `daggers_per_round` Dolche pro Runde, dann einzeln
+  nacheinander verarbeiten; Schleife bis keine Hämmer mehr.
 - **Verschmelzen:** ein gekaufter Stack kann mit bestehendem Hammer-Stack
   VERSCHMELZEN → Verifikation deckt „neuer Slot ODER bestehender Stack +stack" ab.
 
@@ -381,17 +381,8 @@ Offene Frage 5.)
 
 ```
 hammer.energie_freischalten   bool   default False
-hammer.hammer_count           int    default 200   clamp 1..10000   (UI: ANZAHL, A3)
-hammer.price_per              int    default 15000  clamp 1..1e9     (A3; konfigurierbar,
-                                     erster Kauf = 1er-Preisprobe, Abweichung>20% -> Stop)
-hammer.gold_floor             int    default 50000  clamp 15000..1e9
-hammer.max_gold_spend         int    auto = hammer_count*price_per (harter, OCR-unabh. Cap)
-hammer.prefer_stack           enum   ('largest_fit'|'singles')  default 'largest_fit'
-dagger.process_mode           enum   ('one_to_one'|'batch')     default 'one_to_one'
-dagger.price_per              int    default 15000  clamp 1..1e9
-dagger.gold_floor             int    default 50000  clamp 15000..1e9
-dagger.max_gold_spend         int    auto = hammer_remaining*price_per
-dagger.batch_size             int    default 50  clamp 1..200   (nur batch)
+hammer.stack_count            int    default 1   clamp 1..10000   (UI: Anzahl 200er-Stacks)
+dagger.daggers_per_round      int    default 1   clamp 1..200     (UI: Dolche pro Runde)
 shared.speed_profile          enum   ('safe'|'fast')  default 'fast'  (-> settle/poll, nie
                                      unter Render-Minimum)
 shared.mouse_pause            float  default 0.05  clamp 0.03..0.3   (intern pro Operation)
@@ -406,28 +397,21 @@ shared.birdseye_on_miss       bool   default True  (KEYPRESS-Manöver)
 `validate.py`: enums via `_enum`, int/float via `_clamp`, bool via `bool()`,
 `merge_defaults` für Vorbelegung, unbekannte Keys verworfen.
 
-**Yang-Rechner (UI, A3):** live `Hammer XX × 15.000` + `Dolche XX × 15.000` +
-`Summe XX × 30.000`; Freischalt-Kosten ggf. separat. Gold-reicht-Check = Stop
-statt Blind-Kauf.
-
 ---
 
 ## 7. Logging-Schema
 
 - `log.section('Energiesplitter — Hammer')` bzw. `'— Dolch'` beim Start.
 - `log.event(state, msg, **fields)` je State-Übergang: `state`, `dialog_state`,
-  `shop_open`, `gold_before/after`, `stack_chosen`, `gekauft/soll`,
-  `hammer_remaining`, `splitter_result`, `verified`, `retries`.
+  `shop_open`, `gekaufte_stacks/soll`, `hammer_remaining`, `verified`, `retries`.
 - `log.snapshot(name, bgr=frame)` bei JEDEM unerwarteten Zustand (Dialog fehlt,
-  Ring fehlt, Kauf/Verarbeitung nicht verifiziert, Gold/Splitter unsicher) →
+  Ring fehlt, Kauf/Verarbeitung nicht verifiziert) →
   Debug-PNG (mirror `seher_runner._save_debug_frame`/`_log_diagnosis`).
 - JSONL `%APPDATA%/Metin2FishBot/energiesplitter_results.jsonl`: pro Kauf/Verar-
-  beitung ein Record `{timestamp, action, stack, gold_delta, splitter_value,
-verified, retries}`.
-- **Bilanz** am Ende: Hammer gekauft/verarbeitet, Dolche, Splitter-Summe,
-  Gold vorher/nachher, Stop-Grund.
+  beitung ein Record `{timestamp, action, verified, retries}`.
+- **Bilanz** am Ende: Hämmer gekauft/verarbeitet, Dolche, Stop-Grund.
 - **Kein `console.log`** (Projektregel) — alles über `debuglog` + Log-Panel.
-- UI-Live-Feedback: aktueller State + Fortschritt (gekauft/soll bzw.
+- UI-Live-Feedback: aktueller State + Fortschritt (gekaufte Stacks/soll bzw.
   verarbeitet/Bestand) im Status-Label (mirror Manage-Running v1.1.6).
 
 ---
@@ -436,7 +420,7 @@ verified, retries}`.
 
 Alle headless: `pydirectinput` + `win32` + `WindowCapture` gestubbt; `cv2`/`numpy`
 echt auf Fixtures. **Ehrlich: headless-grün ≠ live-funktioniert** — Live-Klick/
-Drag/Kauf/Gold-Lesung am echten Client sind NICHT headless validierbar (Memory-
+Drag/Kauf-Verifikation am echten Client sind NICHT headless validierbar (Memory-
 Regel; 2 kaputte Releases v1.1.1/v1.1.2 stammten genau daher).
 
 - **Fixtures:** alle 26 PNGs → `tests/fixtures/energiesplitter/` (8 Alchemist,
@@ -449,14 +433,12 @@ Regel; 2 kaputte Releases v1.1.1/v1.1.2 stammten genau daher).
   NPC-lose Bilder (2JJQT/KwAgg/Vzkvy/jlJmS)→kein Treffer (kein FP auf gelbem Namen).
 - `test_selection_ring`: Ring-Bilder→True; ohne→False; Titel-X (y<32) + eigene
   HP-Leiste→**kein FP** (Maskentest).
-- `test_gold_ocr`: BlRG→312295, Aktion-2→282295/312295 (±0); unplausibel/unlesbar→None.
-- `test_stack_ocr`: Alchemist-Shop-Zeile1→Stacks **gegen das echte Bild**
-  (Hammer 1/50/200, Addendum A1; Default/Fallback (200, 50, 1)); Dolch einzeln (1).
-- `test_buy_amount_logic`: Sollzahl aus hammer_count; gold_floor + max_gold_spend
-  stoppen; greedy 200 nur bei ≥1 EMPTY (Addendum A1).
-- `test_1to1_loop`: gestubbt → verarbeitet bis Hammer==0, je Iter 1 Dolch + 1 Drag
-  - Splitter-Record; Stop bei 0; **Fortschritt am Splitter, nicht am Bestand**.
-- `test_safety_stops`: kein-Platz / Gold-unlesbar / NPC-nicht-gefunden / Ring-fehlt /
+- `test_buy_amount_logic`: `stack_count` 200er-Stacks → Auto-Stop nach X Stacks;
+  200er nur bei ≥1 EMPTY; `max_actions`/`consecutive_unverified_stop` stoppen.
+- `test_process_loop`: gestubbt → kauft `daggers_per_round` Dolche/Runde, verarbeitet
+  EINZELN NACHEINANDER (je 1 Drag = 1 Hammer + 1 Dolch); Schleife bis Hammer==0;
+  Stop bei 0; **Fortschritt am Re-Read-Bestand, nicht an logischer Zählung**.
+- `test_safety_stops`: kein-Platz / NPC-nicht-gefunden / Ring-fehlt /
   Kauf-nicht-verifiziert / Verarbeitung-nicht-verifiziert / Item-Template-fehlt →
   je sauberer Stop **ohne weiteren Klick** (mock-assert: kein rightClick/Drag nach Guard).
 - `test_drag_abort_finally`: abort mitten im Drag → `mouseUp` wurde aufgerufen
@@ -469,58 +451,47 @@ Regel; 2 kaputte Releases v1.1.1/v1.1.2 stammten genau daher).
 
 ## 9. Konsolidierte Risiko-Tabelle (Severity + Gegenmaßnahme)
 
-| #   | Sev      | Risiko                                                                                                                                                  | Gegenmaßnahme                                                                                                                                                                                   |
-| --- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1   | CRITICAL | **Kein freies OCR im Projekt** — Dialog-Diskriminierung wie beschrieben nicht baubar                                                                    | Methode ehrlich auf **NCC-Wortbild-Template pro String** (P0.2, de+en) umstellen; ODER bewusst Tesseract als Dependency (tessdata in beide .spec packen). Kein Klick ohne geladene Templates.   |
-| 2   | CRITICAL | **Item-Icons Hammer/Dolch/Splitter fehlen** in allen 26 Bildern + `inventory_icons/`                                                                    | P0.1 Live-Crops → itemdb-Templates (Workflow wie chat_ocr). `find('Hammer')` strukturell leer bis dahin → Modul startet nicht, loggt „Item-Template fehlt".                                     |
-| 3   | CRITICAL | **Gold-Reader fehlt**; `digits.py` kann 6-stellig+Tausenderpunkt NICHT lesen                                                                            | Eigener Reader (P0.3): ≥6 Stellen + Punkt, Upscale, Confidence-Gate; +Plausibilität (Gold sinkt nur, um ~stack\*price); unlesbar → Stop.                                                        |
-| 4   | CRITICAL | **15k-Preis unbelegt im Bild**; falsche Verifikations-Schwelle → Dauer-Stop ODER Doppelkauf                                                             | `price_per` konfigurierbar (default 15000, A3); erster Kauf = **1er-Preisprobe**; Verifikation auf gemessenen Diff kalibrieren; Abweichung>20%→Stop; `max_gold_spend`-Backstop OCR-unabhängig.  |
-| 5   | CRITICAL | **Verarbeitungs-Drag völlig unbelegt** (P0.5); evtl. Bestätigungsdialog; Drag auf Fremd-Item = Equipment-Verlust                                        | P0.5 anfordern; Drag NUR Hammer→Dolch (beide Template-verifiziert); decrement NUR nach `verify_process` (Dolch leer + Splitter +1); Bestätigungsdialog als eigener State falls vorhanden.       |
-| 6   | HIGH     | **Stack-Größen GEKLÄRT:** Hammer-Shop-Stacks sind **1/50/200** (Addendum A1, autoritativ). Frühere Bild-Lesung „1/10/100/200" war falsch.               | Zur Laufzeit **lesen**, nicht annehmen; Shop-Geometrie-Reader mit Confidence-Gate; unsicher → kleinster sicherer Stack ODER Stop. Fallback/Default = **(200, 50, 1)** (größter zuerst, greedy). |
-| 7   | HIGH     | **Ring-FP** durch eigene HP-Leiste / rote Tränke / X-Button                                                                                             | Rot-Maske nur near-NPC + y>240; HUD x>595 + y<32 maskieren; **Ring-FORM-Test** (Ellipse mit Loch), nicht nur Pixelzahl; Negativ-Fixtures. Live-Test Pflicht.                                    |
-| 8   | HIGH     | **Vogelperspektive** als Rechtsklick-Drag (Spec) ist im Code ein **Keypress** (`birds_eye_key='g'`); Rechtsklick-Drag = Kamera-Pitch → Fehl-Anvisierung | Vogelperspektive über `_hold_key` (wie campfire), NICHT Rechtsklick-Drag; Rechtsklick nur für NPC-Anvisierung.                                                                                  |
-| 9   | HIGH     | **Geometrie aus 802×632** (OS-Rahmen) auf 800×600 → systematischer y-Offset (vgl. v1.1.0 grid.tl 275→244)                                               | Alles am echten Client re-kalibrieren (P0.6); Klicks **anker-relativ** (Header-NCC) statt absolut; Shop-Item per Template statt fester Koordinate.                                              |
-| 10  | HIGH     | **max_actions=5000** wertlos als Gold-Backstop (5000×15k=75 Mio)                                                                                        | Cap = ~1.2× Sollzahl; +`consecutive_unverified≥3→Stop`; +absolutes `max_gold_spend`.                                                                                                            |
-| 11  | HIGH     | **Dialogzeile daneben** → teure Aktion (Veredelung/Bonuswandel/Splitter herstellen)                                                                     | Eindeutiger NCC-Match ≥0.85; **Negativliste** dieser Zeilen NIE klicken; nach Klick shop_open verifizieren, sonst Stop.                                                                         |
-| 12  | MEDIUM   | **Glow** verfälscht Frei/Belegt + Lande-Slot-Zuordnung im kritischen Moment                                                                             | Glow-aware Pipeline (GLOW_REF) + Hover-Clear vor jeder Zählung/Diff.                                                                                                                            |
-| 13  | MEDIUM   | **Tab/Panel-Verwechslung** (semi-transparente Tab-Reihe; Shop zeigt Equip statt Bag)                                                                    | Vor Scan Panel per Header verifizieren; Tab aktiv per MAD~15; nach Tab-Klick bis Stabil warten; bei Unklarheit Stop statt Drag.                                                                 |
-| 14  | MEDIUM   | **NPC-Name** 3 Schreibvarianten (`Waffenhändler`/`Waffenhandler`/Spec „Waffenschmied")                                                                  | NCC toleranzbehaftet auf echten Schriftzug (P0.2); kein größter-Cluster-Blindfallback in Stadt. **Offene Frage 9.**                                                                             |
-| 15  | MEDIUM   | **200er-Kauf ohne realen Platz** (Glow-FP) → Gold ohne Item / Doppelkauf                                                                                | Frischer glow-bereinigter Scan vor jedem ≥100er; 200er nur bei ≥1 EMPTY; nach Stack-Kauf verifizieren, dass Stack wirklich landete.                                                             |
-| 16  | MEDIUM   | **Anti-Cheat:** neue repetitive Rechtsklick/Drag-Signatur (server-seitige Verhaltens-Detektion)                                                         | Jitter ±15 % auf ALLE Intervalle; Drag-Endpunkte ±2–3 px; variable Kadenz; ehrliche ToS-Notiz in UI/README; optional Aktionen/Min-Cap. Bleibt read-only/extern (Memory-Linie).                  |
-| 17  | MEDIUM   | **Persistenter Reserveslot stale** zwischen Sessions (fremdes Item liegt drin)                                                                          | Re-Validierung als EMPTY bei jedem Loop; belegt + nicht-Dolch → neuen Slot + Layout nachführen.                                                                                                 |
-| 18  | LOW      | **Single-Authority** / zweiter Start-Button parallel                                                                                                    | `on_start` global botting-Flag, verweigert 2. Start; F6 via abort_fn-Seam bricht beide ab; Test: 2. Start startet keinen 2. Worker.                                                             |
-| 19  | LOW      | **version-pin / test_version** vergessen                                                                                                                | Release-Checkliste; headless-grün ≠ live; erster scharfer Lauf mit hohem gold_floor + `max_actions=2`.                                                                                          |
+| #   | Sev      | Risiko                                                                                                                                                  | Gegenmaßnahme                                                                                                                                                                                 |
+| --- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | CRITICAL | **Kein freies OCR im Projekt** — Dialog-Diskriminierung wie beschrieben nicht baubar                                                                    | Methode ehrlich auf **NCC-Wortbild-Template pro String** (P0.2, de+en) umstellen; ODER bewusst Tesseract als Dependency (tessdata in beide .spec packen). Kein Klick ohne geladene Templates. |
+| 2   | CRITICAL | **Item-Icons Hammer/Dolch/Splitter fehlen** in allen 26 Bildern + `inventory_icons/`                                                                    | P0.1 Live-Crops → itemdb-Templates (Workflow wie chat_ocr). `find('Hammer')` strukturell leer bis dahin → Modul startet nicht, loggt „Item-Template fehlt".                                   |
+| 5   | CRITICAL | **Verarbeitungs-Drag wenig belegt** (P0.5); Drag auf Fremd-Item = Equipment-Verlust                                                                     | P0.5 anfordern; Drag NUR Hammer-STACK→Dolch (beide Template-verifiziert); decrement NUR nach `verify_process` (Dolch leer + Hammer dekrementiert); KEIN Bestätigungsfenster.                  |
+| 7   | HIGH     | **Ring-FP** durch eigene HP-Leiste / rote Tränke / X-Button                                                                                             | Rot-Maske nur near-NPC + y>240; HUD x>595 + y<32 maskieren; **Ring-FORM-Test** (Ellipse mit Loch), nicht nur Pixelzahl; Negativ-Fixtures. Live-Test Pflicht.                                  |
+| 8   | HIGH     | **Vogelperspektive** als Rechtsklick-Drag (Spec) ist im Code ein **Keypress** (`birds_eye_key='g'`); Rechtsklick-Drag = Kamera-Pitch → Fehl-Anvisierung | Vogelperspektive über `_hold_key` (wie campfire), NICHT Rechtsklick-Drag; Rechtsklick nur für NPC-Anvisierung.                                                                                |
+| 9   | HIGH     | **Geometrie aus 802×632** (OS-Rahmen) auf 800×600 → systematischer y-Offset (vgl. v1.1.0 grid.tl 275→244)                                               | Alles am echten Client re-kalibrieren (P0.6); Klicks **anker-relativ** (Header-NCC) statt absolut; Shop-Item per Template statt fester Koordinate.                                            |
+| 10  | HIGH     | **max_actions=5000** wertlos als Endlos-Backstop                                                                                                        | Cap = ~1.2× Sollzahl; +`consecutive_unverified≥3→Stop`; Fortschritt am Re-Read-Bestand.                                                                                                       |
+| 11  | HIGH     | **Dialogzeile daneben** → teure Aktion (Veredelung/Bonuswandel/Splitter herstellen)                                                                     | Eindeutiger NCC-Match ≥0.85; **Negativliste** dieser Zeilen NIE klicken; nach Klick shop_open verifizieren, sonst Stop.                                                                       |
+| 12  | MEDIUM   | **Glow** verfälscht Frei/Belegt + Lande-Slot-Zuordnung im kritischen Moment                                                                             | Glow-aware Pipeline (GLOW_REF) + Hover-Clear vor jeder Zählung/Diff.                                                                                                                          |
+| 13  | MEDIUM   | **Tab/Panel-Verwechslung** (semi-transparente Tab-Reihe; Shop zeigt Equip statt Bag)                                                                    | Vor Scan Panel per Header verifizieren; Tab aktiv per MAD~15; nach Tab-Klick bis Stabil warten; bei Unklarheit Stop statt Drag.                                                               |
+| 14  | MEDIUM   | **NPC-Name** 3 Schreibvarianten (`Waffenhändler`/`Waffenhandler`/Spec „Waffenschmied")                                                                  | NCC toleranzbehaftet auf echten Schriftzug (P0.2); kein größter-Cluster-Blindfallback in Stadt. **Offene Frage 9.**                                                                           |
+| 15  | MEDIUM   | **200er-Kauf ohne realen Platz** (Glow-FP) → Klick ohne Item / Doppelkauf                                                                               | Frischer glow-bereinigter Scan vor jedem 200er-Kauf; 200er nur bei ≥1 EMPTY; nach Stack-Kauf per Re-Read verifizieren, dass Stack wirklich landete.                                           |
+| 16  | MEDIUM   | **Anti-Cheat:** neue repetitive Rechtsklick/Drag-Signatur (server-seitige Verhaltens-Detektion)                                                         | Jitter ±15 % auf ALLE Intervalle; Drag-Endpunkte ±2–3 px; variable Kadenz; ehrliche ToS-Notiz in UI/README; optional Aktionen/Min-Cap. Bleibt read-only/extern (Memory-Linie).                |
+| 17  | MEDIUM   | **Persistenter Reserveslot stale** zwischen Sessions (fremdes Item liegt drin)                                                                          | Re-Validierung als EMPTY bei jedem Loop; belegt + nicht-Dolch → neuen Slot + Layout nachführen.                                                                                               |
+| 18  | LOW      | **Single-Authority** / zweiter Start-Button parallel                                                                                                    | `on_start` global botting-Flag, verweigert 2. Start; F6 via abort_fn-Seam bricht beide ab; Test: 2. Start startet keinen 2. Worker.                                                           |
+| 19  | LOW      | **version-pin / test_version** vergessen                                                                                                                | Release-Checkliste; headless-grün ≠ live; erster scharfer Lauf mit `max_actions=2`.                                                                                                           |
 
 ---
 
 ## 10. OFFENE FRAGEN AN DEN USER (nur echte Blocker, nicht aus Bild/Spec lösbar)
 
-1. **Verarbeitungs-Vorgang (P0.5):** Bitte einen Screenshot des Hammer→Dolch-Drags
-   liefern — gibt es einen **Bestätigungsdialog** („wirklich zerstören? Ja/Nein"),
-   und wie sieht das **Splitter-Ergebnis** aus (Chat-Meldung? Stack-Wachstum am
-   Splitter-Slot? Wert 0–15)? Ohne dieses Bild ist Aktion 2 nicht sicher baubar.
-2. **Stack-Größen — GEKLÄRT:** Hammer-Shop-Stacks sind **1/50/200** (Addendum A1,
-   autoritativ; die frühere Bild-Lesung „1/10/100/200" war falsch). Default/Fallback
-   im Code = **(200, 50, 1)** (größter zuerst für greedy `largest_fit`); das Modul
-   liest die Größen zur Laufzeit, fällt aber auf dieses Tupel zurück. Kein offener
-   Konflikt mehr.
-3. **Item-Icons (P0.1):** Bitte Live-Crops eines Inventars **mit gekauften Hämmern,
+1. **Verarbeitungs-Vorgang (P0.5):** Bitte einen Screenshot des Hammer-Stack→Dolch-
+   Drags liefern — bestätigt, dass EIN Drag genau 1 Hammer + 1 Dolch verbraucht
+   (nicht den ganzen Stack) und KEIN Bestätigungsfenster erscheint. Ohne dieses
+   Bild ist Aktion 2 nicht sicher baubar.
+2. **Item-Icons (P0.1):** Bitte Live-Crops eines Inventars **mit gekauften Hämmern,
    einem Dolch und entstandenen Energiesplittern** — diese drei Icons fehlen in
    allen 26 Bildern; ohne sie keine Bestandszählung, keine Kauf-Verifikation, kein
    sicheres Drag-Ziel.
-4. **Waffenhändler-Shop (P0.4):** Ein Screenshot des **geöffneten** Waffenhändler-
+3. **Waffenhändler-Shop (P0.4):** Ein Screenshot des **geöffneten** Waffenhändler-
    Shops (die Gruppe „Waffenschmied" enthält keinen) — zum Kalibrieren von
    shop_open und der Dolch-Slot-Position an DIESEM HUD.
-5. **Rechtsklick = Sofortkauf?** Ist Rechtsklick auf den Shop-Slot wirklich
+4. **Rechtsklick = Sofortkauf?** Ist Rechtsklick auf den Shop-Slot wirklich
    Sofortkauf ohne Mengen-/Bestätigungs-Popup? Falls Popup → zusätzlicher State nötig.
    (Waffenhändler-Shop hat zusätzlich einen „Kaufen"-Button — Fallback-Pfad?)
-6. **Gold-ROI / Preis-Tooltip (P0.3):** Crops des Gold-Zählers aus **beiden** Shop-
-   Zuständen und idealerweise ein **Hover-Tooltip mit dem echten Preis** — bestätigt
-   die 15.000-Yang-Konstante (Addendum sagt 15k; im Bild nirgends belegt).
-7. **NPC-Schriftzug (Offene Frage 9):** Wie heißt der NPC für Aktion 2 am echten
-   Client exakt gerendert — `Waffenhändler` oder `Waffenhandler` (ohne Umlaut)? Und
-   ist es derselbe NPC wie der in der Spec genannte „Waffenschmied"?
-8. **Energie-Freischaltung:** Soll Aktion 1 die Freischaltung (Story `Eine neue
+5. **NPC-Schriftzug:** Wie heißt der NPC für Aktion 2 am echten Client exakt
+   gerendert — `Waffenhändler` oder `Waffenhandler` (ohne Umlaut)? Und ist es
+   derselbe NPC wie der in der Spec genannte „Waffenschmied"?
+6. **Energie-Freischaltung:** Soll Aktion 1 die Freischaltung (Story `Eine neue
 Technik!` → Weiter/Weiter/OK) bei Bedarf durchführen, oder strikt überspringen,
    wenn bereits freigeschaltet? (Default: optional per `energie_freischalten`,
    da reiner Hammerkauf in beiden Zuständen nur `Laden öffnen` braucht.)
@@ -533,9 +504,10 @@ Architektur, Sicherheitsdenken und die Wiederverwendung bewährter Seams
 (`seher_runner`-Tick + abort_fn, `inventory_discard.drag` mit mouseUp-finally,
 `run_inventory_scan`, grid_lock, glow-aware Scan, Single-Authority, ergebnis-
 gebundener Endlos-Schutz) sind tragfähig und an v1.1.x-Lehren angelehnt. Aber das
-Modul ist **erst nach Phase-0** verantwortbar baubar: vier Subsysteme (NCC-Text
-statt OCR, Item-Templates, Gold-Reader, Verarbeitungs-Feedback) haben weder
+Modul ist **erst nach Phase-0** verantwortbar baubar: zwei Subsysteme (NCC-Text
+statt OCR, Item-Templates) und das Verarbeitungs-Feedback haben weder
 Bild-Ground-Truth noch Code-Backing. Bis dahin: nur Read-only-Detektor-
-Kalibrierung, **kein Gold-ausgebender Lauf**. Erster scharfer Lauf zwingend
-**live** (headless validiert weder In-Game-Input, Glow, Tab-Race noch Drag-Treffer)
-mit konservativem `gold_floor` und `max_actions=2`.
+Kalibrierung, **kein scharfer Kauf-/Verarbeitungs-Lauf**. Erster scharfer Lauf
+zwingend **live** (headless validiert weder In-Game-Input, Glow, Tab-Race noch
+Drag-Treffer) mit `max_actions=2`. Sicherung läuft über `max_actions` +
+`consecutive_unverified_stop` + Erkennung-vor-Aktion + Re-Read-Verifikation.

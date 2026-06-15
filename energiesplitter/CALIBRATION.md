@@ -4,14 +4,21 @@ Gemessen 2026-06-15 code-gestuetzt (Python + OpenCV) aus den ECHTEN
 Screenshots. Alle Pixel-Werte gelten im normierten **800x600-Client**.
 Verbindliche Konstanten: `energiesplitter/calibration.py`.
 
+> **Großumbau 2026-06-16:** Yang/Gold-Subsystem KOMPLETT ENTFERNT — der
+> Yang-Reader, die Yang-/Gold-Ziffern-Templates (`yang_digits/`, `gold_digits/`)
+> und `ROI_YANG`/`ROI_GOLD` sind gestrichen. Sicherung läuft über `max_actions`
+>
+> - `consecutive_unverified_stop` + Erkennung-vor-Aktion + Re-Read-Verifikation.
+>   Grid-, Glow-, Item-, NPC- und Shop-Anker-Kalibrierung bleiben unverändert.
+
 ## Mess-Grundlage
 
-| Bild                    | Pfad                                                                      | Rohgroesse | Inhalt                                  |
-| ----------------------- | ------------------------------------------------------------------------- | ---------- | --------------------------------------- |
-| Alchemist-Inventar      | `tests/fixtures/energiesplitter/inventar_alchemist.png` (yKo7rQ4BUz)      | 802x632    | Szene + offenes Inventar + Yang 207.295 |
-| Waffenhaendler-Inventar | `tests/fixtures/energiesplitter/inventar_waffenhaendler.png` (VjWdxCoJqJ) | 802x632    | Szene + offenes Inventar + Yang 192.295 |
-| Hammer-Shop             | `energiesplitter/Einkauf Hammer/Shopgeoeffnetalchemist.png`               | 802x632    | Alchemist-Laden offen                   |
-| Dolch-Shop              | `energiesplitter/Einkauf Dolche/Shopgeoeffnet.png`                        | 802x632    | Waffenhaendler-Laden offen              |
+| Bild                    | Pfad                                                                      | Rohgroesse | Inhalt                     |
+| ----------------------- | ------------------------------------------------------------------------- | ---------- | -------------------------- |
+| Alchemist-Inventar      | `tests/fixtures/energiesplitter/inventar_alchemist.png` (yKo7rQ4BUz)      | 802x632    | Szene + offenes Inventar   |
+| Waffenhaendler-Inventar | `tests/fixtures/energiesplitter/inventar_waffenhaendler.png` (VjWdxCoJqJ) | 802x632    | Szene + offenes Inventar   |
+| Hammer-Shop             | `energiesplitter/Einkauf Hammer/Shopgeoeffnetalchemist.png`               | 802x632    | Alchemist-Laden offen      |
+| Dolch-Shop              | `energiesplitter/Einkauf Dolche/Shopgeoeffnet.png`                        | 802x632    | Waffenhaendler-Laden offen |
 
 Kopien der beiden Inventar-Bilder liegen zusaetzlich unter
 `energiesplitter/Inventar+Verarbeitung/`.
@@ -56,48 +63,7 @@ Verlierer <= 0.39 -> **konfusionsfrei** bei Schwelle `NCC_ITEM=0.70`. Slot 21
 > Screenshots, KEINE Geometrie-Abweichung — die Slot-Typen (Hammer/Dolch)
 > stimmen exakt. Saubere Beleg-Crops: siehe `rows456`-Analyse im Mess-Log.
 
-## 2) Yang-Reader (RECHTE Zahl = rohes Yang)
-
-- Waehrung = **Yang**. Unten rechts; die **RECHTE** Zahl ist rohes Yang
-  (deutsch, `.` = Tausendertrenner): `207.295` / `192.295`. Die LINKE Zahl =
-  Won (1 Won = 100 Mio Yang) -> **ignoriert**.
-- **ROI_YANG = (747, 552, 44, 9)** (x,y,w,h). Ziffernband y552..558
-  (Glyph-Hoehe **7px**, identisch zu `gold_reader.DIGIT_BAND_H`), rechtsbuendig
-  bis ~x788. Beide Bilder + beide Shop-Zustaende gleiche Stelle. Deckt sich mit
-  der bestehenden `geometry.ROI_GOLD`.
-
-### Ziffern-Templates `templates/yang_digits/`
-
-Aus 207.295 + 192.295 ableitbar: **0, 1, 2, 5, 7, 9** + `.` (dot). Dekodier-Test
-(Luecken-Segmentierung + NCC, normiert) liest beide Zahlen exakt zurueck
-(`207.295`, `192.295`).
-
-**GESCHLOSSEN (2026-06-15): 3, 4, 6, 8 nachgeliefert.** Aus neuen Beleg-Bildern
-extrahiert (Crop an `ROI_YANG`, weisse Glyph-Maske, Hoehe 7, gespeichert als
-`<glyph>__waf.png`):
-
-| Ziffer | Quelle (Fixture)  | Lese-Beleg                                           |
-| ------ | ----------------- | ---------------------------------------------------- |
-| `3`    | `yang_131895.png` | 2. Stelle (auch `gold_digits/` hatte 3)              |
-| `6`    | `yang_161495.png` | 2. Stelle                                            |
-| `8`    | `yang_129895.png` | liest exakt `129895`                                 |
-| `4`    | `yang_161495.png` | 4-9-Paar (beruehrend, template-getrieben gesplittet) |
-
-Der Ziffernsatz ist jetzt **vollstaendig** (0..9 + dot) ->
-`gold_reader.templates_complete()` ist **True** und `detect.assets_ready` meldet
-`yang_digits` NICHT mehr als fehlend (das Phase-0-Gate KANN gruen werden).
-Verifiziert: der Reader liest **207.295 / 192.295 / 161.495 / 129.895 / 312.295**
-exakt zurueck.
-
-**Ehrlichkeit zur Beleg-Lieferung:** Das Bild `yang_131895.png` rendert am echten
-Pixel `131.495` (die 4. Stelle ist ein `4`, byte-identisch zur 4-9-Gruppe in
-`yang_161495.png`), NICHT `131.895` wie in der Beleg-Notiz angegeben. Der Reader
-liest korrekt, was gerendert ist; der saubere `8`-Beleg kommt aus
-`yang_129895.png`. (Beruehrende Ziffernpaare wie 4-9 werden template-getrieben am
-besten Schnitt geteilt; jede Teil-Ziffer muss EINZELN ueber `CONF_MIN` matchen --
-keine Aufweichung der "nie raten"-Invariante.)
-
-## 3) Item-Templates `templates/`
+## 2) Item-Templates `templates/`
 
 | Datei        | Quelle                                     | Groesse | Zweck            |
 | ------------ | ------------------------------------------ | ------- | ---------------- |
@@ -120,13 +86,13 @@ Metrik = Glow-Anteil im 4px-Slot-Randring (Pixel mit `min(B,G,R) > 80`):
 provably konfusionsfrei. `GLOW_REF_BGR=(203,177,176)` = Projekt-`GLOW_REF`
 (RGB 176,177,203) als BGR; die robustere Entscheidung ist der Glow-Anteil.
 
-## 4) Shop-Anker (Erkennung vor Aktion)
+## 3) Shop-Anker (Erkennung vor Aktion)
 
-- **Hammer-Shop (Alchemist):** Energiesplitter-Hammer (200er-Stack) per
-  `hammer.png`-NCC lokalisiert bei Zell-Mitte **(425, 121)**. `SHOP_BUY_BUTTON`
-  ~ (425, 273) (grob, "Kaufen"). Stack-Groessen lt. Spec 1/50/200 — in diesem
-  Screenshot nur der **200er** sichtbar.
-  **LUECKE:** 1er-/50er-Stack-Positionen (separater Shop-Screenshot noetig).
+- **Hammer-Shop (Alchemist):** `SHOP_HAMMER_ANCHOR = (425, 121)` = die Zell-Mitte
+  des **200er-Hammer-Stacks** (per `hammer.png`-NCC lokalisiert). Aktion 1 kauft
+  IMMER diesen 200er-Slot, `stack_count`-mal. `SHOP_BUY_BUTTON` ~ (425, 273)
+  (grob, "Kaufen"). In diesem Screenshot ist nur der 200er sichtbar; 1er-/50er-
+  Stacks werden NICHT mehr gebraucht (greedy Stack-Plan entfernt).
 - **Dolch-Shop (Waffenhaendler): GESCHLOSSEN (2026-06-15).** Der vom User rot
   markierte Dolch-Slot liegt in der **oberen Shop-Reihe**. Im SAUBEREN,
   unannotierten Screenshot (`Einkauf Dolche/Shopgeoeffnet.png`) ist der Dolch per
@@ -138,7 +104,7 @@ provably konfusionsfrei. `GLOW_REF_BGR=(203,177,176)` = Projekt-`GLOW_REF`
   / `_locate_shop_item('dolch')` finden den Slot jetzt am Anker (anker-zentrierte
   Such-ROI via `detect.shop_item_roi`). Erkennung vor Aktion bleibt gewahrt.
 
-## 5) NPC-Erkennung `templates/npc/`
+## 4) NPC-Erkennung `templates/npc/`
 
 | Datei                | Quelle                             | Fundort (Client) | Selbst-NCC |
 | -------------------- | ---------------------------------- | ---------------- | ---------- |
@@ -170,27 +136,21 @@ splitter-Ergebnis muss NICHT erkannt/gezaehlt werden.
 
 - Grid-Geometrie (Pitch 32, Ursprung (648,258)) — an 8 Slots + Autokorrelation
   verifiziert, beide Bilder identisch.
-- Yang-ROI + **vollstaendiger** Ziffernsatz 0..9 + dot — 207.295/192.295/161.495/
-  129.895/312.295 exakt dekodiert (3/4/6/8 am 2026-06-15 nachgeliefert).
 - Hammer/Dolch-Templates + Glow — konfusionsfrei an 11 Slot-Instanzen.
 - NPC-Wortbilder Alchemist/Waffenhaendler — self 1.0, cross <= 0.34.
-- Hammer-Shop-Anker (200er) — NCC-lokalisiert.
+- Hammer-Shop-Anker (200er) `SHOP_HAMMER_ANCHOR=(425,121)` — NCC-lokalisiert.
 - **Dolch-Shop-Anker (556,59)** — NCC 1.00, einziger Treffer; `shop_dolch.png`.
 
 **Geschlossene Luecken (2026-06-15):**
 
-1. Yang-Ziffern **3, 4, 6, 8** — extrahiert; Ziffernsatz vollstaendig,
-   `templates_complete()` True. (Hinweis: `yang_131895.png` rendert real
-   `131.495`; sauberer `8`-Beleg aus `yang_129895.png`.)
-2. **Dolch-Shop-Slot** — `SHOP_DAGGER_ANCHOR = (556, 59)` + `shop_dolch.png`.
+1. **Dolch-Shop-Slot** — `SHOP_DAGGER_ANCHOR = (556, 59)` + `shop_dolch.png`.
 
 **Verbleibende Luecken (ehrlich):**
 
-3. Hammer-Stacks **1 / 50** im Shop nicht sichtbar (nur 200er).
-4. `SHOP_BUY_BUTTON` nur grob (kein Knopf-Template).
-5. ALLES an FIXTURES gemessen -> Live-Re-Verifikation (P0.6) Pflicht vor scharf
-   (bei `yang_check=TRUE`; `yang_check=FALSE` entfernt die live Gold-Wand —
-   RISIKO, dann begrenzen nur `max_actions` + fester `max_gold_spend`-Deckel).
+2. `SHOP_BUY_BUTTON` nur grob (kein Knopf-Template).
+3. ALLES an FIXTURES gemessen -> Live-Re-Verifikation (P0.6) Pflicht vor scharf.
+   Sicherung im scharfen Lauf: `max_actions` + `consecutive_unverified_stop` +
+   Re-Read-Verifikation jeder Aktion (kein Yang/Gold-Backstop mehr).
 
 > Sicherheits-Invariante bleibt oberste Prioritaet: gekauft/gedraggt wird NUR
 > bei live per Template verifiziertem Item (Quelle=Hammer, Ziel=Dolch). Jede

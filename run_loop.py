@@ -396,23 +396,17 @@ class RunLoop:
         """
         es = self.controller.current_config()['energiesplitter']
         is_dagger = (mode == 'energiesplitter_dagger')
-        which = es['dagger'] if is_dagger else es['hammer']
         shared = es['shared']
         try:
             values['-ES_MODE-'] = 'dagger' if is_dagger else 'hammer'
             # hammer-spezifisch (im dagger-Modus dennoch gesetzt -> der Bot
             # ignoriert die unzutreffenden, friert aber konsistent ein).
-            values['-ES_HAMMER_COUNT-'] = int(es['hammer']['hammer_count'])
+            values['-ES_STACK_COUNT-'] = int(es['hammer']['stack_count'])
             values['-ES_FREISCHALTEN-'] = bool(
                 es['hammer']['energie_freischalten'])
-            values['-ES_PREFER_STACK-'] = str(es['hammer']['prefer_stack'])
             # dagger-spezifisch.
-            values['-ES_PROCESS_MODE-'] = str(es['dagger']['process_mode'])
-            values['-ES_BATCH-'] = int(es['dagger']['batch_size'])
-            # preis/gold/cap aus dem AKTIVEN Sub-Dict (hammer ODER dagger).
-            values['-ES_PRICE-'] = int(which['price_per_item'])
-            values['-ES_GOLD_FLOOR-'] = int(which['gold_floor'])
-            values['-ES_MAX_SPEND-'] = int(which['max_gold_spend'])
+            values['-ES_DAGGERS_PER_ROUND-'] = int(
+                es['dagger']['daggers_per_round'])
             # shared.
             values['-ES_SPEED-'] = str(shared['speed_profile'])
             values['-ES_MOUSE_PAUSE-'] = float(shared['mouse_pause'])
@@ -423,7 +417,6 @@ class RunLoop:
             values['-ES_JITTER-'] = float(shared['jitter_pct'])
             values['-ES_BIRDSEYE-'] = bool(shared['birdseye_on_miss'])
             values['-ES_DRY_RUN-'] = bool(shared['dry_run'])
-            values['-ES_YANG_CHECK-'] = bool(shared['yang_check'])
         except Exception as exc:
             log.error(t('run.crash_in_runhack'), exc=exc)
         return values

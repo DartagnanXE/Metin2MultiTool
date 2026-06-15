@@ -3,6 +3,26 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.8] — 2026-06-16
+
+### Geändert (Energiesplitter: vereinfacht + Einstellungen aufgeräumt)
+
+- **Yang spielt keine Rolle mehr.** Preis, Kontostand und Ausgabe-Überwachung
+  (inkl. Yang-Rechner und Yang-Leser) wurden komplett entfernt — der Bot kauft
+  und verarbeitet einfach, ohne Yang zu zählen. Als Sicherheit bleiben das
+  **Aktions-Limit**, der **Stop nach unverifizierten Käufen** und vor allem die
+  **Erkennung vor Aktion** (es wird nur gekauft/gezogen, was sicher als Hammer
+  bzw. Dolch erkannt wurde).
+- **Hammer immer als 200er-Stack.** Du gibst nur noch die **Anzahl 200er-Stacks**
+  ein; der Bot kauft genau so viele 200er-Stacks (keine 1er/50er mehr).
+- **Dolche werden nacheinander verarbeitet** (keine Massen-Verarbeitung): pro
+  Runde 1 (oder mehrere) Dolche kaufen, dann Hammer-Stack einzeln auf jeden Dolch
+  ziehen.
+- **Einstellungen komplett auf Deutsch, gruppiert und scrollbar.** Keine
+  englischen Roh-Bezeichner mehr; heikle Tempo-Regler liegen unter „Erweitert"
+  mit Warnhinweis. Standard bleibt **Simulation** (bewusster „Scharf/Live"-
+  Schalter für echte Käufe).
+
 ## [1.2.7] — 2026-06-15
 
 ### Behoben (kritisch)

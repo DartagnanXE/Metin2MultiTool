@@ -2,8 +2,8 @@
 """Detect-/Geometry-Bruecken des Energiesplitter-Bots (Mixin).
 
 Buendelt alle defensiven Read-Only-Adapter auf Agent A (``detect``/
-``geometry``) und Agent B (``calc``): Item-/Slot-Erkennung, freie Plaetze,
-Shop-Item-Lokalisierung, Inventar-Signatur/Diff sowie der greedy Stack-Plan.
+``geometry``): Item-/Slot-Erkennung, freie Plaetze, Shop-Item-Lokalisierung,
+Inventar-Signatur/Diff.
 
 Diese Methoden werden per Mehrfachvererbung Teil von
 :class:`energiesplitter.bot.EnergiesplitterBot` -- die oeffentliche API der
@@ -18,7 +18,7 @@ abweichendes Capture wird als 'nicht erkannt' (None/0/False/[]) behandelt,
 nie als Absturz. KEINE Klick-/Maus-Logik (das macht der Bot-Kern).
 """
 
-from typing import List, Optional, Tuple
+from typing import Tuple
 
 from debuglog import log
 from i18n import t
@@ -29,11 +29,6 @@ try:  # pragma: no cover - calibration ist rein/headless, defensiv importiert
   from energiesplitter import calibration as _cal
 except Exception:  # pragma: no cover
   _cal = None
-
-# Fallback-Stack-Groessen, falls der Shop-Reader (Phase-0) noch ``None`` liefert.
-# WAHRHEIT laut Addendum A1: Hammer-Stacks 1 / 50 / 200 (groesster zuerst fuer
-# greedy 'largest_fit'). Frueher faelschlich (200,100,10,1) aus dem Shop-Bild.
-FALLBACK_STACK_SIZES: Tuple[int, ...] = (200, 50, 1)
 
 # Toleranz (Pixel), in der ein lokalisierter Shop-Hammer mit dem kalibrierten
 # Shop-Anker uebereinstimmen muss (Erkennung vor Aktion). Abweichung groesser ->
@@ -195,34 +190,6 @@ class BridgesMixin:
     except Exception:  # pragma: no cover
       return None
     return None
-
-  def _plan_stacks(self, target: int, free_slots: int) -> List[int]:
-    """Greedy Stack-Plan ueber Agent B (LAUFZEIT-gelesene Stack-Groessen).
-    Single-Modus -> nur 1er. Defensiv -> [] bei fehlendem calc/Read."""
-    if target <= 0:
-      return []
-    sizes = self._read_shop_stack_sizes()
-    if self.prefer_stack == 'singles':
-      sizes = (1,)
-    if _b._calc is None or not hasattr(_b._calc, 'plan_stack_purchase'):
-      # Ohne Rechner: defensiv genau 1er-Stacks, sofern Platz.
-      return [1] if free_slots > 0 else []
-    try:
-      return list(_b._calc.plan_stack_purchase(target, free_slots, sizes))
-    except Exception:  # pragma: no cover
-      return []
-
-  def _read_shop_stack_sizes(self) -> Tuple[int, ...]:
-    """Gelesene Stack-Groessen aus dem Shop (A); Fallback Shop-Bild-Tupel
-    (Addendum A1: 1/50/200)."""
-    if _b._detect is not None and hasattr(_b._detect, 'read_shop_stack_sizes'):
-      try:
-        sizes = _b._detect.read_shop_stack_sizes(self._shot())
-        if sizes:
-          return tuple(sizes)
-      except Exception:  # pragma: no cover
-        pass
-    return FALLBACK_STACK_SIZES
 
   def _ensure_bag_open(self) -> bool:
     """Im Shop ist rechts oft 'Ausruestungsfenster' statt Tasche -> per

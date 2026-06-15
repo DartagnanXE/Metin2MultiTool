@@ -1,8 +1,14 @@
-# Energiesplitter — VERBINDLICHER BUILD-CONTRACT (Tech-Lead, 2026-06-15)
+# Energiesplitter — VERBINDLICHER BUILD-CONTRACT (Tech-Lead, 2026-06-16)
 
 > Quelle der Wahrheit für ALLE Build-Agenten (A/B/C/D). Bei Konflikt gilt dieser
 > Contract > DESIGN.md > REQUIREMENTS_ADDENDUM.md. Alle Andockpunkte unten sind am
 > echten Code verifiziert (Zeilennummern als Orientierung, nicht als Patch-Anker).
+>
+> **Großumbau 2026-06-16: Yang/Gold-Subsystem KOMPLETT ENTFERNT.** Kein Preis, kein
+> Kontostand, kein `gold_reader.py`, keine Yang-Ziffern-Templates, kein ROI/Rechner.
+> Eingaben sind jetzt `stack_count` (Anzahl 200er-Stacks) und `daggers_per_round`
+> (Dolche pro Runde). Sicherung allein über `max_actions` +
+> `consecutive_unverified_stop` + Erkennung-vor-Aktion + Re-Read-Verifikation.
 >
 > **Projekt-Stil bindend:** 2-Space-Indent, Single-Quotes, Semikolon-frei (Python),
 > kleine Dateien (<800 Z.), explizite Fehlerbehandlung, **KEIN `print`/`console.log`**
@@ -11,7 +17,7 @@
 > folgt dem Projektstil (Annotations optional, Verhalten bindend).
 >
 > **PHASE-0-STATUS: NO-GO für scharfe Läufe.** P0.1 (Item-Icons), P0.2 (Wortbild-
-> Templates), P0.3 (Gold-ROI), P0.5 (Verarbeitungs-Crop) fehlen. Diese Phase baut
+> Templates), P0.5 (Verarbeitungs-Crop) fehlen. Diese Phase baut
 > **NUR** das Detection-Framework + Stubs + Tests gegen die vorhandenen 26 Bilder.
 > **KEIN version-Bump, KEIN Release.** Der Bot DARF NICHT klicken/kaufen/draggen,
 > solange das Phase-0-Gate (§2) nicht grün ist.
@@ -83,12 +89,9 @@ blockierend wie `seher_runner._click_until` (event-getrieben, kein Fixkadenz).
 | `self.wincap`                         | WindowCapture | `WindowCapture(constants.GAME_NAME)`; Fenster fehlt → STOP                             |
 | `self.stop_signal`                    | StopSignal    | vom run_loop injiziert (vor set_to_begin) — Quelle für `abort_fn`                      |
 | **Config (eingefroren aus `values`)** |               |                                                                                        |
-| `self.hammer_count`                   | int           | Soll-Hammer (Aktion 1)                                                                 |
+| `self.stack_count`                    | int           | Anzahl 200er-Stacks (Aktion 1; Default 1)                                              |
 | `self.energie_freischalten`           | bool          | Aktion 1: Freischaltung versuchen (sonst auto-skip)                                    |
-| `self.price_per_item`                 | int           | Yang/Stück (Default 15000; Verifikations-Schwelle)                                     |
-| `self.process_mode`                   | str           | `'one_to_one'`\|`'batch'` (Default one_to_one; batch zurückgestellt)                   |
-| `self.batch_size`                     | int           | nur batch                                                                              |
-| `self.prefer_stack`                   | str           | `'largest_fit'`\|`'singles'`                                                           |
+| `self.daggers_per_round`              | int           | Dolche pro Runde (Aktion 2; Default 1)                                                 |
 | `self.mouse_pause`                    | float         | per-Operation (Maus, Default 0.05)                                                     |
 | `self.keyboard_pause`                 | float         | per-Operation (Tastatur, Default 0.10)                                                 |
 | `self.speed_profile`                  | str           | `'safe'`\|`'fast'` → settle/poll-Skala                                                 |
@@ -96,18 +99,14 @@ blockierend wie `seher_runner._click_until` (event-getrieben, kein Fixkadenz).
 | `self.birdseye_on_miss`               | bool          | bei NPC-Miss 1× Vogelperspektive-KEYPRESS                                              |
 | `self.birds_eye_key`                  | str           | `'g'` (KEYPRESS, NICHT Rechtsklick-Drag)                                               |
 | **Safety-Backstops (Attribute)**      |               |                                                                                        |
-| `self.gold_floor`                     | int           | nie kaufen wenn `gelesenes_Gold − Kosten < gold_floor`                                 |
-| `self.max_gold_spend`                 | int           | absoluter OCR-unabhängiger Cap (auto = soll × 2 × price_per_item)                      |
 | `self.max_actions`                    | int           | Endlos-Cap (auto = round(1.2 × soll)); pro Kauf/Drag inkrementiert `self.actions_done` |
 | `self.consecutive_unverified_stop`    | int           | Stop nach N nicht-verifizierten Aktionen in Folge (Default 3)                          |
 | `self.dry_run`                        | bool          | **Default True bis Phase-0 armiert** — KEIN Klick/Kauf/Drag, nur Erkennung+Log         |
 | `self.armed`                          | bool          | Phase-0-Gate-Resultat (siehe §2); `dry_run OR NOT armed` ⇒ niemals teure Aktion        |
 | **Laufzeit-Zähler**                   |               |                                                                                        |
-| `self.gekauft`                        | int           | gekaufte Hämmer (verifiziert)                                                          |
+| `self.gekaufte_stacks`                | int           | gekaufte 200er-Stacks (verifiziert)                                                    |
 | `self.hammer_remaining`               | int           | zu verarbeitende Hämmer (Dolch-Modus)                                                  |
-| `self.splitter_summe`                 | int           | erzeugte Splitter (verifiziert)                                                        |
 | `self.actions_done`                   | int           | gegen `max_actions`                                                                    |
-| `self.gold_spent`                     | int           | gegen `max_gold_spend`                                                                 |
 | `self.consecutive_unverified`         | int           | gegen `consecutive_unverified_stop`                                                    |
 
 ### 1.4 Methoden (öffentlicher Vertrag)
@@ -127,11 +126,11 @@ phase0_gate()          # -> (armed: bool, missing: list[str]) ; siehe §2. Setzt
 ```
 
 **`set_to_begin`-Reset (verbindlich):** `set_to_begin` ist idempotent re-aufrufbar
-und setzt JEDESMAL: `state=ST_INIT`, `gekauft=0`, `hammer_remaining=0`,
-`splitter_summe=0`, `actions_done=0`, `gold_spent=0`, `consecutive_unverified=0`,
+und setzt JEDESMAL: `state=ST_INIT`, `gekaufte_stacks=0`, `hammer_remaining=0`,
+`actions_done=0`, `consecutive_unverified=0`,
 und liest `mode` frisch von der Instanz (run_loop setzt `bot.mode` vor dem Aufruf).
-`max_gold_spend`/`max_actions` werden in `set_to_begin` aus `hammer_count`/
-`price_per_item` ABGELEITET, falls nicht explizit gesetzt.
+`max_actions` wird in `set_to_begin` aus `stack_count`/`daggers_per_round`
+ABGELEITET, falls nicht explizit gesetzt.
 
 ---
 
@@ -148,12 +147,13 @@ Delegiert die reine Prüfung an A:
 
 ```
 energiesplitter.detect.assets_ready(mode) -> (ready: bool, missing: list[str])
+energiesplitter.detect.grid_present() -> bool            # Inventar-Raster auflösbar
 energiesplitter.geometry.is_calibrated(wincap) -> bool   # True nur wenn Client ~800x600
 ```
 
-**Bedingung (BEIDE müssen erfüllt sein, sonst armed=False):**
+**Bedingung (ALLE drei müssen erfüllt sein, sonst armed=False):**
 
-1. **Assets vorhanden** — `detect.assets_ready(self.mode)` prüft:
+1. **Assets vorhanden** — `detect.assets_ready(self.mode)` prüft (OHNE Yang/Gold):
    - `templates/de/` UND `templates/en/` enthalten die für den Modus nötigen
      Wortbild-Templates (Hammer-Modus: `laden_oeffnen`, `weiter`, `ok`,
      `eine_neue_technik`, `energiesplitter_extrahieren`, `laden_header`,
@@ -161,13 +161,14 @@ energiesplitter.geometry.is_calibrated(wincap) -> bool   # True nur wenn Client 
      zusätzlich `npc_waffenhaendler`, `ein_neuer_duft`).
    - **Item-Icons** in `inventory_icons/`: `hammer` (beide Modi), `dolch` +
      `energiesplitter` (Dolch-Modus). FEHLEN derzeit → Gate bleibt rot.
-   - **Gold-ROI-Template** für `gold_reader` (Digit-Templates `energiesplitter/
-gold_digits/` inkl. Tausenderpunkt-Glyph) vorhanden.
+   - **Shop-Anker** `SHOP_HAMMER_ANCHOR`/`SHOP_DAGGER_ANCHOR` + Shop-Item-Templates.
      Jedes fehlende Artefakt landet als String in `missing` (z. B. `'item:hammer'`,
-     `'tpl:de/laden_oeffnen'`, `'gold_digits'`).
+     `'tpl:de/laden_oeffnen'`).
 2. **Kalibrierung** — `geometry.is_calibrated(wincap)`: Client-Größe via
    `windowcapture.client_size` ~800×600 (Toleranz `GAME_SIZE_TOLERANCE=8`, wie
    `interface/app/_common._probe_game`). Sonst `missing += ['calibration:800x600']`.
+3. **Grid auflösbar** — `detect.grid_present()`: Inventar-Raster auflösbar
+   (Slot1→Pixel; ersetzt das frühere `_grid_present`). Sonst `missing += ['grid']`.
 
 **Verhalten bei armed=False (Logging, verbindlich):**
 
@@ -179,10 +180,9 @@ self.botting = False           # sofortiger Selbst-Stop
 ```
 
 **Backstops als Attribute (zusätzlich, OCR-unabhängig, IMMER aktiv auch wenn armed):**
-`gold_floor`, `max_gold_spend`, `max_actions`, `price_per_item`, `consecutive_
-unverified_stop`. Jede teure Aktion ist hinter `gold_guard()` UND
-`if self.dry_run or not self.armed: return` gekapselt. Erststart-Default:
-`dry_run=True`, `gold_floor=50000`, `max_actions=2` (erster scharfer Lauf konservativ).
+`max_actions`, `consecutive_unverified_stop` + Re-Read-Verifikation jeder Aktion.
+Jede teure Aktion ist hinter `if self.dry_run or not self.armed: return` gekapselt.
+Erststart-Default: `dry_run=True`, `max_actions=2` (erster scharfer Lauf konservativ).
 
 ---
 
@@ -192,49 +192,38 @@ unverified_stop`. Jede teure Aktion ist hinter `gold_guard()` UND
 
 `DEFAULTS['energiesplitter']` = Block mit drei Sub-Dicts `hammer`/`dagger`/`shared`.
 Neue Modul-Konstanten (defaults.py, exportiert via `__all__`, von validate.py genutzt):
-`PREFER_STACK_MODES=('largest_fit','singles')`, `PROCESS_MODES=('one_to_one','batch')`,
-`SPEED_PROFILES=('safe','fast')`, `ES_PRICE_MIN=1`, `ES_PRICE_MAX=1_000_000_000`,
-`ES_GOLD_FLOOR_MIN=15000`, `ES_GOLD_FLOOR_MAX=1_000_000_000`,
-`ES_HAMMER_MIN=1`, `ES_HAMMER_MAX=10000`, `ES_PAUSE_MIN=0.03`, `ES_PAUSE_MAX=0.3`,
-`ES_BATCH_MIN=1`, `ES_BATCH_MAX=200`, `ES_MAXACT_MIN=1`, `ES_MAXACT_MAX=100000`.
+`SPEED_PROFILES=('safe','fast')`,
+`ES_STACK_MIN=1`, `ES_STACK_MAX=10000`, `ES_PAUSE_MIN=0.03`, `ES_PAUSE_MAX=0.3`,
+`ES_DAGGERS_MIN=1`, `ES_DAGGERS_MAX=200`, `ES_MAXACT_MIN=1`, `ES_MAXACT_MAX=100000`.
 
-| Key (Pfad)                                           | Typ   | Default         | Range/Enum                                                                          |
-| ---------------------------------------------------- | ----- | --------------- | ----------------------------------------------------------------------------------- |
-| `energiesplitter.hammer.hammer_count`                | int   | `200`           | clamp 1..10000 (UI: ANZAHL)                                                         |
-| `energiesplitter.hammer.energie_freischalten`        | bool  | `True`          | — (an: prüft+schaltet frei falls Option da, sonst auto-skip; aus: nur Laden+kaufen) |
-| `energiesplitter.hammer.price_per_item`              | int   | `15000`         | clamp 1..1e9                                                                        |
-| `energiesplitter.hammer.gold_floor`                  | int   | `50000`         | clamp 15000..1e9                                                                    |
-| `energiesplitter.hammer.max_gold_spend`              | int   | `0`             | `0` = auto (hammer_count×price_per_item); sonst clamp 0..1e9                        |
-| `energiesplitter.hammer.prefer_stack`                | enum  | `'largest_fit'` | `'largest_fit'`\|`'singles'`                                                        |
-| `energiesplitter.dagger.process_mode`                | enum  | `'one_to_one'`  | `'one_to_one'`\|`'batch'`                                                           |
-| `energiesplitter.dagger.price_per_item`              | int   | `15000`         | clamp 1..1e9                                                                        |
-| `energiesplitter.dagger.gold_floor`                  | int   | `50000`         | clamp 15000..1e9                                                                    |
-| `energiesplitter.dagger.max_gold_spend`              | int   | `0`             | `0` = auto; sonst clamp 0..1e9                                                      |
-| `energiesplitter.dagger.batch_size`                  | int   | `50`            | clamp 1..200 (nur batch)                                                            |
-| `energiesplitter.shared.speed_profile`               | enum  | `'fast'`        | `'safe'`\|`'fast'`                                                                  |
-| `energiesplitter.shared.mouse_pause`                 | float | `0.05`          | clamp 0.03..0.3                                                                     |
-| `energiesplitter.shared.keyboard_pause`              | float | `0.10`          | clamp 0.03..0.3                                                                     |
-| `energiesplitter.shared.max_actions`                 | int   | `0`             | `0` = auto round(1.2×soll); sonst clamp 1..100000                                   |
-| `energiesplitter.shared.consecutive_unverified_stop` | int   | `3`             | clamp 1..20                                                                         |
-| `energiesplitter.shared.jitter_pct`                  | float | `0.15`          | clamp 0.0..0.5                                                                      |
-| `energiesplitter.shared.birdseye_on_miss`            | bool  | `True`          | — (KEYPRESS-Manöver)                                                                |
-| `energiesplitter.shared.dry_run`                     | bool  | `True`          | **arm-Flag: True bis Phase-0 + User-Bestätigung; sicherer Erststart-Default**       |
+| Key (Pfad)                                           | Typ   | Default  | Range/Enum                                                                          |
+| ---------------------------------------------------- | ----- | -------- | ----------------------------------------------------------------------------------- |
+| `energiesplitter.hammer.stack_count`                 | int   | `1`      | clamp 1..10000 (UI: Anzahl 200er-Stacks)                                            |
+| `energiesplitter.hammer.energie_freischalten`        | bool  | `True`   | — (an: prüft+schaltet frei falls Option da, sonst auto-skip; aus: nur Laden+kaufen) |
+| `energiesplitter.dagger.daggers_per_round`           | int   | `1`      | clamp 1..200 (UI: Dolche pro Runde)                                                 |
+| `energiesplitter.shared.speed_profile`               | enum  | `'fast'` | `'safe'`\|`'fast'`                                                                  |
+| `energiesplitter.shared.mouse_pause`                 | float | `0.05`   | clamp 0.03..0.3                                                                     |
+| `energiesplitter.shared.keyboard_pause`              | float | `0.10`   | clamp 0.03..0.3                                                                     |
+| `energiesplitter.shared.max_actions`                 | int   | `0`      | `0` = auto round(1.2×soll); sonst clamp 1..100000                                   |
+| `energiesplitter.shared.consecutive_unverified_stop` | int   | `3`      | clamp 1..20                                                                         |
+| `energiesplitter.shared.jitter_pct`                  | float | `0.15`   | clamp 0.0..0.5                                                                      |
+| `energiesplitter.shared.birdseye_on_miss`            | bool  | `True`   | — (KEYPRESS-Manöver)                                                                |
+| `energiesplitter.shared.dry_run`                     | bool  | `True`   | **arm-Flag: True bis Phase-0 + User-Bestätigung; sicherer Erststart-Default**       |
 
 `dagger.reserved_dolch_slot` lebt im Layout-Sidecar (`energiesplitter_layout.json`),
 **NICHT** in der Config (auto, re-validiert).
 
 **validate.py (C):** Block-Validator `_validate_energiesplitter(merged)`:
 enums via `_enum`, int/float via `_clamp` + `_coerce_int`/`int(_clamp(...))`, bool via
-`bool()`. `merge_defaults` füllt Sub-Dicts auf, unbekannte Keys verworfen. `max_gold_spend`/
-`max_actions` bleiben Config-Werte (0=auto); die Auto-Ableitung passiert in
+`bool()`. `merge_defaults` füllt Sub-Dicts auf, unbekannte Keys verworfen. `max_actions`
+bleibt Config-Wert (0=auto); die Auto-Ableitung passiert in
 `set_to_begin` (nicht in validate — validate bleibt rein/deterministisch).
 `merged['mode']` muss `APP_MODES` (inkl. der beiden neuen) akzeptieren.
 
 **to_values-Brücke (C):** `run_loop.apply_energiesplitter_config()` legt die
 gewählten Sub-Dict-Werte als `values['-ES_*-']`-Keys ab (analog `apply_puzzle_config`),
-die `set_to_begin(values)` liest. Schlüssel-Namensraum: `-ES_HAMMER_COUNT-`,
-`-ES_FREISCHALTEN-`, `-ES_PRICE-`, `-ES_GOLD_FLOOR-`, `-ES_MAX_SPEND-`,
-`-ES_PREFER_STACK-`, `-ES_PROCESS_MODE-`, `-ES_BATCH-`, `-ES_SPEED-`,
+die `set_to_begin(values)` liest. Schlüssel-Namensraum: `-ES_STACK_COUNT-`,
+`-ES_FREISCHALTEN-`, `-ES_DAGGERS_PER_ROUND-`, `-ES_SPEED-`,
 `-ES_MOUSE_PAUSE-`, `-ES_KB_PAUSE-`, `-ES_MAX_ACTIONS-`, `-ES_UNVERIF_STOP-`,
 `-ES_JITTER-`, `-ES_BIRDSEYE-`, `-ES_DRY_RUN-`, `-ES_MODE-`.
 
@@ -244,53 +233,44 @@ die `set_to_begin(values)` liest. Schlüssel-Namensraum: `-ES_HAMMER_COUNT-`,
 
 Test `tests/test_i18n_parity.py` verlangt für JEDEN Key beide Sprachen. Neue Keys:
 
-| Key                                     | de                                                                                                                                                                                                                                                                      | en                                                                                                                                                                                                                                                                                |
-| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ui.view_energiesplitter`               | `Energiesplitter`                                                                                                                                                                                                                                                       | `Energy Splinter`                                                                                                                                                                                                                                                                 |
-| `ui.energiesplitter_sub`                | `Kauft Hämmer und verarbeitet sie 1:1 mit Dolchen zu Energiesplittern`                                                                                                                                                                                                  | `Buys hammers and processes them 1:1 with daggers into energy splinters`                                                                                                                                                                                                          |
-| `ui.group_energiesplitter`              | `Energiesplitter`                                                                                                                                                                                                                                                       | `Energy Splinter`                                                                                                                                                                                                                                                                 |
-| `ui.es_hammer_start_btn`                | `Hammer kaufen`                                                                                                                                                                                                                                                         | `Buy hammers`                                                                                                                                                                                                                                                                     |
-| `ui.es_dagger_start_btn`                | `Dolche kaufen + verarbeiten`                                                                                                                                                                                                                                           | `Buy daggers + process`                                                                                                                                                                                                                                                           |
-| `ui.es_stop_btn`                        | `Stoppen`                                                                                                                                                                                                                                                               | `Stop`                                                                                                                                                                                                                                                                            |
-| `ui.es_stopping`                        | `Stoppe ...`                                                                                                                                                                                                                                                            | `Stopping ...`                                                                                                                                                                                                                                                                    |
-| `ui.es_count_label`                     | `Anzahl Hämmer`                                                                                                                                                                                                                                                         | `Hammer count`                                                                                                                                                                                                                                                                    |
-| `ui.es_freischalten_label`              | `Energie freischalten (falls nötig)`                                                                                                                                                                                                                                    | `Unlock energy (if needed)`                                                                                                                                                                                                                                                       |
-| `ui.es_price_label`                     | `Preis pro Stück (Yang)`                                                                                                                                                                                                                                                | `Price per item (yang)`                                                                                                                                                                                                                                                           |
-| `ui.es_gold_floor_label`                | `Gold-Reserve (nie unterschreiten)`                                                                                                                                                                                                                                     | `Gold reserve (never go below)`                                                                                                                                                                                                                                                   |
-| `ui.es_calc_title`                      | `Yang-Rechner`                                                                                                                                                                                                                                                          | `Yang calculator`                                                                                                                                                                                                                                                                 |
-| `ui.es_calc_hammer`                     | `Hämmer: {n} × {price} = {sum}`                                                                                                                                                                                                                                         | `Hammers: {n} × {price} = {sum}`                                                                                                                                                                                                                                                  |
-| `ui.es_calc_dagger`                     | `Dolche: {n} × {price} = {sum}`                                                                                                                                                                                                                                         | `Daggers: {n} × {price} = {sum}`                                                                                                                                                                                                                                                  |
-| `ui.es_calc_total`                      | `Summe: {sum} Yang`                                                                                                                                                                                                                                                     | `Total: {sum} yang`                                                                                                                                                                                                                                                               |
-| `ui.es_calc_gold_ok`                    | `Gold reicht voraussichtlich`                                                                                                                                                                                                                                           | `Gold likely sufficient`                                                                                                                                                                                                                                                          |
-| `ui.es_calc_gold_low`                   | `Gold reicht evtl. nicht – Lauf stoppt sicher statt blind zu kaufen`                                                                                                                                                                                                    | `Gold may be insufficient – run stops safely instead of buying blindly`                                                                                                                                                                                                           |
-| `ui.es_idle`                            | `Bereit`                                                                                                                                                                                                                                                                | `Idle`                                                                                                                                                                                                                                                                            |
-| `ui.es_running_hammer`                  | `Kaufe Hämmer ... ({done}/{soll})`                                                                                                                                                                                                                                      | `Buying hammers ... ({done}/{soll})`                                                                                                                                                                                                                                              |
-| `ui.es_running_dagger`                  | `Verarbeite ... ({done} Splitter, {rest} Hämmer übrig)`                                                                                                                                                                                                                 | `Processing ... ({done} splinters, {rest} hammers left)`                                                                                                                                                                                                                          |
-| `ui.es_help`                            | `Spiel im 800x600-Fenstermodus. Aktion 1 kauft am Alchemisten Hämmer; Aktion 2 kauft am Waffenhändler Dolche und verarbeitet sie 1:1 zu Energiesplittern. Solange Item-Icons/Templates fehlen oder das Fenster nicht 800x600 ist, läuft NUR die Erkennung (kein Kauf).` | `Run the game in 800x600 windowed mode. Action 1 buys hammers at the alchemist; action 2 buys daggers at the weapon trader and processes them 1:1 into energy splinters. While item icons/templates are missing or the window is not 800x600, ONLY detection runs (no purchase).` |
-| `ui.es_blocked_running`                 | `Es läuft bereits ein Bot – erst stoppen.`                                                                                                                                                                                                                              | `A bot is already running – stop it first.`                                                                                                                                                                                                                                       |
-| `energiesplitter.section_hammer`        | `Energiesplitter — Hammer`                                                                                                                                                                                                                                              | `Energy Splinter — Hammer`                                                                                                                                                                                                                                                        |
-| `energiesplitter.section_dagger`        | `Energiesplitter — Dolch`                                                                                                                                                                                                                                               | `Energy Splinter — Dagger`                                                                                                                                                                                                                                                        |
-| `energiesplitter.started`               | `Gestartet (Modus {mode}).`                                                                                                                                                                                                                                             | `Started (mode {mode}).`                                                                                                                                                                                                                                                          |
-| `energiesplitter.phase0_not_ready`      | `Phase-0 nicht bereit – fehlende Artefakte: {missing}. Es wird NICHT gekauft/gedraggt.`                                                                                                                                                                                 | `Phase 0 not ready – missing artifacts: {missing}. No buying/dragging.`                                                                                                                                                                                                           |
-| `energiesplitter.no_window`             | `Kein Spiel-Fenster gefunden. Stoppe.`                                                                                                                                                                                                                                  | `No game window found. Stopping.`                                                                                                                                                                                                                                                 |
-| `energiesplitter.no_space`              | `Kein freier Inventarplatz für den Kauf. Stoppe.`                                                                                                                                                                                                                       | `No free inventory slot for the purchase. Stopping.`                                                                                                                                                                                                                              |
-| `energiesplitter.item_template_missing` | `Item-Template fehlt ({item}) – Bestand nicht messbar. Stoppe.`                                                                                                                                                                                                         | `Item template missing ({item}) – stock not measurable. Stopping.`                                                                                                                                                                                                                |
-| `energiesplitter.npc_not_found`         | `NPC {npc} nicht gefunden. Stoppe.`                                                                                                                                                                                                                                     | `NPC {npc} not found. Stopping.`                                                                                                                                                                                                                                                  |
-| `energiesplitter.select_failed`         | `Anvisieren fehlgeschlagen (kein Selektions-Ring). Stoppe.`                                                                                                                                                                                                             | `Targeting failed (no selection ring). Stopping.`                                                                                                                                                                                                                                 |
-| `energiesplitter.dialog_timeout`        | `Dialog erschien nicht. Debug-Frame gespeichert. Stoppe.`                                                                                                                                                                                                               | `Dialog did not appear. Debug frame saved. Stopping.`                                                                                                                                                                                                                             |
-| `energiesplitter.shop_not_open`         | `Laden öffnete nicht (uneindeutige Zeile?). Stoppe.`                                                                                                                                                                                                                    | `Shop did not open (ambiguous line?). Stopping.`                                                                                                                                                                                                                                  |
-| `energiesplitter.item_not_in_shop`      | `{item} nicht im Shop-Sortiment. Stoppe.`                                                                                                                                                                                                                               | `{item} not in shop inventory. Stopping.`                                                                                                                                                                                                                                         |
-| `energiesplitter.gold_unreadable`       | `Gold nicht lesbar – kaufe NICHT blind. Snapshot gespeichert. Stoppe.`                                                                                                                                                                                                  | `Gold unreadable – not buying blindly. Snapshot saved. Stopping.`                                                                                                                                                                                                                 |
-| `energiesplitter.gold_floor_hit`        | `Gold-Reserve/Budget erreicht ({gold} Yang). Stoppe.`                                                                                                                                                                                                                   | `Gold reserve/budget reached ({gold} yang). Stopping.`                                                                                                                                                                                                                            |
-| `energiesplitter.bought`                | `Gekauft: Stack {stack} (gesamt {done}/{soll}); Gold {gold_before}→{gold_after}.`                                                                                                                                                                                       | `Bought: stack {stack} (total {done}/{soll}); gold {gold_before}→{gold_after}.`                                                                                                                                                                                                   |
-| `energiesplitter.buy_unverified`        | `Kauf nicht verifiziert nach {retries} Versuchen. Stoppe.`                                                                                                                                                                                                              | `Purchase not verified after {retries} retries. Stopping.`                                                                                                                                                                                                                        |
-| `energiesplitter.processed`             | `Verarbeitet: 1 Hammer → +{value} Splitter (gesamt {sum}); übrig {rest}.`                                                                                                                                                                                               | `Processed: 1 hammer → +{value} splinter (total {sum}); {rest} left.`                                                                                                                                                                                                             |
-| `energiesplitter.process_unverified`    | `Verarbeitung nicht verifiziert. Stoppe.`                                                                                                                                                                                                                               | `Processing not verified. Stopping.`                                                                                                                                                                                                                                              |
-| `energiesplitter.drag_unsafe`           | `Drag abgebrochen – Quelle nicht Hammer ODER Ziel nicht Dolch. Stoppe (kein Drag).`                                                                                                                                                                                     | `Drag aborted – source not hammer OR target not dagger. Stopping (no drag).`                                                                                                                                                                                                      |
-| `energiesplitter.max_actions`           | `Aktions-Obergrenze ({n}) erreicht. Stoppe.`                                                                                                                                                                                                                            | `Action cap ({n}) reached. Stopping.`                                                                                                                                                                                                                                             |
-| `energiesplitter.done`                  | `Fertig. Hämmer {hammers}, Dolche {daggers}, Splitter {splitters}, Gold {gold_before}→{gold_after}. Grund: {reason}.`                                                                                                                                                   | `Done. Hammers {hammers}, daggers {daggers}, splinters {splitters}, gold {gold_before}→{gold_after}. Reason: {reason}.`                                                                                                                                                           |
-| `energiesplitter.debug_frame_saved`     | `Debug-Frame gespeichert: {path}`                                                                                                                                                                                                                                       | `Debug frame saved: {path}`                                                                                                                                                                                                                                                       |
-| `energiesplitter.toggled_birdseye`      | `NPC nicht gesehen – Vogelperspektive ({key}) ausgelöst.`                                                                                                                                                                                                               | `NPC not seen – triggered bird's-eye view ({key}).`                                                                                                                                                                                                                               |
+| Key                                     | de                                                                                                                                                                                                                                                                                                    | en                                                                                                                                                                                                                                                                                                    |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ui.view_energiesplitter`               | `Energiesplitter`                                                                                                                                                                                                                                                                                     | `Energy Splinter`                                                                                                                                                                                                                                                                                     |
+| `ui.energiesplitter_sub`                | `Kauft Hammer-Stacks und verarbeitet sie einzeln nacheinander mit Dolchen zu Energiesplittern`                                                                                                                                                                                                        | `Buys hammer stacks and processes them one at a time with daggers into energy splinters`                                                                                                                                                                                                              |
+| `ui.group_energiesplitter`              | `Energiesplitter`                                                                                                                                                                                                                                                                                     | `Energy Splinter`                                                                                                                                                                                                                                                                                     |
+| `ui.es_hammer_start_btn`                | `Hammer kaufen`                                                                                                                                                                                                                                                                                       | `Buy hammers`                                                                                                                                                                                                                                                                                         |
+| `ui.es_dagger_start_btn`                | `Dolche kaufen + verarbeiten`                                                                                                                                                                                                                                                                         | `Buy daggers + process`                                                                                                                                                                                                                                                                               |
+| `ui.es_stop_btn`                        | `Stoppen`                                                                                                                                                                                                                                                                                             | `Stop`                                                                                                                                                                                                                                                                                                |
+| `ui.es_stopping`                        | `Stoppe ...`                                                                                                                                                                                                                                                                                          | `Stopping ...`                                                                                                                                                                                                                                                                                        |
+| `ui.es_count_label`                     | `Anzahl 200er-Stacks`                                                                                                                                                                                                                                                                                 | `200-stacks count`                                                                                                                                                                                                                                                                                    |
+| `ui.es_freischalten_label`              | `Energie freischalten (falls nötig)`                                                                                                                                                                                                                                                                  | `Unlock energy (if needed)`                                                                                                                                                                                                                                                                           |
+| `ui.es_daggers_label`                   | `Dolche pro Runde`                                                                                                                                                                                                                                                                                    | `Daggers per round`                                                                                                                                                                                                                                                                                   |
+| `ui.es_idle`                            | `Bereit`                                                                                                                                                                                                                                                                                              | `Idle`                                                                                                                                                                                                                                                                                                |
+| `ui.es_running_hammer`                  | `Kaufe Stacks ... ({done}/{soll})`                                                                                                                                                                                                                                                                    | `Buying stacks ... ({done}/{soll})`                                                                                                                                                                                                                                                                   |
+| `ui.es_running_dagger`                  | `Verarbeite ... ({rest} Hämmer übrig)`                                                                                                                                                                                                                                                                | `Processing ... ({rest} hammers left)`                                                                                                                                                                                                                                                                |
+| `ui.es_help`                            | `Spiel im 800x600-Fenstermodus. Aktion 1 kauft am Alchemisten 200er-Hammer-Stacks; Aktion 2 kauft am Waffenhändler Dolche und verarbeitet sie einzeln nacheinander zu Energiesplittern. Solange Item-Icons/Templates fehlen oder das Fenster nicht 800x600 ist, läuft NUR die Erkennung (kein Kauf).` | `Run the game in 800x600 windowed mode. Action 1 buys 200-hammer stacks at the alchemist; action 2 buys daggers at the weapon trader and processes them one at a time into energy splinters. While item icons/templates are missing or the window is not 800x600, ONLY detection runs (no purchase).` |
+| `ui.es_blocked_running`                 | `Es läuft bereits ein Bot – erst stoppen.`                                                                                                                                                                                                                                                            | `A bot is already running – stop it first.`                                                                                                                                                                                                                                                           |
+| `energiesplitter.section_hammer`        | `Energiesplitter — Hammer`                                                                                                                                                                                                                                                                            | `Energy Splinter — Hammer`                                                                                                                                                                                                                                                                            |
+| `energiesplitter.section_dagger`        | `Energiesplitter — Dolch`                                                                                                                                                                                                                                                                             | `Energy Splinter — Dagger`                                                                                                                                                                                                                                                                            |
+| `energiesplitter.started`               | `Gestartet (Modus {mode}).`                                                                                                                                                                                                                                                                           | `Started (mode {mode}).`                                                                                                                                                                                                                                                                              |
+| `energiesplitter.phase0_not_ready`      | `Phase-0 nicht bereit – fehlende Artefakte: {missing}. Es wird NICHT gekauft/gedraggt.`                                                                                                                                                                                                               | `Phase 0 not ready – missing artifacts: {missing}. No buying/dragging.`                                                                                                                                                                                                                               |
+| `energiesplitter.no_window`             | `Kein Spiel-Fenster gefunden. Stoppe.`                                                                                                                                                                                                                                                                | `No game window found. Stopping.`                                                                                                                                                                                                                                                                     |
+| `energiesplitter.no_space`              | `Kein freier Inventarplatz für den Kauf. Stoppe.`                                                                                                                                                                                                                                                     | `No free inventory slot for the purchase. Stopping.`                                                                                                                                                                                                                                                  |
+| `energiesplitter.item_template_missing` | `Item-Template fehlt ({item}) – Bestand nicht messbar. Stoppe.`                                                                                                                                                                                                                                       | `Item template missing ({item}) – stock not measurable. Stopping.`                                                                                                                                                                                                                                    |
+| `energiesplitter.npc_not_found`         | `NPC {npc} nicht gefunden. Stoppe.`                                                                                                                                                                                                                                                                   | `NPC {npc} not found. Stopping.`                                                                                                                                                                                                                                                                      |
+| `energiesplitter.select_failed`         | `Anvisieren fehlgeschlagen (kein Selektions-Ring). Stoppe.`                                                                                                                                                                                                                                           | `Targeting failed (no selection ring). Stopping.`                                                                                                                                                                                                                                                     |
+| `energiesplitter.dialog_timeout`        | `Dialog erschien nicht. Debug-Frame gespeichert. Stoppe.`                                                                                                                                                                                                                                             | `Dialog did not appear. Debug frame saved. Stopping.`                                                                                                                                                                                                                                                 |
+| `energiesplitter.shop_not_open`         | `Laden öffnete nicht (uneindeutige Zeile?). Stoppe.`                                                                                                                                                                                                                                                  | `Shop did not open (ambiguous line?). Stopping.`                                                                                                                                                                                                                                                      |
+| `energiesplitter.item_not_in_shop`      | `{item} nicht im Shop-Sortiment. Stoppe.`                                                                                                                                                                                                                                                             | `{item} not in shop inventory. Stopping.`                                                                                                                                                                                                                                                             |
+| `energiesplitter.bought`                | `Gekauft: 200er-Stack (gesamt {done}/{soll}).`                                                                                                                                                                                                                                                        | `Bought: 200-stack (total {done}/{soll}).`                                                                                                                                                                                                                                                            |
+| `energiesplitter.buy_unverified`        | `Kauf nicht verifiziert nach {retries} Versuchen. Stoppe.`                                                                                                                                                                                                                                            | `Purchase not verified after {retries} retries. Stopping.`                                                                                                                                                                                                                                            |
+| `energiesplitter.processed`             | `Verarbeitet: 1 Hammer + 1 Dolch; übrig {rest} Hämmer.`                                                                                                                                                                                                                                               | `Processed: 1 hammer + 1 dagger; {rest} hammers left.`                                                                                                                                                                                                                                                |
+| `energiesplitter.process_unverified`    | `Verarbeitung nicht verifiziert. Stoppe.`                                                                                                                                                                                                                                                             | `Processing not verified. Stopping.`                                                                                                                                                                                                                                                                  |
+| `energiesplitter.drag_unsafe`           | `Drag abgebrochen – Quelle nicht Hammer ODER Ziel nicht Dolch. Stoppe (kein Drag).`                                                                                                                                                                                                                   | `Drag aborted – source not hammer OR target not dagger. Stopping (no drag).`                                                                                                                                                                                                                          |
+| `energiesplitter.max_actions`           | `Aktions-Obergrenze ({n}) erreicht. Stoppe.`                                                                                                                                                                                                                                                          | `Action cap ({n}) reached. Stopping.`                                                                                                                                                                                                                                                                 |
+| `energiesplitter.done`                  | `Fertig. Hämmer {hammers}, Dolche {daggers}. Grund: {reason}.`                                                                                                                                                                                                                                        | `Done. Hammers {hammers}, daggers {daggers}. Reason: {reason}.`                                                                                                                                                                                                                                       |
+| `energiesplitter.debug_frame_saved`     | `Debug-Frame gespeichert: {path}`                                                                                                                                                                                                                                                                     | `Debug frame saved: {path}`                                                                                                                                                                                                                                                                           |
+| `energiesplitter.toggled_birdseye`      | `NPC nicht gesehen – Vogelperspektive ({key}) ausgelöst.`                                                                                                                                                                                                                                             | `NPC not seen – triggered bird's-eye view ({key}).`                                                                                                                                                                                                                                                   |
 
 ---
 
@@ -299,14 +279,12 @@ Test `tests/test_i18n_parity.py` verlangt für JEDEN Key beide Sprachen. Neue Ke
 **Agent A — Vision/Geometrie (rein, kein IO außer Template-Laden):**
 
 - `energiesplitter/detect.py` — reine Vision (numpy/cv2): `assets_ready(mode)`,
+  `grid_present() -> bool`,
   `find_npc_name(bgr, word_template) -> (ok, pt, ncc)`,
   `selection_ring_present(bgr, near, y_min=240) -> bool`,
   `dialog_state(bgr) -> 'locked'|'unlocked'|None`, `shop_open(bgr) -> bool`,
   `panel_is_bag(bgr) -> bool`, `find_shop_item(bgr, item_template) -> (ok, pt, ncc)`,
   `read_shop_stack(slot_bgr) -> int|None`, `read_splitter_growth(before, after) -> int`.
-- `energiesplitter/gold_reader.py` — `read_gold(bgr, roi) -> int|None` (eigener
-  6-Stellen+Tausenderpunkt-Reader; Template-basiert, defensiv; **erweitert NICHT
-  inventory/digits.py**).
 - `energiesplitter/geometry.py` — ALLE Pixelkonstanten relativ zum 800×600-Client +
   `offset_x/y`; `is_calibrated(wincap) -> bool`; anker-relative ROIs (KALIBRIER-BAR).
 - `tests/test_energiesplitter_detect.py` — Detektoren gegen 26 Fixtures.
@@ -316,7 +294,7 @@ Test `tests/test_i18n_parity.py` verlangt für JEDEN Key beide Sprachen. Neue Ke
 - `interface/app/views_energiesplitter.py` — `EnergiesplitterViewMixin._build_
 energiesplitter_view`; EINE Ansicht, ZWEI Buttons (`ui.es_hammer_start_btn`/
   `ui.es_dagger_start_btn`) je `command=self._on_es_start_stop('hammer'|'dagger')`-
-  Muster, je Settings-Block + Yang-Rechner-Label (live) + Status/Log. Spiegelt
+  Muster, je Settings-Block + Status/Log. Spiegelt
   `views_seher.py`-Aufbau (`_new_view`/`_view_header`/`Section`/`InfoBadge`).
   Start-Pfad: `_probe_game()`-Check → `controller.set_mode(...)` → `controller.
 on_start_stop()` (run_loop-Tick übernimmt; KEIN eigener Worker-Thread).
@@ -346,11 +324,11 @@ energiesplitter_config`, `on_start` setzt `esbot.mode`+`stop_signal`+`set_to_beg
   `MODE_HAMMER`/`MODE_DAGGER`; Soft-Imports für cv2/pydirectinput (headless
   importierbar).
 - `energiesplitter/bot.py` — `EnergiesplitterBot` (§1), `phase0_gate` (§2),
-  State-Maschinen (DESIGN §3), Helfer `gold_guard`/`verify_purchase`/
+  State-Maschinen (DESIGN §3), Helfer `verify_hammer_purchase`/`_verify_bag_growth`/
   `verify_process`/`approach_npc`/`open_shop_via_dialog`; **Drag NUR via
   `inventory_discard.drag(api, x1,y1,x2,y2)` — NICHT neu bauen** (A2).
-- `tests/test_energiesplitter_flow.py` — State-Machine-Logik, Gold-Guard,
-  1:1-Schleife, Safety-Stops, Drag-abort-finally (gestubbtes pydirectinput/win32).
+- `tests/test_energiesplitter_flow.py` — State-Machine-Logik, Verarbeitungs-
+  Schleife, Safety-Stops, Drag-abort-finally (gestubbtes pydirectinput/win32).
 
 > **Geteilte Berührung — Konflikt-Regel:** Nur C editiert Bestandsdateien.
 > A/B/D legen NUR neue Dateien unter `energiesplitter/` bzw. `tests/` an. `templates/`
@@ -364,40 +342,18 @@ energiesplitter_config`, `on_start` setzt `esbot.mode`+`stop_signal`+`set_to_beg
 **energiesplitter/calc.py (Agent B):**
 
 ```
-plan_hammer_yang(hammer_count, price_per_item) -> dict
-    # -> {'hammer_count': int, 'price_per_item': int,
-    #     'hammer_yang': hammer_count*price_per_item,
-    #     'dagger_yang': hammer_count*price_per_item,     # 1:1, gleicher Preis
-    #     'total_yang': hammer_count*2*price_per_item}
-    # reine Arithmetik; negative/0 -> auf 0 geklemmt; wirft nie.
-
-plan_stack_purchase(target_count, free_slots, stack_sizes=(200, 50, 1)) -> list[int]
-    # Greedy: größtmögliche Stacks zuerst; kleinere NUR um target_count exakt zu
-    # treffen ODER in free_slots zu passen. Jeder gekaufte Stack belegt potenziell
-    # 1 EMPTY-Slot -> Summe der gewählten Stacks <= target_count UND Anzahl der
-    # Stacks, die einen NEUEN Slot brauchen, <= free_slots. Liefert die Stack-Liste
-    # (z.B. [200, 50] für target 250 bei genug Platz). target<=0 oder
-    # free_slots<=0 -> []. wirft nie.
-    # HINWEIS Stack-Größen: Default-Tupel = (200, 50, 1) = echte Hammer-Shop-Stacks
-    # (Addendum A1: 1/50/200; größter zuerst). Der CALLER übergibt die zur LAUFZEIT
-    # GELESENEN Stack-Größen (read_shop_stack), NICHT die Annahme; das Default-Tupel
-    # ist nur der Fallback. (Frühere Bild-Lesung „1/10/100/200" war falsch.)
-```
-
-**energiesplitter/gold_reader.py (Agent A):**
-
-```
-read_gold(bgr, roi) -> int | None
-    # roi = (x, y, w, h) im 800x600-Client. Liest 1..6 Ziffern + optionalen
-    # Tausenderpunkt per Template-NCC (eigene Digit-Templates inkl. '.'-Glyph),
-    # 2-3x Upscale, Confidence-Gate. Unsicher/leer/implausibel -> None
-    # (Caller stoppt dann). Reine Funktion auf einem BGR-Array; wirft nie.
+clamp_nonneg_int(value) -> int
+    # klemmt einen Wert auf einen nicht-negativen int (negativ/None/ungültig -> 0);
+    # reine Arithmetik; wirft nie. (Einzige verbliebene calc-Funktion — der
+    # Yang/Gold-Rechner inkl. plan_hammer_yang/plan_stack_purchase wurde 2026-06-16
+    # entfernt.)
 ```
 
 **energiesplitter/detect.py (Agent A) — die test-relevanten Kernsignaturen:**
 
 ```
 assets_ready(mode) -> (ready: bool, missing: list[str])     # mode in ('hammer','dagger')
+grid_present() -> bool                                       # Inventar-Raster auflösbar
 dialog_state(bgr) -> 'locked' | 'unlocked' | None
 shop_open(bgr) -> bool
 panel_is_bag(bgr) -> bool
@@ -415,10 +371,11 @@ read_splitter_growth(before, after) -> int     # Diff am Splitter-Slot; Fallback
 > **Der Bot ruft NIE rightClick/click/drag/keyDown, solange
 > `self.dry_run or not self.armed` wahr ist; `armed` wird allein von
 > `phase0_gate()` gesetzt (Assets via `detect.assets_ready` UND `geometry.
-is_calibrated`); ist es False, loggt der Bot `energiesplitter.phase0_not_ready`
-> mit der `missing`-Liste und setzt `self.botting=False` — vor jeder teuren
-> Aktion. Zusätzlich greifen IMMER die OCR-unabhängigen Backstops `gold_floor`,
-> `max_gold_spend`, `max_actions`, `price_per_item`.**
+is_calibrated` UND `detect.grid_present`); ist es False, loggt der Bot
+> `energiesplitter.phase0_not_ready` mit der `missing`-Liste und setzt
+> `self.botting=False` — vor jeder teuren Aktion. Zusätzlich greifen IMMER die
+> Backstops `max_actions`, `consecutive_unverified_stop` + Re-Read-Verifikation
+> jeder Aktion.**
 
 ---
 
@@ -430,5 +387,5 @@ is_calibrated`); ist es False, loggt der Bot `energiesplitter.phase0_not_ready`
 - `test_i18n_parity` muss mit den §4-Keys grün bleiben (de+en lückenlos).
 - **KEIN version-Bump, KEIN Release in dieser Phase.** `test_version` NICHT anfassen.
 - Ehrlich: headless-grün ≠ live-funktioniert. Erster scharfer Lauf erst nach
-  Phase-0-Lieferungen, mit `dry_run=False` NUR manuell + `max_actions=2` + hohem
-  `gold_floor` + Live-Beobachtung.
+  Phase-0-Lieferungen, mit `dry_run=False` NUR manuell + `max_actions=2` +
+  Live-Beobachtung.
