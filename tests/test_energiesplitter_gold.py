@@ -65,7 +65,7 @@ class TestGoldReader(unittest.TestCase):
                              'gold mismatch on %s' % name)
 
     def test_reads_gold_in_open_shop(self):
-        img = _load('Einkauf_Hammer', 'Shopgeöffnetalchemist.png')
+        img = _load('Einkauf_Hammer', 'shop_alchemist.png')
         self.assertEqual(gr.read_gold(img, geo.ROI_GOLD), 312295)
 
     def test_wrong_region_returns_none(self):
@@ -75,7 +75,7 @@ class TestGoldReader(unittest.TestCase):
 
     def test_dialog_overlay_returns_none(self):
         # Vollbild-Dialog verdeckt den HUD-Gold-Zaehler -> kein Read (nie raten).
-        img = _load('Einkauf_Hammer', 'erstgespräch1.png')
+        img = _load('Einkauf_Hammer', 'erstgespraech1.png')
         self.assertIsNone(gr.read_gold(img, geo.ROI_GOLD))
 
     def test_defensive_inputs_return_none(self):

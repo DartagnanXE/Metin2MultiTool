@@ -136,7 +136,7 @@ class TestYangReader(unittest.TestCase):
 
     def test_dolch_shop_yang_reads_with_3(self):
         # Der Dolch-Shop-Screenshot liefert die 3 (312.295).
-        img = cv2.imread(os.path.join(_FIX, 'Einkauf_Dolche', 'Shopgeöffnet.png'))
+        img = cv2.imread(os.path.join(_FIX, 'Einkauf_Dolche', 'shop_dolche.png'))
         self.assertIsNotNone(img)
         self.assertEqual(gr.read_yang(img), 312295)
 

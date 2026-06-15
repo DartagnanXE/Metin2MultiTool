@@ -102,14 +102,17 @@ class TestGuiLaunchSmoke(unittest.TestCase):
                           'no rail button for {!r}'.format(view))
 
     def test_rail_order_inventory_then_settings_last(self):
-        # CHANGE-SET 2: Inventory is kept SEPARATE + last (temporary until
-        # calibrated), with Settings pinned at the very bottom.
+        # INVARIANT: Settings is ALWAYS the very last rail item; Inventory is a
+        # regular section in the cluster before it (its exact position may shift
+        # as new sections like seher/energiesplitter are appended ahead of
+        # Settings -- only "settings last" is contractual).
         order = self.appmod.RAIL_ORDER
-        self.assertEqual(order[-2:], ('inventory', 'settings'),
-                         'rail must end with (inventory, settings); got '
-                         '{!r}'.format(order))
         self.assertEqual(order[-1], 'settings',
-                         'settings must be the last rail item')
+                         'settings must be the last rail item; got '
+                         '{!r}'.format(order))
+        self.assertIn('inventory', order[:-1],
+                      'inventory must be a rail section before settings; got '
+                      '{!r}'.format(order))
         # The earlier cluster keeps the spec order before the gap.
         self.assertEqual(order[:5],
                          ('fishing', 'puzzle', 'ranking', 'roadmap', 'console'))

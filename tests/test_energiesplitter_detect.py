@@ -62,7 +62,7 @@ def _alch_name_template():
 
 def _laden_header_template():
     """Extrahiert das weisse 'Laden'-Header-Wort aus dem Alchemist-Shop."""
-    img = _load('Einkauf_Hammer', 'Shopgeöffnetalchemist.png')
+    img = _load('Einkauf_Hammer', 'shop_alchemist.png')
     client = geo.to_client(img)
     return client[22:40, 455:510]
 
@@ -182,7 +182,7 @@ class TestWordMatchFramework(unittest.TestCase):
         self.assertIsNone(pt)
 
     def test_find_shop_item_hits_real_icon(self):
-        img = _load('Einkauf_Hammer', 'Shopgeöffnetalchemist.png')
+        img = _load('Einkauf_Hammer', 'shop_alchemist.png')
         client = geo.to_client(img)
         icon = client[80:104, 495:520]  # echtes Shop-Item-Icon (4. Slot)
         ok, pt, ncc = d.find_shop_item(img, icon, roi=(365, 75, 200, 35))
@@ -191,7 +191,7 @@ class TestWordMatchFramework(unittest.TestCase):
         self.assertGreaterEqual(ncc, d.NCC_ITEM)
 
     def test_find_shop_item_no_hit_in_overworld(self):
-        shop = _load('Einkauf_Hammer', 'Shopgeöffnetalchemist.png')
+        shop = _load('Einkauf_Hammer', 'shop_alchemist.png')
         icon = geo.to_client(shop)[80:104, 495:520]
         overworld = _load('Alchemist', 'metin2client_BlRGzUUM3w.png')
         ok, _pt, ncc = d.find_shop_item(overworld, icon, roi=(365, 75, 200, 35))
@@ -227,7 +227,7 @@ class TestShopDaggerAnchor(unittest.TestCase):
 
     def test_find_dolch_in_clean_shop_at_anchor(self):
         # Erkennung vor Aktion: der Dolch wird im sauberen Shop am Anker gefunden.
-        shop = _load('Einkauf_Dolche', 'Shopgeöffnet.png')
+        shop = _load('Einkauf_Dolche', 'shop_dolche.png')
         tpl = d.load_template('dolch')
         roi = d.shop_item_roi(cal.SHOP_DAGGER_ANCHOR)
         ok, pt, ncc = d.find_shop_item(shop, tpl, roi)
@@ -239,7 +239,7 @@ class TestShopDaggerAnchor(unittest.TestCase):
 
     def test_hammer_template_does_not_match_dagger_slot(self):
         # Konfusionsfrei: das Hammer-Template trifft den Dolch-Slot NICHT.
-        shop = _load('Einkauf_Dolche', 'Shopgeöffnet.png')
+        shop = _load('Einkauf_Dolche', 'shop_dolche.png')
         ham = d.load_template('hammer')
         roi = d.shop_item_roi(cal.SHOP_DAGGER_ANCHOR)
         ok, _pt, ncc = d.find_shop_item(shop, ham, roi)
@@ -282,11 +282,11 @@ class TestAssetBoundDetectorsNotReady(unittest.TestCase):
     """Ohne gebundelte Marker-Templates: sauberes NotReady (None/False), kein Crash."""
 
     def test_dialog_state_none_without_templates(self):
-        img = _load('Einkauf_Hammer', 'erstgespräch1.png')
+        img = _load('Einkauf_Hammer', 'erstgespraech1.png')
         self.assertIsNone(d.dialog_state(img))
 
     def test_shop_open_false_without_templates(self):
-        img = _load('Einkauf_Hammer', 'Shopgeöffnetalchemist.png')
+        img = _load('Einkauf_Hammer', 'shop_alchemist.png')
         self.assertFalse(d.shop_open(img))
 
     def test_panel_is_bag_false_without_templates(self):
@@ -295,7 +295,7 @@ class TestAssetBoundDetectorsNotReady(unittest.TestCase):
 
     def test_read_shop_stack_stub_none(self):
         # TODO-live-asset (P0.3): Shop-Stack-Digit-Templates fehlen -> None.
-        img = _load('Einkauf_Hammer', 'Shopgeöffnetalchemist.png')
+        img = _load('Einkauf_Hammer', 'shop_alchemist.png')
         slot = geo.to_client(img)[78:104, 372:400]
         self.assertIsNone(d.read_shop_stack(slot))
 
@@ -325,7 +325,7 @@ class TestShopHeaderDiscriminationWithInjectedTemplate(unittest.TestCase):
 
     def test_shop_open_true_in_open_shop(self):
         # Anderes Shop-Bild (Dolch-Shop) traegt denselben 'Laden'-Header.
-        img = _load('Einkauf_Dolche', 'Shopgeöffnet.png')
+        img = _load('Einkauf_Dolche', 'shop_dolche.png')
         self.assertTrue(d.shop_open(img))
 
     def test_shop_open_false_in_overworld(self):
