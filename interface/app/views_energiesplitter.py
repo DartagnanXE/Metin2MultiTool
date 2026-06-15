@@ -187,6 +187,22 @@ class EnergiesplitterViewMixin:
     self._es_widgets['birdseye_on_miss'] = bsw
     r += 1
 
+    # Live-Yang-Pruefung -- Default AN (sicher). AUS = der live Yang-Gold-Gate
+    # entfaellt (unlesbares Yang stoppt NICHT, keine live gold_floor-Wand); dann
+    # begrenzen NUR max_actions + ein FESTER max_gold_spend-Deckel die Ausgabe.
+    # Risiko-Hinweis im InfoBadge. Erkennung-vor-Aktion bleibt unveraendert.
+    self._es_yang_check_var = ctk.BooleanVar(value=True)
+    ycw = ctk.CTkSwitch(
+        opts, text=t('ui.es_yang_check_label'),
+        variable=self._es_yang_check_var,
+        command=lambda: self._es_set('shared', 'yang_check',
+                                     bool(self._es_yang_check_var.get())))
+    ycw.grid(row=r, column=0, sticky='w', pady=(6, 0))
+    InfoBadge(opts, text=t('ui.es_yang_check_help')).grid(
+        row=r, column=1, sticky='w', padx=(6, 0), pady=(6, 0))
+    self._es_widgets['yang_check'] = ycw
+    r += 1
+
     # Scharf / Live -- der BEWUSSTE arm-Schalter. Er ist die INVERSION von
     # ``dry_run``: Schalter AUS = Simulation (dry_run=True, sicher: nur
     # Erkennung), Schalter AN = scharfer Lauf, der ECHTES Yang ausgibt
@@ -342,6 +358,7 @@ class EnergiesplitterViewMixin:
       self._es_unverif_var.set(str(s.get('consecutive_unverified_stop', 3)))
       self._es_jitter_var.set(str(s.get('jitter_pct', 0.15)))
       self._es_birdseye_var.set(bool(s.get('birdseye_on_miss', True)))
+      self._es_yang_check_var.set(bool(s.get('yang_check', True)))
       # Scharf-Schalter = Inversion von dry_run (AN = scharf = dry_run False).
       self._es_scharf_var.set(not bool(s.get('dry_run', True)))
     except Exception:

@@ -11,9 +11,23 @@ gegen die zwei Inventar-Fixtures:
   * ``inventar_waffenhaendler.png`` -> 192295
 
 Sicherheits-Invariante (Erkennung vor Aktion): alles Unsichere/Implausible ->
-``None`` (der Bot stoppt statt blind zu kaufen). Die Ziffern 4/6/8 haben KEIN
-Belegbild -> ``templates_complete()`` bleibt False (Gate bleibt rot) und der
-Confidence-Floor verwirft uneindeutige Treffer.
+``None`` (der Bot stoppt statt blind zu kaufen). Der Confidence-Floor verwirft
+uneindeutige Treffer.
+
+PHASE-1-UPDATE (2026-06-15): Die fehlenden Ziffern 3/4/6/8 wurden aus neuen
+Beleg-Bildern extrahiert (``yang_161495.png`` -> 4/6, ``yang_129895.png`` -> 8,
+``yang_131895.png`` -> 3, Dolch-Shop -> 3). Der Ziffernsatz ist jetzt VOLLSTAENDIG
+(0..9 + dot) -> ``templates_complete()`` ist True und das Phase-0-Gate KANN gruen
+werden. Beruehrende Ziffernpaare (4-9 / 8-9, ein ueberbreiter Tinten-Span) werden
+template-getrieben am besten Schnitt geteilt -- jede Teil-Ziffer muss EINZELN
+ueber CONF_MIN matchen (keine Aufweichung der "nie raten"-Invariante).
+
+EHRLICHKEIT zur Beleg-Lieferung: Das Bild ``yang_131895.png`` rendert am echten
+Pixel ``131.495`` (die 4. Stelle ist ein ``4``, byte-identisch zur 4-9-Gruppe in
+``yang_161495.png``), NICHT ``131.895`` wie in der Beleg-Notiz angegeben. Der
+Reader liest korrekt, was gerendert ist; der saubere ``8``-Beleg kommt aus
+``yang_129895.png`` (liest exakt 129895). Die Tests pruefen daher gegen die TRUE
+gerenderten Werte.
 """
 
 import os
@@ -98,17 +112,39 @@ class TestYangReader(unittest.TestCase):
             self.assertGreaterEqual(val, 0)
             self.assertLessEqual(val, gr.VALUE_MAX)
 
-    # -- Ehrlichkeit zu fehlenden Ziffern (4/6/8) --------------------------
-    def test_templates_incomplete_phase0(self):
-        # 4/6/8 fehlen (kein Beleg) -> Gate bleibt korrekt rot.
-        self.assertFalse(gr.templates_complete())
+    # -- Phase-1: Ziffernsatz jetzt VOLLSTAENDIG (3/4/6/8 nachgeliefert) ----
+    def test_templates_complete_phase1(self):
+        # 3/4/6/8 sind extrahiert -> Gate KANN gruen werden.
+        self.assertTrue(gr.templates_complete())
 
-    def test_missing_digits_are_4_6_8(self):
+    def test_all_ten_digits_plus_dot_present(self):
         glyphs = set(gr._load_templates().keys())
-        self.assertEqual({'4', '6', '8'} - glyphs, {'4', '6', '8'})
-        # Die belegten Ziffern + dot sind da.
-        self.assertTrue({'0', '1', '2', '3', '5', '7', '9', 'dot'}
-                        .issubset(glyphs))
+        needed = set(str(d) for d in range(10)) | {'dot'}
+        self.assertTrue(needed.issubset(glyphs),
+                        'fehlende Glyphen: %s' % (needed - glyphs))
+
+    # -- Neue Ziffern: 3/4/6/8 werden aus den Beleg-Bildern exakt gelesen --
+    def test_reads_new_digit_values(self):
+        # Werte mit den vormals fehlenden Ziffern lesen exakt zurueck.
+        # Hinweis: yang_131895.png rendert real 131.495 (4. Stelle = 4), nicht
+        # 131.895 -- der Reader liest, was gerendert ist (Ehrlichkeit, Docstring).
+        for name, exp in (('yang_161495.png', 161495),   # liefert 4 + 6
+                          ('yang_129895.png', 129895),   # liefert 8 (sauber)
+                          ('yang_131895.png', 131495)):  # liefert 3; real 131.495
+            self.assertEqual(gr.read_yang(_load(name)), exp,
+                             'mismatch on %s' % name)
+
+    def test_dolch_shop_yang_reads_with_3(self):
+        # Der Dolch-Shop-Screenshot liefert die 3 (312.295).
+        img = cv2.imread(os.path.join(_FIX, 'Einkauf_Dolche', 'Shopgeöffnet.png'))
+        self.assertIsNotNone(img)
+        self.assertEqual(gr.read_yang(img), 312295)
+
+    def test_touching_digits_split_does_not_guess(self):
+        # Beruehrende Ziffern werden geteilt, aber jede Teil-Ziffer muss EINZELN
+        # ueber CONF_MIN matchen -- ein zu schwacher Split liefert None, nie raten.
+        # Beleg: das 4-9-Paar in yang_161495.png wird korrekt zu '49' aufgeloest.
+        self.assertEqual(gr.read_yang(_load('yang_161495.png')), 161495)
 
     def test_conf_floor_above_wrong_match_band(self):
         # Sicherheitsmarge: der Confidence-Floor liegt ueber dem gemessenen

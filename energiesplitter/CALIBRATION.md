@@ -69,14 +69,33 @@ Verlierer <= 0.39 -> **konfusionsfrei** bei Schwelle `NCC_ITEM=0.70`. Slot 21
 ### Ziffern-Templates `templates/yang_digits/`
 
 Aus 207.295 + 192.295 ableitbar: **0, 1, 2, 5, 7, 9** + `.` (dot). Dekodier-Test
-(fixed-segment NCC, normiert) liest beide Zahlen exakt zurueck (`207.295`,
-`192.295`).
+(Luecken-Segmentierung + NCC, normiert) liest beide Zahlen exakt zurueck
+(`207.295`, `192.295`).
 
-**FEHLEND (TODO, User liefert spaeter): 3, 4, 6, 8.** Bis dahin gilt der Reader
-als unvollstaendig -> Gate bleibt korrekt rot, Werte mit unbekannter Ziffer
-fallen sauber auf `None` (Stopp statt Blind-Kauf). (Hinweis: das bestehende
-`gold_digits/` enthaelt zusaetzlich eine `3` aus einem frueheren Shot; die hier
-fehlenden 4/6/8 bleiben fuer beide Saetze offen.)
+**GESCHLOSSEN (2026-06-15): 3, 4, 6, 8 nachgeliefert.** Aus neuen Beleg-Bildern
+extrahiert (Crop an `ROI_YANG`, weisse Glyph-Maske, Hoehe 7, gespeichert als
+`<glyph>__waf.png`):
+
+| Ziffer | Quelle (Fixture)  | Lese-Beleg                                           |
+| ------ | ----------------- | ---------------------------------------------------- |
+| `3`    | `yang_131895.png` | 2. Stelle (auch `gold_digits/` hatte 3)              |
+| `6`    | `yang_161495.png` | 2. Stelle                                            |
+| `8`    | `yang_129895.png` | liest exakt `129895`                                 |
+| `4`    | `yang_161495.png` | 4-9-Paar (beruehrend, template-getrieben gesplittet) |
+
+Der Ziffernsatz ist jetzt **vollstaendig** (0..9 + dot) ->
+`gold_reader.templates_complete()` ist **True** und `detect.assets_ready` meldet
+`yang_digits` NICHT mehr als fehlend (das Phase-0-Gate KANN gruen werden).
+Verifiziert: der Reader liest **207.295 / 192.295 / 161.495 / 129.895 / 312.295**
+exakt zurueck.
+
+**Ehrlichkeit zur Beleg-Lieferung:** Das Bild `yang_131895.png` rendert am echten
+Pixel `131.495` (die 4. Stelle ist ein `4`, byte-identisch zur 4-9-Gruppe in
+`yang_161495.png`), NICHT `131.895` wie in der Beleg-Notiz angegeben. Der Reader
+liest korrekt, was gerendert ist; der saubere `8`-Beleg kommt aus
+`yang_129895.png`. (Beruehrende Ziffernpaare wie 4-9 werden template-getrieben am
+besten Schnitt geteilt; jede Teil-Ziffer muss EINZELN ueber `CONF_MIN` matchen --
+keine Aufweichung der "nie raten"-Invariante.)
 
 ## 3) Item-Templates `templates/`
 
@@ -108,11 +127,16 @@ provably konfusionsfrei. `GLOW_REF_BGR=(203,177,176)` = Projekt-`GLOW_REF`
   ~ (425, 273) (grob, "Kaufen"). Stack-Groessen lt. Spec 1/50/200 — in diesem
   Screenshot nur der **200er** sichtbar.
   **LUECKE:** 1er-/50er-Stack-Positionen (separater Shop-Screenshot noetig).
-- **Dolch-Shop (Waffenhaendler):** generischer Waffen-Laden; der spezifische
-  Energiesplitter-Dolch ist NICHT eindeutig per Template lokalisierbar
-  (Inventar-`dolch.png`-NCC nur ~0.55 an mehreren Kandidaten).
-  **LUECKE:** `SHOP_DAGGER_ANCHOR = None` — klarer Screenshot des markierten
-  Dolch-Slots noetig. Ohne verifizierten Anker erfolgt KEIN Kauf.
+- **Dolch-Shop (Waffenhaendler): GESCHLOSSEN (2026-06-15).** Der vom User rot
+  markierte Dolch-Slot liegt in der **oberen Shop-Reihe**. Im SAUBEREN,
+  unannotierten Screenshot (`Einkauf Dolche/Shopgeoeffnet.png`) ist der Dolch per
+  `dolch.png`-NCC **eindeutig** bei Zell-Mitte **(556, 59)** lokalisiert: NCC
+  **1.00** und der EINZIGE Treffer >= 0.6 im gesamten Client; das Hammer-Template
+  trifft diesen Slot NICHT (konfusionsfrei). `SHOP_DAGGER_ANCHOR = (556, 59)`.
+  Sauberes Shop-Template **`templates/shop_dolch.png`** (24×24, aus der
+  unannotierten Vorlage gecroppt, OHNE rote Markierung). `find_shop_item('dolch')`
+  / `_locate_shop_item('dolch')` finden den Slot jetzt am Anker (anker-zentrierte
+  Such-ROI via `detect.shop_item_roi`). Erkennung vor Aktion bleibt gewahrt.
 
 ## 5) NPC-Erkennung `templates/npc/`
 
@@ -146,18 +170,27 @@ splitter-Ergebnis muss NICHT erkannt/gezaehlt werden.
 
 - Grid-Geometrie (Pitch 32, Ursprung (648,258)) — an 8 Slots + Autokorrelation
   verifiziert, beide Bilder identisch.
-- Yang-ROI + Ziffern 0/1/2/5/7/9/dot — beide Zahlen exakt dekodiert.
+- Yang-ROI + **vollstaendiger** Ziffernsatz 0..9 + dot — 207.295/192.295/161.495/
+  129.895/312.295 exakt dekodiert (3/4/6/8 am 2026-06-15 nachgeliefert).
 - Hammer/Dolch-Templates + Glow — konfusionsfrei an 11 Slot-Instanzen.
 - NPC-Wortbilder Alchemist/Waffenhaendler — self 1.0, cross <= 0.34.
 - Hammer-Shop-Anker (200er) — NCC-lokalisiert.
+- **Dolch-Shop-Anker (556,59)** — NCC 1.00, einziger Treffer; `shop_dolch.png`.
 
-**Offene Luecken (ehrlich):**
+**Geschlossene Luecken (2026-06-15):**
 
-1. Yang-Ziffern **3, 4, 6, 8** fehlen (kein Beleg-Bild). TODO User.
-2. **Dolch-Shop-Slot** nicht eindeutig lokalisierbar -> `SHOP_DAGGER_ANCHOR=None`.
+1. Yang-Ziffern **3, 4, 6, 8** — extrahiert; Ziffernsatz vollstaendig,
+   `templates_complete()` True. (Hinweis: `yang_131895.png` rendert real
+   `131.495`; sauberer `8`-Beleg aus `yang_129895.png`.)
+2. **Dolch-Shop-Slot** — `SHOP_DAGGER_ANCHOR = (556, 59)` + `shop_dolch.png`.
+
+**Verbleibende Luecken (ehrlich):**
+
 3. Hammer-Stacks **1 / 50** im Shop nicht sichtbar (nur 200er).
 4. `SHOP_BUY_BUTTON` nur grob (kein Knopf-Template).
-5. ALLES an FIXTURES gemessen -> Live-Re-Verifikation (P0.6) Pflicht vor scharf.
+5. ALLES an FIXTURES gemessen -> Live-Re-Verifikation (P0.6) Pflicht vor scharf
+   (bei `yang_check=TRUE`; `yang_check=FALSE` entfernt die live Gold-Wand —
+   RISIKO, dann begrenzen nur `max_actions` + fester `max_gold_spend`-Deckel).
 
 > Sicherheits-Invariante bleibt oberste Prioritaet: gekauft/gedraggt wird NUR
 > bei live per Template verifiziertem Item (Quelle=Hammer, Ziel=Dolch). Jede

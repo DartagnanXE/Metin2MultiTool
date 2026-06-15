@@ -423,6 +423,7 @@ class RunLoop:
             values['-ES_JITTER-'] = float(shared['jitter_pct'])
             values['-ES_BIRDSEYE-'] = bool(shared['birdseye_on_miss'])
             values['-ES_DRY_RUN-'] = bool(shared['dry_run'])
+            values['-ES_YANG_CHECK-'] = bool(shared['yang_check'])
         except Exception as exc:
             log.error(t('run.crash_in_runhack'), exc=exc)
         return values

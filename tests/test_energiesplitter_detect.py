@@ -31,6 +31,7 @@ if _REPO_ROOT not in sys.path:
 
 from energiesplitter import detect as d      # noqa: E402
 from energiesplitter import geometry as geo  # noqa: E402
+from energiesplitter import calibration as cal  # noqa: E402
 
 _FIX = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                     'fixtures', 'energiesplitter')
@@ -113,9 +114,11 @@ class TestGeometry(unittest.TestCase):
 
 # ---------------------------------------------------------------------------
 class TestAssetsGate(unittest.TestCase):
-    """Neue Asset-Lieferung (Phase 1): Item-/NPC-Templates liegen vor; der Yang-
-    Reader bleibt unvollstaendig (Ziffern 3/4/6/8) -> Gate bleibt korrekt rot auf
-    ``yang_digits``, die vorhandenen Templates erscheinen NICHT mehr als fehlend."""
+    """Asset-Lieferung VOLLSTAENDIG (Phase 1, 2026-06-15): Item-/NPC-Templates +
+    der komplette Yang-Ziffernsatz (0..9 + dot; die zuvor fehlenden 3/4/6/8 sind
+    nachgeliefert) liegen vor -> ``assets_ready`` ist fuer beide Modi GRUEN
+    (``missing == []``). Das Phase-0-Gate KANN damit gruen werden (die restliche
+    Absicherung leistet die Live-Re-Verifikation + die Backstops im Bot)."""
 
     def test_hammer_item_and_npc_present(self):
         # Die in CALIBRATION.md gemessenen Live-Templates sind gebundelt.
@@ -124,19 +127,20 @@ class TestAssetsGate(unittest.TestCase):
         self.assertNotIn('item:hammer', missing)
         self.assertNotIn('npc:alchemist', missing)
 
-    def test_hammer_gate_red_only_on_yang_digits(self):
+    def test_hammer_gate_green_assets_complete(self):
         ready, missing = d.assets_ready('hammer')
-        # Yang-Ziffern 3/4/6/8 fehlen -> Gate bleibt rot, aber NUR deswegen.
-        self.assertFalse(ready)
-        self.assertEqual(missing, ['yang_digits'])
+        # Yang-Ziffern 3/4/6/8 nachgeliefert -> kein fehlendes Asset mehr.
+        self.assertEqual(missing, [])
+        self.assertTrue(ready)
 
     def test_dagger_includes_dolch_and_waffenhaendler(self):
         self.assertTrue(d.item_template_available('dolch'))
         ready, missing = d.assets_ready('dagger')
         self.assertNotIn('item:dolch', missing)
         self.assertNotIn('npc:waffenhaendler', missing)
-        self.assertFalse(ready)            # weiterhin rot ...
-        self.assertEqual(missing, ['yang_digits'])  # ... nur wegen Yang-Ziffern
+        # Vollstaendiger Ziffernsatz -> Gate gruen (keine Luecke mehr).
+        self.assertEqual(missing, [])
+        self.assertTrue(ready)
 
     def test_unknown_mode_rejected(self):
         ready, missing = d.assets_ready('bogus')
@@ -203,6 +207,43 @@ class TestWordMatchFramework(unittest.TestCase):
         ok, pt, ncc = d.match_word(client, toobig)
         self.assertFalse(ok)
         self.assertIsNone(pt)
+
+
+# ---------------------------------------------------------------------------
+class TestShopDaggerAnchor(unittest.TestCase):
+    """Dolch-Shop-Anker GESCHLOSSEN (2026-06-15): der markierte Dolch-Slot liegt
+    in der oberen Shop-Reihe; im SAUBEREN (unannotierten) Shop-Screenshot per
+    Template-NCC eindeutig bei der kalibrierten Zell-Mitte
+    ``calibration.SHOP_DAGGER_ANCHOR`` lokalisierbar (NCC >= 0.70)."""
+
+    def test_anchor_is_set(self):
+        self.assertIsNotNone(cal.SHOP_DAGGER_ANCHOR)
+        self.assertEqual(cal.SHOP_DAGGER_ANCHOR, (556, 59))
+
+    def test_clean_template_bundled(self):
+        # templates/shop_dolch.png ist aus der UNANNOTIERTEN Vorlage gecroppt.
+        tpl = d._imread(os.path.join(d._dir(d.TEMPLATE_DIR), 'shop_dolch.png'))
+        self.assertIsNotNone(tpl)
+
+    def test_find_dolch_in_clean_shop_at_anchor(self):
+        # Erkennung vor Aktion: der Dolch wird im sauberen Shop am Anker gefunden.
+        shop = _load('Einkauf_Dolche', 'Shopgeöffnet.png')
+        tpl = d.load_template('dolch')
+        roi = d.shop_item_roi(cal.SHOP_DAGGER_ANCHOR)
+        ok, pt, ncc = d.find_shop_item(shop, tpl, roi)
+        self.assertTrue(ok)
+        self.assertIsNotNone(pt)
+        self.assertGreaterEqual(ncc, d.NCC_ITEM)
+        self.assertLessEqual(abs(pt[0] - cal.SHOP_DAGGER_ANCHOR[0]), 12)
+        self.assertLessEqual(abs(pt[1] - cal.SHOP_DAGGER_ANCHOR[1]), 12)
+
+    def test_hammer_template_does_not_match_dagger_slot(self):
+        # Konfusionsfrei: das Hammer-Template trifft den Dolch-Slot NICHT.
+        shop = _load('Einkauf_Dolche', 'Shopgeöffnet.png')
+        ham = d.load_template('hammer')
+        roi = d.shop_item_roi(cal.SHOP_DAGGER_ANCHOR)
+        ok, _pt, ncc = d.find_shop_item(shop, ham, roi)
+        self.assertLess(ncc, d.NCC_ITEM)
 
 
 # ---------------------------------------------------------------------------

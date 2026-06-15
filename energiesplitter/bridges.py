@@ -73,10 +73,16 @@ class BridgesMixin:
     bgr = self._shot()
     if bgr is None:
       return 0
+    free = 0
     try:
-      return max(0, int(_b._detect.free_slot_count(bgr)))
+      free = max(0, int(_b._detect.free_slot_count(bgr)))
     except Exception:  # pragma: no cover
-      return 0
+      free = 0
+    try:
+      log.event(self.state, 'WAHRNEHMUNG: Inventar-Scan (freie Slots)', frei=free)
+    except Exception:  # pragma: no cover
+      pass
+    return free
 
   def _bag_count_measurable(self) -> bool:
     """``True`` nur, wenn der Inventar-Hammer-Zaehler real messbar ist (Live-
@@ -108,10 +114,16 @@ class BridgesMixin:
     bgr = self._shot()
     if bgr is None:
       return 0
+    n = 0
     try:
-      return max(0, int(_b._detect.count_item(bgr, 'hammer')))
+      n = max(0, int(_b._detect.count_item(bgr, 'hammer')))
     except Exception:  # pragma: no cover
-      return 0
+      n = 0
+    try:
+      log.event(self.state, 'WAHRNEHMUNG: Hammer-Bestand im Beutel', hammer_slots=n)
+    except Exception:  # pragma: no cover
+      pass
+    return n
 
   def _locate_shop_item(self, item):
     """Lokalisiert ``item`` im Shop-Panel per Template-NCC (A) UND verifiziert
@@ -126,17 +138,45 @@ class BridgesMixin:
     bgr = self._shot()
     if bgr is None:
       return None
-    tpl = self._template(item)
-    try:
-      ok, pt, _ncc = _b._detect.find_shop_item(bgr, tpl)
-    except Exception:  # pragma: no cover
-      ok, pt = False, None
-    if not ok or pt is None:
-      return None
     anchor = self._shop_anchor(item)
     if anchor is None:
-      return None  # kein verifizierter Anker (z.B. Dolch-Luecke) -> kein Kauf
+      return None  # kein verifizierter Anker (z.B. fehlende Kalibrierung) -> kein Kauf
+    tpl = self._template(item)
+    # ANKER-zentrierte Such-ROI: das Item wird GENAU an seinem gemessenen Slot
+    # gesucht (Hammer (425,121) ODER Dolch (556,59)) -- so wird der buyable Slot
+    # nicht mit demselben Icon an anderer Stelle verwechselt (Erkennung vor Aktion).
+    roi = None
+    if hasattr(_b._detect, 'shop_item_roi'):
+      try:
+        roi = _b._detect.shop_item_roi(anchor)
+      except Exception:  # pragma: no cover
+        roi = None
+    ncc = 0.0
+    try:
+      ok, pt, ncc = _b._detect.find_shop_item(bgr, tpl, roi)
+    except Exception:  # pragma: no cover
+      ok, pt = False, None
+    dev = None
+    if pt is not None:
+      try:
+        dev = (abs(pt[0] - anchor[0]), abs(pt[1] - anchor[1]))
+      except Exception:  # pragma: no cover
+        dev = None
+    try:
+      log.event(self.state, 'WAHRNEHMUNG: Shop-Item lokalisiert', item=item,
+                gefunden=bool(ok and pt is not None), ncc=round(float(ncc), 3),
+                pos=(tuple(pt) if pt is not None else None),
+                anker=tuple(anchor), abw_px=dev, tol=SHOP_ANCHOR_TOL)
+    except Exception:  # pragma: no cover
+      pass
+    if not ok or pt is None:
+      return None
     if abs(pt[0] - anchor[0]) > SHOP_ANCHOR_TOL or abs(pt[1] - anchor[1]) > SHOP_ANCHOR_TOL:
+      try:
+        log.event(self.state, 'WAHRNEHMUNG: Shop-Item-Treffer ausserhalb Anker-Toleranz -> kein Kauf',
+                  item=item, abw_px=dev, tol=SHOP_ANCHOR_TOL)
+      except Exception:  # pragma: no cover
+        pass
       return None  # Treffer passt nicht zum gemessenen Shop-Slot -> kein Kauf
     return pt
 
@@ -216,10 +256,18 @@ class BridgesMixin:
       return None
     if before is None or after is None:
       return None
+    land = None
     try:
-      return _b._detect.diff_landing_slot(before, after)
+      land = _b._detect.diff_landing_slot(before, after)
     except Exception:  # pragma: no cover
-      return None
+      land = None
+    try:
+      log.event(self.state, 'WAHRNEHMUNG: Lande-Slot des Kaufs (Inventar-Diff)',
+                lande_slot=(tuple(land) if isinstance(land, (tuple, list)) else land),
+                eindeutig=(land is not None))
+    except Exception:  # pragma: no cover
+      pass
+    return land
 
   def _classified_hammer_slot(self):
     """Liefert einen als HAMMER klassifizierten Quell-Slot (A), sonst None."""
@@ -228,11 +276,18 @@ class BridgesMixin:
     bgr = self._shot()
     if bgr is None:
       return None
+    ok, slot = False, None
     try:
       ok, slot = _b._detect.find_inventory_item(bgr, 'hammer')
-      return slot if ok else None
     except Exception:  # pragma: no cover
-      return None
+      ok, slot = False, None
+    try:
+      log.event(self.state, 'WAHRNEHMUNG: Hammer-Quell-Slot klassifiziert',
+                src_hammer=bool(ok),
+                slot=(tuple(slot) if isinstance(slot, (tuple, list)) else slot))
+    except Exception:  # pragma: no cover
+      pass
+    return slot if ok else None
 
   def _slot_is(self, item, slot) -> bool:
     if _b._detect is None or not hasattr(_b._detect, 'slot_is') or slot is None:

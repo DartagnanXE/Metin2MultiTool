@@ -3,6 +3,25 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.6] — 2026-06-15
+
+### Energiesplitter-Modul: scharf-fähig (kalibriert)
+
+- **Vollständig kalibriert:** Inventar-Raster, Hammer-/Dolch-Erkennung,
+  NPC-Erkennung (Alchemist/Waffenhändler) und der **Yang-Leser** (liest den
+  rohen Yang-Betrag unten rechts) sind aus echten Spielbildern geeicht. Das
+  Modul kann jetzt **scharf** kaufen und verarbeiten.
+- **Sicher startet es trotzdem:** Default ist **Simulation** — du musst „Scharf
+  / Live" bewusst einschalten, bevor echtes Yang ausgegeben wird. Empfehlung:
+  erster echter Lauf mit kleiner Hammerzahl und Aufsicht.
+- **Erkennung vor Aktion:** Gekauft/verarbeitet wird **nur**, was als Hammer
+  bzw. Dolch erkannt wurde — passt etwas nicht, **stoppt** der Bot sauber statt
+  falsch zu klicken oder zu ziehen.
+- **Yang-Schutz:** Mindest-Reserve, Ausgabe-Limit und Aktions-Limit greifen vor
+  jedem Kauf. Neuer Schalter **„Yang-Prüfung"** (Standard an): aus = der Bot
+  bricht nicht ab, falls der Yang-Stand mal nicht lesbar ist — dann begrenzen
+  Ausgabe- und Aktions-Limit (kein Live-Reserve-Schutz; bewusst wählen).
+
 ## [1.2.5] — 2026-06-15
 
 ### Hinzugefügt (Energiesplitter-Modul — Vorschau/Gerüst)

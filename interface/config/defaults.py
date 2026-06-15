@@ -224,6 +224,9 @@ DEFAULTS = {
             'jitter_pct': 0.15,
             'birdseye_on_miss': True,     # KEYPRESS-Manoever bei NPC-Miss
             'dry_run': True,              # arm-Flag, sicherer Erststart-Default
+            'yang_check': True,           # TRUE (sicher): live Yang-Gold-Wand aktiv;
+                                          # FALSE: nur max_actions + fester
+                                          # max_gold_spend-Deckel begrenzen (RISIKO)
         },
     },
     'log': {

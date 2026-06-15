@@ -110,6 +110,12 @@ class HammerFlowMixin:
     remaining = int(self.hammer_count) - self.gekauft
     free = self._free_slot_count()
     stacks = self._plan_stacks(remaining, free)
+    try:
+      log.event(self.state, 'ABSICHT: Hammer-Kaufplan (greedy)',
+                rest=remaining, ziel=self.hammer_count, gekauft=self.gekauft,
+                freie_slots=free, plan=list(stacks), prefer_stack=self.prefer_stack)
+    except Exception:  # pragma: no cover
+      pass
     if not stacks:
       # Kein sicherer Kaufplan (kein Platz / Zielzahl erreicht).
       if remaining <= 0:
@@ -121,6 +127,12 @@ class HammerFlowMixin:
 
     stack = stacks[0]
     cost = stack * int(self.price_per_item)
+    try:
+      verb = ('[SIM] wuerde' if not self.scharf else 'SCHARF:')
+      log.event(self.state, verb + ' Hammer-Stack kaufen', stack=stack,
+                kosten=cost, slot=getattr(self, '_hammer_slot', None))
+    except Exception:  # pragma: no cover
+      pass
     gold_before = self.gold_guard(cost)
     if gold_before is None:
       return  # gold_guard hat gestoppt
@@ -149,8 +161,19 @@ class HammerFlowMixin:
     # gewachsen sein -- nicht nur das Gold gesunken).
     bag_before = self._count_hammers()
 
+    try:
+      verb = ('[SIM] wuerde' if self._guarded() else 'SCHARF:')
+      log.event(self.state, verb + ' Hammer rechtsklicken (Kauf)',
+                ziel=tuple(slot), stack=stack, kosten=cost,
+                gold_before=self._fmt_gold(gold_before))
+    except Exception:  # pragma: no cover
+      pass
     self._right_click(*slot)
     self.actions_done += 1
+    # GEPLANTE Ausgabe (echte Stack-Kosten = stack*price) OCR-unabhaengig
+    # fortschreiben -- Bezugsgroesse des yang_check=FALSE-Deckels, der sonst bei
+    # Stacks>1 die bereits getaetigte Ausgabe unterzaehlt (Safety-Audit MEDIUM).
+    self._note_planned_spend(cost)
 
     ok, gold_after = self.verify_purchase(gold_before, cost)
     # Cap-Drift-Haertung: die REAL GELESENE Yang-Abnahme IMMER fortschreiben --

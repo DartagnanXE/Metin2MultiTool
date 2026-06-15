@@ -151,6 +151,19 @@ class TestEnergiesplitterConfig(unittest.TestCase):
     self.assertEqual(es['dagger']['process_mode'], 'one_to_one')
     self.assertEqual(es['shared']['speed_profile'], 'fast')
     self.assertEqual(es['shared']['dry_run'], True)
+    # yang_check Default TRUE (sicher): live Yang-Gold-Wand aktiv.
+    self.assertEqual(es['shared']['yang_check'], True)
+
+  def test_yang_check_default_true_and_bool_coerced(self):
+    # Default fehlt -> True; beliebiger Wert -> bool().
+    cfg = config.validate({'energiesplitter': {'shared': {}}})
+    self.assertIs(cfg['energiesplitter']['shared']['yang_check'], True)
+    cfg2 = config.validate(
+        {'energiesplitter': {'shared': {'yang_check': 0}}})
+    self.assertIs(cfg2['energiesplitter']['shared']['yang_check'], False)
+    cfg3 = config.validate(
+        {'energiesplitter': {'shared': {'yang_check': 1}}})
+    self.assertIs(cfg3['energiesplitter']['shared']['yang_check'], True)
 
   def test_modes_validate(self):
     for mode in ('energiesplitter_hammer', 'energiesplitter_dagger'):

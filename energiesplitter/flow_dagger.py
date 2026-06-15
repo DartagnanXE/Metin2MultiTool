@@ -109,6 +109,13 @@ class DaggerFlowMixin:
     if self._action_cap_hit():
       return
     cost = int(self.price_per_item)
+    try:
+      verb = ('[SIM] wuerde' if not self.scharf else 'SCHARF:')
+      log.event(self.state, verb + ' GENAU 1 Dolch kaufen', kosten=cost,
+                hammer_rest=self.hammer_remaining,
+                dolche_gekauft=self._dolche_gekauft)
+    except Exception:  # pragma: no cover
+      pass
     gold_before = self.gold_guard(cost)
     if gold_before is None:
       return
@@ -127,8 +134,18 @@ class DaggerFlowMixin:
     self._dolch_shop_slot = slot
 
     before = self._inventory_signature()
+    try:
+      verb = ('[SIM] wuerde' if self._guarded() else 'SCHARF:')
+      log.event(self.state, verb + ' Dolch rechtsklicken (Kauf)', ziel=tuple(slot),
+                kosten=cost, gold_before=self._fmt_gold(gold_before))
+    except Exception:  # pragma: no cover
+      pass
     self._right_click(*slot)
     self.actions_done += 1
+    # GEPLANTE Ausgabe (echte Kosten = price je Einzel-Dolch) OCR-unabhaengig
+    # fortschreiben -- Bezugsgroesse des yang_check=FALSE-Deckels (siehe bot.py
+    # _gold_guard_no_yang).
+    self._note_planned_spend(cost)
 
     ok, gold_after = self.verify_purchase(gold_before, cost)
     # Cap-Drift-Haertung: die REAL GELESENE Yang-Abnahme IMMER fortschreiben --
@@ -157,6 +174,12 @@ class DaggerFlowMixin:
     self._dolche_gekauft += 1
     self.consecutive_unverified = 0
     self._buy_retries = 0
+    try:
+      log.event(self.state, 'ZUSTAND: Dolch gekauft + Lande-Slot bestimmt',
+                lande_slot=(tuple(land) if isinstance(land, (tuple, list)) else land),
+                dolche_gekauft=self._dolche_gekauft)
+    except Exception:  # pragma: no cover
+      pass
     self.state = self.ST_PROCESS_DRAG
 
   def _dagger_process_drag(self):
@@ -166,7 +189,23 @@ class DaggerFlowMixin:
       return
     src = self._classified_hammer_slot()
     dst_ok = self._slot_is('dolch', self._dolch_inv_slot)
+    try:
+      log.event(self.state, 'WAHRNEHMUNG: Slot-Klassifikation vor Drag',
+                src_hammer=(src is not None),
+                src_slot=(tuple(src) if isinstance(src, (tuple, list)) else src),
+                dst_dolch=bool(dst_ok),
+                dst_slot=(tuple(self._dolch_inv_slot)
+                          if isinstance(self._dolch_inv_slot, (tuple, list))
+                          else self._dolch_inv_slot))
+    except Exception:  # pragma: no cover
+      pass
     if src is None or not dst_ok:
+      try:
+        log.event(self.state, 'FEHLER: Drag unsicher -- '
+                  + ('Quelle NICHT Hammer ' if src is None else '')
+                  + ('Ziel NICHT Dolch' if not dst_ok else ''))
+      except Exception:  # pragma: no cover
+        pass
       log.event(self.state, t('energiesplitter.drag_unsafe'))
       self._stop('drag_unsafe')
       return
@@ -178,6 +217,13 @@ class DaggerFlowMixin:
     self._hammer_count_before_proc = self._count_hammers()
     sx, sy = self._slot_center(src)
     dx, dy = self._slot_center(self._dolch_inv_slot)
+    try:
+      verb = ('[SIM] wuerde' if self._guarded() else 'SCHARF:')
+      log.event(self.state, verb + ' Dolch verarbeiten -- Hammer auf Dolch-Slot ziehen',
+                von=(sx, sy), nach=(dx, dy),
+                hammer_vor_drag=self._hammer_count_before_proc)
+    except Exception:  # pragma: no cover
+      pass
     self._drag(sx, sy, dx, dy)
     self.actions_done += 1
     self.state = self.ST_VERIFY_PROCESS

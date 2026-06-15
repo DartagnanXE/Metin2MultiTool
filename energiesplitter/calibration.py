@@ -119,11 +119,15 @@ GLOW_FRACTION_THR = 0.35           # Glow-Anteil im Randring > das = leuchtend
 SHOP_HAMMER_ANCHOR = (425, 121)    # KALIBRIER-BAR (Hammer-200-Zell-Mitte im Laden)
 SHOP_HAMMER_CELL = 32              # Zellgroesse fuer die NCC-Verifikation
 SHOP_BUY_BUTTON = (425, 273)       # KALIBRIER-BAR (ungefaehr "Kaufen"-Knopf, grob)
-# Dolch-Shop (Waffenhaendler): der spezifische Energiesplitter-Dolch ist im
-# generischen Waffen-Laden NICHT eindeutig per Template lokalisierbar (NCC der
-# Inventar-dolch.png nur ~0.55 an mehreren Kandidaten). -> LUECKE: klarer
-# Screenshot des markierten Dolch-Shop-Slots noetig. KEIN Anker = kein Blind-Kauf.
-SHOP_DAGGER_ANCHOR = None          # LUECKE (P-Asset): Dolch-Shop-Slot unbestimmt
+# Dolch-Shop (Waffenhaendler): GESCHLOSSEN (2026-06-15). Der markierte Dolch-Slot
+# liegt in der OBEREN Shop-Reihe; per Template-NCC im SAUBEREN Shop-Screenshot
+# ('Einkauf Dolche/Shopgeoeffnet.png', unannotiert) eindeutig bei Zell-Mitte
+# (556,59) lokalisiert -- die Inventar-dolch.png matcht dort konfusionsfrei mit
+# NCC 1.00 (einziger Treffer >= 0.6 im gesamten Client; Hammer-Template trifft
+# diesen Slot NICHT). Sauberes Shop-Template: templates/shop_dolch.png (24x24,
+# OHNE rote Markierung -- aus der unannotierten Vorlage gecroppt).
+SHOP_DAGGER_ANCHOR = (556, 59)     # KALIBRIER-BAR (Dolch-Slot-Zell-Mitte im Laden)
+SHOP_DAGGER_CELL = 32              # Zellgroesse fuer die NCC-Verifikation
 
 
 # -- NPC-Suchregion + Detektions-Hinweise -----------------------------------
@@ -158,7 +162,7 @@ __all__ = [
     'ROI_YANG', 'YANG_DIGIT_BAND_H', 'yang_roi',
     'GLOW_REF_BGR', 'GLOW_RING_PX', 'GLOW_MINCH_THR', 'GLOW_FRACTION_THR',
     'SHOP_HAMMER_ANCHOR', 'SHOP_HAMMER_CELL', 'SHOP_BUY_BUTTON',
-    'SHOP_DAGGER_ANCHOR',
+    'SHOP_DAGGER_ANCHOR', 'SHOP_DAGGER_CELL',
     'ROI_NPC_SEARCH', 'NPC_ARROW_YELLOW', 'NPC_GREEN_NAME',
     'to_client', 'crop', 'CLIENT_X0', 'CLIENT_Y0', 'GAME_W', 'GAME_H',
 ]

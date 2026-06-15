@@ -539,6 +539,21 @@ def _shop_default_roi():
 SHOP_PANEL_ROI = _shop_default_roi()   # KALIBRIER-BAR (anker-zentriert)
 
 
+def shop_item_roi(anchor, half=20):
+    """Enge, ANKER-zentrierte Such-ROI ``(x,y,w,h)`` um einen Shop-Slot.
+
+    So sucht ``find_shop_item`` das Item GENAU an seinem gemessenen Slot (Hammer
+    ODER Dolch) und verwechselt es nicht mit demselben Icon an anderer Stelle
+    (Erkennung vor Aktion). ``anchor=None`` -> ``None`` (der Aufrufer faellt dann
+    auf die Default-ROI zurueck bzw. lehnt mangels Anker ab). Wirft nie."""
+    if not (isinstance(anchor, (tuple, list)) and len(anchor) == 2):
+        return None
+    try:
+        return (int(anchor[0]) - half, int(anchor[1]) - half, 2 * half, 2 * half)
+    except Exception:  # pragma: no cover - defensiv
+        return None
+
+
 def find_shop_item(bgr, item_template, roi=None, thresh=NCC_ITEM):
     """Sucht ``item_template`` (Item-Icon) im Shop-Panel -> ``(ok, pt, ncc)``.
 
@@ -811,7 +826,7 @@ def diff_landing_slot(before, after):
 
 __all__ = [
     'assets_ready', 'match_word', 'find_npc_name', 'selection_ring_present',
-    'dialog_state', 'shop_open', 'panel_is_bag', 'find_shop_item',
+    'dialog_state', 'shop_open', 'panel_is_bag', 'find_shop_item', 'shop_item_roi',
     'read_shop_stack', 'read_shop_stack_sizes', 'read_splitter_growth',
     'load_template', 'item_template_available', 'count_item',
     'free_slot_count', 'inventory_signature', 'diff_landing_slot',

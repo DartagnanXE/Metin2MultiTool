@@ -9,6 +9,18 @@ behaviour is fully preserved as the default.
 > violates the game's Terms of Service and may get your account banned. Use at
 > your own risk. See [`LICENSE.txt`](LICENSE.txt).
 
+## 🆕 What's new in 1.2.6
+
+- **Energiesplitter module: now calibrated and armable.** Inventory grid, hammer/
+  dagger recognition, NPC detection and the **Yang reader** are calibrated from
+  real game frames, so the module can buy and process for real. It still starts
+  **safe**: the default is simulation — you consciously flip "Scharf/Live" before
+  any real Yang is spent (recommended first run: small hammer count, supervised).
+  Detect-before-action means a miscalibration cleanly stops instead of mis-
+  clicking; Yang reserve / spend / action caps guard every purchase. New
+  **"Yang check"** toggle (default on): off = the bot won't abort if the Yang
+  balance is briefly unreadable (spend/action caps still bound it).
+
 ## 🆕 What's new in 1.2.5
 
 - **New "Energiesplitter" module (preview).** Own tab with a split start button

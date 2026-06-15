@@ -82,6 +82,13 @@ DIGIT_BAND_H = 7      # gemessene Glyph-Hoehe der Gold-Schrift (KALIBRIER-BAR)
 DIGIT_H_TOL = 2       # Toleranz um DIGIT_BAND_H; groesser = Rahmen/Artefakt (verworfen)
 DOT_MAX_H = 3         # Glyph-Hoehe <= das = Tausenderpunkt (kein Ziffer-Match)
 GAP_NATIVE = 1        # leere Spaltenbreite, die zwei Glyphen trennt (nativ)
+# Eine einzelne Ziffer ist nativ ~3..4px breit (gemessen, alle Fixtures). Manche
+# Ziffernpaare (z.B. 4-9 / 8-9) beruehren sich und bilden EINEN Tinten-Span ohne
+# leere Trennspalte; ab dieser Breite wird der Span am inneren Tinten-Minimum
+# ("Tal") geteilt, statt ihn als ein einziges (unlesbares) Glyph zu behandeln.
+# Jede Teil-Ziffer muss danach EINZELN ueber CONF_MIN matchen -> keine Aufweichung
+# der "nie raten"-Invariante, nur eine korrekte Segmentierung.
+GLYPH_MAX_W = 6       # Span breiter als das = zwei beruehrende Ziffern -> splitten
 VALUE_MAX = 99_999_999
 
 _TEMPLATES = None     # {'0'..'9': [mask], 'dot': [mask]}
@@ -236,6 +243,53 @@ def _segment(mask):
     return spans
 
 
+def _split_wide_span(mask, x0, x1, templates=None):
+    """Teilt einen ueberbreiten Tinten-Span in zwei Ziffern (beruehrende Glyphen).
+
+    Manche Ziffernpaare (4-9 / 8-9) beruehren sich und bilden EINEN Span ohne
+    leere Trennspalte. Ist der Span > ``GLYPH_MAX_W`` breit, wird der beste
+    Schnitt gesucht:
+
+      * Liegen Templates vor, wird jede innere Schnittspalte probiert und die
+        gewaehlt, die ``min(links_ncc, rechts_ncc)`` maximiert -- die Trennung
+        folgt also der TATSAECHLICHEN Glyph-Form, nicht nur dem Tinten-Tal (das
+        bei beruehrenden Ziffern auf dem Stamm einer Ziffer liegen kann).
+      * Ohne Templates faellt es auf das innere Tinten-Minimum zurueck.
+
+    Liefert ``[(x0, xm), (xm, x1)]`` bzw. ``[(x0, x1)]`` unveraendert. Reine
+    Segmentierung; jede Teil-Ziffer muss danach EINZELN ueber ``CONF_MIN`` matchen
+    -> keine Aufweichung der "nie raten"-Invariante. Wirft nie.
+    """
+    w = x1 - x0
+    if w <= GLYPH_MAX_W:
+        return [(x0, x1)]
+    try:
+        lo = x0 + MIN_CELL_W
+        hi = x1 - MIN_CELL_W + 1
+        if hi <= lo:
+            return [(x0, x1)]
+        if templates:
+            best_xm, best_score = None, -1.0
+            for xm in range(lo, hi):
+                left = _classify_cell(mask[:, x0:xm], templates)
+                right = _classify_cell(mask[:, xm:x1], templates)
+                if left is None or right is None:
+                    continue
+                score = min(left[1], right[1])
+                if score > best_score:
+                    best_score, best_xm = score, xm
+            if best_xm is not None:
+                return [(x0, best_xm), (best_xm, x1)]
+        col = (mask[:, x0:x1] > INK_THR).sum(0)
+        rel = MIN_CELL_W + int(np.argmin(col[MIN_CELL_W:w - MIN_CELL_W + 1]))
+        xm = x0 + rel
+        if xm - x0 < MIN_CELL_W or x1 - xm < MIN_CELL_W:
+            return [(x0, x1)]
+        return [(x0, xm), (xm, x1)]
+    except Exception:  # pragma: no cover - defensiv
+        return [(x0, x1)]
+
+
 def _decode(mask, templates):
     """Luecken-Segmentierung -> ``(text, weakest_score)`` (Ziffern + '.').
 
@@ -246,8 +300,12 @@ def _decode(mask, templates):
     spans = _segment(mask)
     if not spans:
         return '', 0.0
-    glyphs, scores = [], []
+    # Beruehrende Ziffernpaare (ein ueberbreiter Span) in zwei Zellen aufteilen.
+    sub_spans = []
     for x0, x1 in spans:
+        sub_spans.extend(_split_wide_span(mask, x0, x1, templates))
+    glyphs, scores = [], []
+    for x0, x1 in sub_spans:
         seg = mask[:, x0:x1]
         ys = np.where((seg > INK_THR).any(1))[0]
         if len(ys) == 0:

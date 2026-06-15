@@ -480,6 +480,9 @@ def _validate_energiesplitter(value):
         'birdseye_on_miss': bool(
             src_s.get('birdseye_on_miss', d_s['birdseye_on_miss'])),
         'dry_run': bool(src_s.get('dry_run', d_s['dry_run'])),
+        # yang_check: TRUE (sicher, Default) = live Yang-Gold-Wand aktiv; FALSE =
+        # nur max_actions + fester max_gold_spend-Deckel begrenzen (RISIKO).
+        'yang_check': bool(src_s.get('yang_check', d_s['yang_check'])),
     }
     return {'hammer': hammer, 'dagger': dagger, 'shared': shared}
 

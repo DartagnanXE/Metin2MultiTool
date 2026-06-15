@@ -6,11 +6,11 @@ allen Alchemist-Bildern + dem Alchemist-Shop sichtbar = "312.295" -> der Reader
 MUSS dort 312295 liefern (Treffer am echten Bild), und an einem falschen/leeren
 ROI ``None`` (defensiv -> der Bot stoppt statt blind zu kaufen).
 
-PHASE-0 (ehrlich): Der gebundelte Gold-Digit-Satz wurde aus EINEM Screenshot
-bootstrap-extrahiert und ist UNVOLLSTAENDIG (nur die in "312.295" vorkommenden
-Ziffern). ``templates_complete()`` ist daher False -> ``detect.assets_ready``
-meldet ``gold_digits`` weiter als fehlend (Gate bleibt korrekt rot). Der Reader
-ist trotzdem nachweisbar funktionsfaehig fuer den vorhandenen Glyph-Satz.
+PHASE-1-UPDATE (2026-06-15): Der gemeinsame Ziffernsatz (``templates/yang_digits/``
++ ``gold_digits/``) ist jetzt VOLLSTAENDIG -- die zuvor fehlenden 3/4/6/8 wurden
+aus neuen Beleg-Bildern extrahiert (siehe ``test_energiesplitter_yang``). Damit
+ist ``templates_complete()`` True und ``detect.assets_ready`` meldet ``gold_digits``
+nicht mehr als fehlend -> das Phase-0-Gate KANN gruen werden.
 """
 
 import os
@@ -94,10 +94,11 @@ class TestGoldReader(unittest.TestCase):
             self.assertGreaterEqual(val, 0)
             self.assertLessEqual(val, gr.VALUE_MAX)
 
-    def test_templates_incomplete_phase0(self):
-        # TODO-live-asset (P0.3): voller 0..9-Satz beider Shop-Zustaende fehlt ->
-        # templates_complete() MUSS False sein, damit das Phase-0-Gate rot bleibt.
-        self.assertFalse(gr.templates_complete())
+    def test_templates_complete_phase1(self):
+        # Phase 1: die zuvor fehlenden Ziffern 3/4/6/8 wurden aus neuen Beleg-
+        # Bildern extrahiert (siehe test_energiesplitter_yang) -> der Ziffernsatz
+        # ist jetzt vollstaendig und das Phase-0-Gate KANN gruen werden.
+        self.assertTrue(gr.templates_complete())
 
 
 if __name__ == '__main__':

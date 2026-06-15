@@ -116,7 +116,8 @@ class TestSetToBeginFreeze(unittest.TestCase):
     bot = _make_bot()
     self.assertEqual(bot.state, EnergiesplitterBot.ST_INIT)
     for attr in ('gekauft', 'hammer_remaining', 'splitter_summe',
-                 'actions_done', 'gold_spent', 'consecutive_unverified'):
+                 'actions_done', 'gold_spent', '_planned_spent',
+                 'consecutive_unverified'):
       self.assertEqual(getattr(bot, attr), 0)
 
   def test_max_gold_spend_auto_derived(self):
@@ -285,6 +286,21 @@ class TestGateBlocksAllInput(unittest.TestCase):
     self.assertFalse(bot._drag(1, 1, 2, 2))
     self.assertEqual(sum(_INPUT_CALLS.values()), 0, _INPUT_CALLS)
 
+  def test_yang_check_false_does_not_weaken_input_gate(self):
+    # yang_check=FALSE entfernt NUR die live Yang-Wand -- der Eingabe-GATE
+    # (_guarded: dry_run/armed/abort) bleibt UNVERAENDERT: kein Input im dry_run.
+    _reset_input()
+    bot = _make_bot()
+    bot.yang_check = False
+    bot.dry_run = True
+    bot.botting = True
+    bot.runHack()
+    self.assertFalse(bot.botting)
+    self.assertEqual(sum(_INPUT_CALLS.values()), 0, _INPUT_CALLS)
+    self.assertFalse(bot._right_click(10, 10))
+    self.assertFalse(bot._press_key('g'))
+    self.assertEqual(sum(_INPUT_CALLS.values()), 0, _INPUT_CALLS)
+
 
 class TestNoWindowStop(unittest.TestCase):
   def test_no_window_stops_without_input(self):
@@ -358,6 +374,171 @@ class TestGoldGuard(unittest.TestCase):
     out = bot.gold_guard(15000)
     self.assertEqual(out, 500000)
     self.assertTrue(bot.botting)
+
+
+class TestYangCheckDisabled(unittest.TestCase):
+  """yang_check=FALSE (RISIKO-Pfad): der LIVE-Yang-Gate entfaellt, ABER
+  max_actions UND ein FESTER max_gold_spend-Deckel bleiben ZWINGEND wirksam und
+  Erkennung-vor-Aktion bleibt UNVERAENDERT (Kauf/Drag nur bei GATE gruen)."""
+
+  def _bot(self, gold, max_spend=10 ** 9, spent=0, price=15000, actions=0,
+           planned_spent=0):
+    bot = _make_bot()
+    _arm(bot)
+    bot.yang_check = False
+    bot.gold_floor = 50000
+    bot.max_gold_spend = max_spend
+    bot.price_per_item = price
+    bot.gold_spent = spent
+    bot.actions_done = actions
+    bot._planned_spent = planned_spent
+    bot._read_gold = lambda: gold
+    return bot
+
+  # -- gold_floor-Wand AUS + unlesbares Yang blockiert NICHT --------------
+  def test_unreadable_yang_does_not_stop(self):
+    bot = self._bot(gold=None, max_spend=10 ** 9)
+    bot.botting = True
+    out = bot.gold_guard(15000)
+    # Kein Stop, kein gold_unreadable -- Sentinel 0 (nicht-gatend) zurueck.
+    self.assertEqual(out, 0)
+    self.assertTrue(bot.botting)
+    self.assertNotEqual(bot._stop_reason, 'gold_unreadable')
+
+  def test_live_gold_floor_wall_off(self):
+    # Gold knapp ueber 0, weit unter floor -> mit yang_check=TRUE wuerde
+    # gold_floor stoppen; mit FALSE laeuft es weiter (Wand ist aus).
+    bot = self._bot(gold=1000, max_spend=10 ** 9)
+    bot.botting = True
+    out = bot.gold_guard(15000)
+    self.assertTrue(bot.botting)
+    self.assertNotEqual(bot._stop_reason, 'gold_floor')
+    self.assertEqual(out, 1000)  # lesbares Gold wird opportunistisch zurueckgegeben
+
+  # -- FESTER max_gold_spend-Deckel bleibt ZWINGEND ----------------------
+  def test_fixed_spend_cap_still_stops(self):
+    # Deckel = _planned_spent + planned_cost. 45000 + 15000 = 60000 > 50000.
+    bot = self._bot(gold=10 ** 9, max_spend=50000, planned_spent=45000)
+    bot.botting = True
+    out = bot.gold_guard(15000)
+    self.assertIsNone(out)
+    self.assertFalse(bot.botting)
+    self.assertEqual(bot._stop_reason, 'max_gold_spend')
+
+  def test_fixed_spend_cap_uses_prediction_not_yang_delta(self):
+    # Selbst bei UNLESBAREM Yang (kein Delta verfuegbar) greift der Deckel ueber
+    # den geplanten Akkumulator -> OCR-unabhaengig wirksam.
+    bot = self._bot(gold=None, max_spend=50000, planned_spent=45000)
+    bot.botting = True
+    out = bot.gold_guard(15000)
+    self.assertIsNone(out)
+    self.assertEqual(bot._stop_reason, 'max_gold_spend')
+
+  def test_under_cap_proceeds(self):
+    bot = self._bot(gold=10 ** 9, max_spend=50000, planned_spent=15000)
+    bot.botting = True
+    out = bot.gold_guard(15000)   # 15000 + 15000 = 30000 <= 50000
+    self.assertTrue(bot.botting)
+    self.assertNotEqual(bot._stop_reason, 'max_gold_spend')
+
+  def test_cap_counts_full_stack_cost_not_per_action(self):
+    # KERN des Safety-Audit-Fix: ein Hammer-Stack-Kauf kostet stack*price, zaehlt
+    # aber nur als EINE Aktion. Der Deckel MUSS die echten Stack-Kosten sehen,
+    # nicht actions_done*price (das wuerde bei Stacks>1 grob unterzaehlen und der
+    # Deckel waere keine echte zweite Wand).
+    #   _planned_spent steht bereits bei 2.9 Mio (z.B. 1 Stack a 200*15000=3 Mio
+    #   minus etwas), naechster 200er-Stack kostet 3 Mio -> Deckel 5 Mio -> Stop.
+    bot = self._bot(gold=10 ** 9, max_spend=5_000_000, price=15000,
+                    actions=1, planned_spent=2_900_000)
+    bot.botting = True
+    out = bot.gold_guard(200 * 15000)   # 2.9M + 3.0M = 5.9M > 5.0M
+    self.assertIsNone(out)
+    self.assertFalse(bot.botting)
+    self.assertEqual(bot._stop_reason, 'max_gold_spend')
+    # Gegenprobe: die ALTE Prognose actions_done*price + planned_cost waere
+    # 1*15000 + 3.0M = 3.015M <= 5.0M und haette FAELSCHLICH durchgelassen.
+    self.assertLessEqual(bot.actions_done * bot.price_per_item + 200 * 15000,
+                         bot.max_gold_spend)
+
+  # -- max_actions bleibt wirksam ----------------------------------------
+  def test_max_actions_still_effective(self):
+    bot = self._bot(gold=10 ** 9)
+    bot.max_actions = 2
+    bot.actions_done = 2
+    bot.botting = True
+    self.assertTrue(bot._action_cap_hit())
+    self.assertFalse(bot.botting)
+    self.assertEqual(bot._stop_reason, 'max_actions')
+
+  # -- Erkennung-vor-Aktion UNVERAENDERT ---------------------------------
+  def test_guard_unchanged_dry_run_blocks_input(self):
+    bot = self._bot(gold=10 ** 9)
+    bot.dry_run = True            # nicht entsichert
+    self.assertTrue(bot._guarded())   # yang_check aendert das GATE nicht
+
+  def test_guard_unchanged_not_armed_blocks_input(self):
+    bot = self._bot(gold=10 ** 9)
+    bot.armed = False
+    self.assertTrue(bot._guarded())
+
+  # -- phase0_gate gruen OHNE Yang-Kalibrierung, aber MIT Grid/Templates --
+  def test_phase0_green_without_yang_calibration(self):
+    bot = _make_bot()
+    bot.yang_check = False
+    # assets_ready meldet NUR yang_digits fehlend -> mit yang_check=FALSE
+    # gefiltert; Grid ist da (read_gold-Modul + _grid_present True).
+    fake_detect = types.SimpleNamespace(
+        assets_ready=lambda mode: (False, ['yang_digits']))
+    fake_geo = types.SimpleNamespace(is_calibrated=lambda w: True,
+                                     gold_roi=lambda mode=None: (0, 0, 1, 1))
+    fake_gold = types.SimpleNamespace(
+        read_gold=lambda b, r: 1,
+        is_calibrated=lambda b, r=None: False,   # Yang liest NICHT plausibel
+        _grid_present=lambda: True)              # ... aber das Grid ist da
+    with mock.patch.object(esbot_mod, '_detect', fake_detect), \
+         mock.patch.object(esbot_mod, '_geometry', fake_geo), \
+         mock.patch.object(esbot_mod, '_gold_reader', fake_gold):
+      armed, missing = bot.phase0_gate()
+    self.assertTrue(armed, missing)
+    self.assertEqual(missing, [])
+
+  def test_phase0_still_needs_grid_when_yang_off(self):
+    # yang_check=FALSE entfernt NUR die Yang-Lesbarkeit -- fehlt das Grid,
+    # bleibt das Gate rot (keine sicheren Drag-/Slot-Ziele).
+    bot = _make_bot()
+    bot.yang_check = False
+    fake_detect = types.SimpleNamespace(assets_ready=lambda mode: (True, []))
+    fake_geo = types.SimpleNamespace(is_calibrated=lambda w: True,
+                                     gold_roi=lambda mode=None: (0, 0, 1, 1))
+    fake_gold = types.SimpleNamespace(read_gold=lambda b, r: 1,
+                                      is_calibrated=lambda b, r=None: True,
+                                      _grid_present=lambda: False)
+    with mock.patch.object(esbot_mod, '_detect', fake_detect), \
+         mock.patch.object(esbot_mod, '_geometry', fake_geo), \
+         mock.patch.object(esbot_mod, '_gold_reader', fake_gold):
+      armed, missing = bot.phase0_gate()
+    self.assertFalse(armed)
+    self.assertIn('grid_calibration', missing)
+
+  def test_phase0_yang_on_still_requires_content(self):
+    # Gegenprobe: yang_check=TRUE (Default) -> die Yang-Inhalts-Verifikation
+    # bleibt Pflicht; fehlende yang_digits + unlesbarer Inhalt halten rot.
+    bot = _make_bot()
+    bot.yang_check = True
+    fake_detect = types.SimpleNamespace(
+        assets_ready=lambda mode: (False, ['yang_digits']))
+    fake_geo = types.SimpleNamespace(is_calibrated=lambda w: True,
+                                     gold_roi=lambda mode=None: (0, 0, 1, 1))
+    fake_gold = types.SimpleNamespace(read_gold=lambda b, r: 1,
+                                      is_calibrated=lambda b, r=None: False,
+                                      _grid_present=lambda: True)
+    with mock.patch.object(esbot_mod, '_detect', fake_detect), \
+         mock.patch.object(esbot_mod, '_geometry', fake_geo), \
+         mock.patch.object(esbot_mod, '_gold_reader', fake_gold):
+      armed, missing = bot.phase0_gate()
+    self.assertFalse(armed)
+    self.assertIn('yang_digits', missing)
+    self.assertIn('content_calibration', missing)
 
 
 class TestRealSpendCapDrift(unittest.TestCase):
@@ -441,6 +622,83 @@ class TestRealSpendCapDrift(unittest.TestCase):
     self.assertIsNone(out)
     self.assertFalse(bot.botting)
     self.assertEqual(bot._stop_reason, 'max_gold_spend')
+
+
+class TestPlannedSpendCapStack(unittest.TestCase):
+  """Safety-Audit MEDIUM-Fix (yang_check=FALSE): der Deckel zaehlt die ECHTEN
+  Stack-Kosten je Kauf (_planned_spent), nicht actions_done*price. Bei Stacks>1
+  stoppt der Bot, NACHDEM die kumulierten Stack-Kosten den Deckel erreichen --
+  nicht erst nach actions_done*price (das unterzaehlt systematisch)."""
+
+  def test_planned_spent_accumulates_full_stack_cost(self):
+    bot = _make_bot()
+    bot._planned_spent = 0
+    # Hammer-Stack 200 a 15000 = 3.0 Mio -- EIN Kauf, ECHTE Kosten.
+    self.assertEqual(bot._note_planned_spend(200 * 15000), 3_000_000)
+    self.assertEqual(bot._planned_spent, 3_000_000)
+    # Zweiter Kauf addiert erneut die echten Kosten.
+    bot._note_planned_spend(50 * 15000)
+    self.assertEqual(bot._planned_spent, 3_750_000)
+
+  def test_planned_spend_ignores_non_positive(self):
+    bot = _make_bot()
+    bot._planned_spent = 1000
+    self.assertEqual(bot._note_planned_spend(0), 0)
+    self.assertEqual(bot._note_planned_spend(-5), 0)
+    self.assertEqual(bot._planned_spent, 1000)
+
+  def test_reset_counters_zeroes_planned_spent(self):
+    bot = _make_bot()
+    bot._planned_spent = 99
+    bot._reset_counters()
+    self.assertEqual(bot._planned_spent, 0)
+
+  def test_buy_step_stops_after_cumulative_stack_cost_hits_cap(self):
+    # End-to-End ueber den ECHTEN Hammer-Buy-Step mit yang_check=FALSE:
+    # Stack=50, price=15000 -> 750000 je Kauf. Deckel=1.6 Mio.
+    # Kauf 1: 0 + 750000 <= 1.6M  -> OK   (-> _planned_spent=750000)
+    # Kauf 2: 750000 + 750000 = 1.5M <= 1.6M -> OK (-> _planned_spent=1.5M)
+    # Kauf 3: 1.5M + 750000 = 2.25M > 1.6M -> STOP (NACH 2 Kaeufen, nicht 100).
+    _reset_input()
+    bot = _make_bot(mode=MODE_HAMMER)
+    _arm(bot)
+    bot.yang_check = False
+    bot.state = EnergiesplitterBot.ST_BUY_LOOP
+    bot._hammer_slot = (100, 90)
+    bot.hammer_count = 1000          # weit ueber dem, was der Deckel zulaesst
+    bot.gekauft = 0
+    bot.gold_floor = 0
+    bot.max_gold_spend = 1_600_000
+    bot.max_actions = 999            # NICHT der limitierende Backstop hier
+    bot.price_per_item = 15000
+    bot.botting = True
+    # Yang lesbar UND sinkt real um die Stack-Kosten -> Kauf wird verifiziert
+    # (gekauft steigt); der Deckel speist sich dennoch aus _planned_spent, nicht
+    # aus dem Gold-Delta (yang_check=FALSE).
+    gold = [10 ** 9]
+    def _read():
+      return gold[0]
+    def _click(*a, **k):
+      _INPUT_CALLS['right'] += 1
+      gold[0] -= 50 * 15000   # echte Stack-Kosten fliessen ab
+    bot._read_gold = _read
+    bot._right_click = _click
+    bot._plan_stacks = lambda target, free: [50]
+    bot._locate_shop_item = lambda item: (100, 90)
+    bot._bag_count_measurable = lambda: False   # Gold-Delta-Beleg traegt
+    # Kauf-Schritt wiederholt fahren bis Stop.
+    for _ in range(20):
+      if not bot.botting:
+        break
+      bot._hammer_buy_step()
+    self.assertFalse(bot.botting)
+    self.assertEqual(bot._stop_reason, 'max_gold_spend')
+    # Genau 2 Kaeufe durften laufen (2*750000=1.5M <= Deckel; 3. haette ihn
+    # gerissen). Der ALTE actions_done*price-Deckel haette 2*15000=30000 gesehen
+    # und ~106 Kaeufe durchgelassen -- das war die Luecke.
+    self.assertEqual(bot.gekauft, 100)        # 2 Stacks a 50
+    self.assertEqual(bot._planned_spent, 1_500_000)
+    self.assertEqual(_INPUT_CALLS['right'], 2)  # nur 2 reale Kaeufe ausgeloest
 
 
 class TestActionCap(unittest.TestCase):
