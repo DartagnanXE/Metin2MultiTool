@@ -113,11 +113,29 @@ class DaggerFlowMixin:
     if gold_before is None:
       return
 
+    # ERKENNUNG VOR AKTION (pro Kauf): den Shop-Dolch JEDESMAL per TEMPLATE neu
+    # lokalisieren -- nie eine stale Koordinate rechtsklicken. Re-Lokalisierung
+    # fehlgeschlagen -> Rueckfall auf den in ST_LOCATE_DOLCH verifizierten Slot;
+    # auch der unbekannt -> sauberer Stop (kein Blind-Kauf eines Fremd-Items).
+    slot = self._locate_shop_item('dolch')
+    if slot is None:
+      slot = getattr(self, '_dolch_shop_slot', None)
+    if slot is None:
+      log.event(self.state, t('energiesplitter.item_not_in_shop', item='dolch'))
+      self._stop('item_not_in_shop')
+      return
+    self._dolch_shop_slot = slot
+
     before = self._inventory_signature()
-    self._right_click(*self._dolch_shop_slot)
+    self._right_click(*slot)
     self.actions_done += 1
 
     ok, gold_after = self.verify_purchase(gold_before, cost)
+    # Cap-Drift-Haertung: die REAL GELESENE Yang-Abnahme IMMER fortschreiben --
+    # auch auf dem nicht-verifizierten Pfad unten -- damit der max_gold_spend-
+    # Deckel die tatsaechliche kumulierte Abnahme begrenzt (ein real bezahlter,
+    # aber unverifizierter Kauf darf den Deckel nicht umgehen).
+    self._note_real_spend(gold_before, gold_after)
     if not ok:
       self._buy_retries += 1
       if self._buy_retries > 2 or self._note_unverified():
@@ -137,7 +155,6 @@ class DaggerFlowMixin:
 
     self._dolch_inv_slot = land
     self._dolche_gekauft += 1
-    self.gold_spent += (gold_before - (gold_after or gold_before))
     self.consecutive_unverified = 0
     self._buy_retries = 0
     self.state = self.ST_PROCESS_DRAG
@@ -154,7 +171,11 @@ class DaggerFlowMixin:
       self._stop('drag_unsafe')
       return
 
+    # Re-Read-Anker fuer die Verifikation (neue Grundwahrheit, KEIN Dialog):
+    # Hammer-Bestand VOR dem Drag merken -> nach dem Drag muss er um genau 1
+    # gesunken sein (Hammer verbraucht), zusaetzlich zum jetzt-leeren Dolch-Slot.
     self._before_proc = self._shot()
+    self._hammer_count_before_proc = self._count_hammers()
     sx, sy = self._slot_center(src)
     dx, dy = self._slot_center(self._dolch_inv_slot)
     self._drag(sx, sy, dx, dy)
@@ -162,17 +183,23 @@ class DaggerFlowMixin:
     self.state = self.ST_VERIFY_PROCESS
 
   def _dagger_verify_process(self):
-    """Verifiziert: Splitter-Stack gewachsen. NUR dann dekrementieren (R5)."""
+    """Verifiziert die 1:1-Verarbeitung NACH der neuen Grundwahrheit (KEIN
+    Bestaetigungsfenster): ``verify_process`` belegt den Erfolg per Re-Read
+    (Dolch-Slot jetzt LEER UND Hammer-Bestand um 1 gesunken) und liefert ``> 0``
+    nur dann. NUR bei positivem Beleg wird dekrementiert (R5) -- nie ein blindes
+    logisches ``-1``. ``splitter_summe`` zaehlt die verifiziert VERARBEITETEN
+    Haemmer (der erzeugte Splitter selbst muss laut Grundwahrheit nicht gezaehlt
+    werden)."""
     after = self._shot()
-    growth = self.verify_process(self._before_proc, after)
-    if growth > 0:
-      self.splitter_summe += growth
+    processed = self.verify_process(self._before_proc, after)
+    if processed > 0:
+      self.splitter_summe += processed
       self.hammer_remaining -= 1
       self.consecutive_unverified = 0
       log.event(self.state, t(
-          'energiesplitter.processed', value=growth,
+          'energiesplitter.processed', value=processed,
           sum=self.splitter_summe, rest=self.hammer_remaining))
-      # Anti-Drift: kauft ohne zu verarbeiten? (R10/R5-Abbruch)
+      # Anti-Drift: kauft Dolche ohne zu verarbeiten? (R10/R5-Abbruch)
       if self._dolche_gekauft - self.splitter_summe > PROCESS_DRIFT_MAX:
         log.event(self.state, t('energiesplitter.process_unverified'))
         self._stop('process_unverified')

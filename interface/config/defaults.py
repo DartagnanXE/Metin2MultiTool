@@ -53,7 +53,10 @@ ES_UNVERIF_MAX = 20
 # Anteiliger Jitter auf ALLE Intervalle (Anti-Cheat-Verschleierung).
 ES_JITTER_MIN = 0.0
 ES_JITTER_MAX = 0.5
-# max_gold_spend: 0 = auto-abgeleitet (siehe set_to_begin); explizit 0..1e9.
+# max_gold_spend: Budget-Deckel ueber die REAL GELESENE Yang-Abnahme (gold_spent
+# wird per OCR-Delta je Kauf fortgeschrieben, verifiziert ODER nicht) -- nicht
+# der live gelesene gold_floor, der die nicht-umgehbare harte Wand bleibt.
+# 0 = auto-abgeleitet (siehe set_to_begin); explizit 0..1e9.
 ES_MAXSPEND_MIN = 0
 ES_MAXSPEND_MAX = 1_000_000_000
 

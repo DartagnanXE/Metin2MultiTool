@@ -1,31 +1,35 @@
 # -*- coding: utf-8 -*-
-"""Reine Vision/Erkennung fuer den Energiesplitter (NCC-Wortbild-Framework).
+"""Reine Vision/Erkennung fuer den Energiesplitter (NCC-Template-Framework).
 
 Im Projekt existiert KEIN freies OCR (verifiziert: 0 Treffer tesseract/easyocr;
-``fishing_chat`` ist ein fester Pixel-Glyphen-Atlas). Text-/NPC-/Dialog-/Header-
-Erkennung laeuft daher ueber **NCC-Wortbild-Templates** (de+en) -- ein bekanntes,
-gerendertes Wort wird als Bild per ``cv2.matchTemplate(TM_CCOEFF_NORMED)`` gesucht.
-Kein neues Dependency; cv2/numpy wie im restlichen Projekt.
+``fishing_chat`` ist ein fester Pixel-Glyphen-Atlas). Text-/NPC-/Dialog-/Item-
+Erkennung laeuft daher ueber **NCC-Bild-Templates** -- ein bekanntes, gerendertes
+Wort/Icon wird als Bild per ``cv2.matchTemplate(TM_CCOEFF_NORMED)`` gesucht. Kein
+neues Dependency; cv2/numpy wie im restlichen Projekt.
 
 Dieses Modul ist **rein** (numpy/cv2 + Template-Laden von Platte; kein win32/Maus/
 i18n-Pflicht). Jede Funktion ist defensiv und wirft NIE -- ein abweichendes
 Capture (Form/Typ) wird als 'nicht erkannt' behandelt, nicht als Absturz.
 
-PHASE-0-STATUS (ehrlich): Die zu BUENDELNDEN Assets -- Wortbild-Templates in
-``energiesplitter/templates/{de,en}/``, Item-Icons in ``inventory_icons/``
-(hammer/dolch/energiesplitter), der vollstaendige Gold-Digit-Satz -- FEHLEN noch
-(P0.1/P0.2/P0.3). Deshalb meldet :func:`assets_ready` sie als ``missing`` und das
-Phase-0-Gate bleibt rot (kein Kauf/Drag). Das ERKENNUNGS-FRAMEWORK ist hier aber
-voll implementiert und gegen die 26 echten Bilder getestet: Funktionen, die ein
-Template als ARGUMENT bekommen (``find_npc_name``/``find_shop_item``/
-``match_word``), werden im Test mit echten Crops belegt; die asset-gebundenen
-Detektoren (``dialog_state``/``shop_open``/``panel_is_bag``) liefern sauber
-``None``/``False`` (NotReady), solange ihre Marker-Templates fehlen.
+PHASE-1-STATUS (2026-06-15): Die in :mod:`energiesplitter.calibration` gemessenen
+Live-Assets liegen vor -- Item-Templates ``templates/hammer.png`` /
+``templates/dolch.png``, NPC-Wortbilder ``templates/npc/{alchemist,
+waffenhaendler}.png`` und das Inventar-Raster (Pitch 32, Ursprung Slot-1 (648,
+258)). Damit ist die ECHTE Erkennung scharf: Slot-Klassifikation (Hammer/Dolch
+via NCC ueber das kalibrierte Lattice, Glow-aware), freie Plaetze, Inventar-
+Signatur/Diff, Shop-Item-Lokalisierung, NPC-Name + Selektions-Ring.
+
+SICHERHEITS-INVARIANTE (oberste Prioritaet): **Erkennung vor Aktion.** Jede
+'finde X'-Funktion liefert bei Nichttreffer ``None``/``False`` (NIE raten). Die
+Yang-Ziffern 3/4/6/8 fehlen weiterhin (kein Beleg-Bild) -> ``assets_ready``
+meldet ``yang_digits`` als fehlend und das Phase-0-Gate bleibt korrekt rot, bis
+der vollstaendige Ziffernsatz geliefert ist (Stopp statt Blind-Kauf).
 """
 
 import os
 
 from . import geometry as _geo
+from . import calibration as _cal
 
 try:  # pragma: no cover
     import numpy as np
@@ -46,38 +50,40 @@ except Exception:  # pragma: no cover
 
 # -- Asset-Verzeichnisse (cwd-unabhaengig) ----------------------------------
 TEMPLATE_DIR = os.path.join('energiesplitter', 'templates')
-ITEM_ICON_DIR = 'inventory_icons'
 
-# Wortbild-Templates je Modus (Dateiname ohne .png; in de/ UND en/ erwartet).
-HAMMER_WORDS = (
-    'laden_oeffnen', 'weiter', 'ok', 'eine_neue_technik',
-    'energiesplitter_extrahieren', 'laden_header', 'inventar_header',
-    'ausruestung_header', 'npc_alchemist',
-)
-DAGGER_EXTRA_WORDS = ('npc_waffenhaendler', 'ein_neuer_duft')
-
-# Item-Icons je Modus (Dateiname ohne .png in inventory_icons/).
-HAMMER_ICONS = ('hammer',)
-DAGGER_EXTRA_ICONS = ('dolch', 'energiesplitter')
+# Item-Templates (Dateiname ohne .png in templates/).
+HAMMER_ITEMS = ('hammer',)
+DAGGER_EXTRA_ITEMS = ('dolch',)
+# NPC-Wortbilder (templates/npc/<name>.png).
+HAMMER_NPCS = ('alchemist',)
+DAGGER_EXTRA_NPCS = ('waffenhaendler',)
 
 # -- NCC-Schwellen (KALIBRIER-BAR; an Fixtures gemessen) --------------------
-NCC_WORD = 0.80           # Wortbild-Treffer (NPC-Name / Dialogzeile)
-NCC_HEADER = 0.70         # Panel-/Shop-Header
-NCC_ITEM = 0.70           # Item-Icon im Shop
-# Gruen-Maske fuer NPC-Namen (HSV-frei, BGR-Schwellen wie DESIGN).
+# Item-Icon: Hammer-Gewinner 0.82..1.00, Dolch-Gewinner 1.00; jeweiliger
+# Verlierer <= 0.46 (Schwert/leer). 0.70 trennt konfusionsfrei (CALIBRATION.md).
+NCC_ITEM = 0.70
+# NPC-/Header-Wortbild: self 1.00, cross <= 0.34 -> 0.80 diskriminiert klar.
+NCC_WORD = 0.80
+NCC_HEADER = 0.70
+
+# Gruen-Maske fuer NPC-Namen (BGR-Schwellen wie DESIGN/calibration).
 GREEN_G_MIN = 120
 GREEN_GR_DELTA = 25
 GREEN_GB_DELTA = 25
 # Ring-Glow-Maske: der Metin2-Selektions-Ring leuchtet saturiert orange-rot
-# (gemessen: R~255, G~40-110, B~1-56) -- deutlich saettiger als die muddy-roten
-# HP-Leisten/Traenke. Diese strenge Schwelle trennt den Ring von HUD-Rot
-# (KALIBRIER-BAR; an den Alchemist-Ring-Bildern gemessen).
+# (gemessen: R~255, G~40-110, B~1-56) -- deutlich saettiger als HUD-Rot.
 RED_R_MIN = 180
 RED_RG_DELTA = 90
 RED_RB_DELTA = 120
-RING_MIN_PX = 40          # mind. Glow-Pixel im Such-Fenster, um einen Ring zu erwaegen
-RING_NEAR_PX = 60         # Suchradius (Halbkante) um den NPC-Punkt
-RING_MAX_FILL = 0.35      # max. Fuell-Grad der Glow-Bounding-Box (Ring duenn, ~0.1)
+RING_MIN_PX = 40
+RING_NEAR_PX = 60
+RING_MAX_FILL = 0.35
+
+# Slot-Klassifikation: volle 32px-Zelle gibt matchTemplate Spielraum; an dieser
+# Groesse reproduzieren die gemessenen NCC-Werte (CALIBRATION.md, Abschnitt 1).
+SLOT_CELL = 32
+# Maximale Slot-Nummer auf Seite I (5 Spalten x 8 Zeilen = 40).
+MAX_SLOT = 40
 
 
 # ----------------------------------------------------------------------------
@@ -89,18 +95,17 @@ def _dir(rel):
     if os.path.isdir(base):
         return base
     here = os.path.dirname(os.path.abspath(__file__))
-    # rel kann 'energiesplitter/...' oder 'inventory_icons' sein -> relativ zum Repo.
     repo = os.path.dirname(here)
     cand = os.path.join(repo, rel)
     return cand if os.path.isdir(cand) else base
 
 
-def _template_path(lang, word):
-    return os.path.join(_dir(TEMPLATE_DIR), lang, word + '.png')
+def _item_path(name):
+    return os.path.join(_dir(TEMPLATE_DIR), name + '.png')
 
 
-def _icon_path(name):
-    return os.path.join(_dir(ITEM_ICON_DIR), name + '.png')
+def _npc_path(name):
+    return os.path.join(_dir(TEMPLATE_DIR), 'npc', name + '.png')
 
 
 def _exists(path):
@@ -110,12 +115,31 @@ def _exists(path):
         return False
 
 
+_TEMPLATE_CACHE = {}
+
+
+def _imread(path):
+    """Laedt + cached ein Template als BGR (oder ``None``). Wirft nie."""
+    if _cv is None:
+        return None
+    if path in _TEMPLATE_CACHE:
+        return _TEMPLATE_CACHE[path]
+    img = None
+    try:
+        if _exists(path):
+            img = _cv.imread(path, _cv.IMREAD_COLOR)
+    except Exception:
+        img = None
+    _TEMPLATE_CACHE[path] = img
+    return img
+
+
 # ----------------------------------------------------------------------------
 # NCC-Kernel (robust, wie fishing_match._match_template_max)
 # ----------------------------------------------------------------------------
 def _to_bgr(img):
     """Bringt ``img`` defensiv auf 3-Kanal-BGR (contiguous). ``None`` bei Fehler."""
-    if img is None:
+    if img is None or np is None or _cv is None:
         return None
     try:
         a = np.ascontiguousarray(img)
@@ -131,7 +155,7 @@ def _to_bgr(img):
 
 
 def match_word(haystack, template):
-    """NCC eines Wortbild-/Icon-Templates in ``haystack`` -> ``(ok, pt, ncc)``.
+    """NCC eines Bild-Templates in ``haystack`` -> ``(ok, pt, ncc)``.
 
     ``pt`` = oben-links des besten Treffers (im ``haystack``-Koordinatensystem).
     Defensiv: passt das Template nicht (groesser als Bild, falsche Kanalzahl) ->
@@ -154,44 +178,156 @@ def match_word(haystack, template):
         return (False, None, 0.0)
 
 
+def _ncc_max(haystack, template):
+    """Nur der beste NCC-Score (oder ``-1.0``). Defensiv, wirft nie."""
+    ok, _pt, ncc = match_word(haystack, template)
+    return ncc if ok else -1.0
+
+
 # ----------------------------------------------------------------------------
 # Phase-0-Asset-Gate (rein)
 # ----------------------------------------------------------------------------
+def item_template_available(item):
+    """``True``, wenn das Item-Template ``templates/<item>.png`` gebundelt ist.
+
+    Reine Dateisystem-Pruefung -- KEINE Messung. Wirft nie.
+    """
+    if not item:
+        return False
+    return _exists(_item_path(item))
+
+
+def _npc_template_available(npc):
+    if not npc:
+        return False
+    return _exists(_npc_path(npc))
+
+
 def assets_ready(mode):
     """Prueft, ob ALLE fuer ``mode`` noetigen Assets gebundelt sind.
 
     ``mode`` in ``('hammer', 'dagger')``. Liefert ``(ready, missing)``: ``ready``
     nur True, wenn KEIN Artefakt fehlt. Jedes fehlende landet als Klartext-String
-    in ``missing`` (z.B. ``'tpl:de/laden_oeffnen'``, ``'item:hammer'``,
-    ``'gold_digits'``). Reine Dateisystem-Pruefung; wirft NIE.
+    in ``missing`` (z.B. ``'item:hammer'``, ``'npc:waffenhaendler'``,
+    ``'yang_digits'``). Reine Dateisystem-Pruefung; wirft NIE.
+
+    Die Item-/NPC-Templates liegen vor (Phase 1, CALIBRATION.md). Der Yang-Reader
+    bleibt unvollstaendig (Ziffern 3/4/6/8 fehlen) -> ``yang_digits`` bleibt als
+    fehlend gelistet -> das Gate bleibt korrekt rot (Stopp statt Blind-Kauf),
+    bis der volle Ziffernsatz geliefert ist.
     """
     missing = []
     m = (mode or '').lower()
-    words = list(HAMMER_WORDS)
-    icons = list(HAMMER_ICONS)
+    items = list(HAMMER_ITEMS)
+    npcs = list(HAMMER_NPCS)
     if m == 'dagger':
-        words += list(DAGGER_EXTRA_WORDS)
-        icons += list(DAGGER_EXTRA_ICONS)
+        items += list(DAGGER_EXTRA_ITEMS)
+        npcs += list(DAGGER_EXTRA_NPCS)
     elif m != 'hammer':
         return (False, ['mode:%s' % mode])
-    for word in words:
-        for lang in ('de', 'en'):
-            if not _exists(_template_path(lang, word)):
-                missing.append('tpl:%s/%s' % (lang, word))
-    for icon in icons:
-        if not _exists(_icon_path(icon)):
-            missing.append('item:%s' % icon)
+    for item in items:
+        if not item_template_available(item):
+            missing.append('item:%s' % item)
+    for npc in npcs:
+        if not _npc_template_available(npc):
+            missing.append('npc:%s' % npc)
     try:
         from . import gold_reader as _gr
         if not _gr.templates_complete():
-            missing.append('gold_digits')
+            missing.append('yang_digits')
     except Exception:
-        missing.append('gold_digits')
+        missing.append('yang_digits')
     return (len(missing) == 0, missing)
 
 
 # ----------------------------------------------------------------------------
-# NPC-Name (Gruen-Maske + Wortbild-NCC)
+# Inventar-Geometrie (kalibriert) -- Slot <-> Zelle
+# ----------------------------------------------------------------------------
+def _slot_index(slot):
+    """Normiert ``slot`` (int-Index 1..40 ODER (x,y)-Punkt) -> int-Index|None.
+
+    Ein Punkt wird auf den naechsten Raster-Slot zurueckgerechnet; abseits des
+    Rasters / ungueltig -> ``None`` (defensiv, kein Raten).
+    """
+    if isinstance(slot, (tuple, list)) and len(slot) == 2:
+        try:
+            x, y = int(slot[0]), int(slot[1])
+        except Exception:
+            return None
+        col = round((x - _cal.GRID_SLOT_CENTER_X0) / float(_cal.GRID_PITCH_X))
+        row = round((y - _cal.GRID_SLOT_CENTER_Y0) / float(_cal.GRID_PITCH_Y))
+        if col < 0 or col >= _cal.GRID_COLS or row < 0:
+            return None
+        idx = int(row * _cal.GRID_COLS + col + 1)
+        return idx if 1 <= idx <= MAX_SLOT else None
+    try:
+        idx = int(slot)
+    except Exception:
+        return None
+    return idx if 1 <= idx <= MAX_SLOT else None
+
+
+def _slot_cell_bgr(client, slot, size=SLOT_CELL):
+    """Schneidet die ``size``x``size``-Zelle eines Slots aus dem CLIENT-Bild."""
+    roi = _cal.slot_cell(slot, size)
+    if roi is None:
+        return None
+    return _geo.crop(client, roi)
+
+
+def _slot_glowing(cell):
+    """``True``, wenn die Zelle 'frisch gekauft' leuchtet (Glow-Randring-Anteil).
+
+    Metrik = Anteil Pixel mit ``min(B,G,R) > GLOW_MINCH_THR`` im ``GLOW_RING_PX``-
+    Randring. Nicht-leuchtend <= 0.115, leuchtend >= 0.65 (konfusionsfrei,
+    CALIBRATION.md). Defensiv ``False`` bei zu kleiner Zelle. Wirft nie.
+    """
+    if cell is None:
+        return False
+    try:
+        h, w = cell.shape[:2]
+        p = _cal.GLOW_RING_PX
+        if h <= 2 * p or w <= 2 * p:
+            return False
+        mn = cell.min(axis=2)
+        mask = np.ones((h, w), dtype=bool)
+        mask[p:h - p, p:w - p] = False
+        ring = mn[mask]
+        if ring.size == 0:
+            return False
+        frac = float((ring > _cal.GLOW_MINCH_THR).mean())
+        return frac >= _cal.GLOW_FRACTION_THR
+    except Exception:
+        return False
+
+
+def _classify_slot(client, slot):
+    """Bestes Item-Label einer Slot-Zelle -> ``(item, ncc)`` oder ``(None, ncc)``.
+
+    Vergleicht die volle 32px-Zelle gegen Hammer- UND Dolch-Template; das Item
+    mit hoechstem NCC gewinnt, sofern ``>= NCC_ITEM`` (sonst leer/Fremd-Item ->
+    ``(None, best_ncc)``). Glow-tolerant (Template-NCC matcht leuchtende Slots
+    ~0.74..0.82). Defensiv, wirft nie.
+    """
+    cell = _slot_cell_bgr(client, slot)
+    if cell is None:
+        return (None, -1.0)
+    ham = _imread(_item_path('hammer'))
+    dol = _imread(_item_path('dolch'))
+    n_ham = _ncc_max(cell, ham) if ham is not None else -1.0
+    n_dol = _ncc_max(cell, dol) if dol is not None else -1.0
+    best_item, best = (None, -1.0)
+    if n_ham >= best:
+        best_item, best = 'hammer', n_ham
+    if n_dol > best:
+        best_item, best = 'dolch', n_dol
+    if best < NCC_ITEM:
+        return (None, best)
+    return (best_item, best)
+
+
+# ----------------------------------------------------------------------------
+# NPC-Name (Wortbild-NCC ueber die Szene)
 # ----------------------------------------------------------------------------
 def _green_mask(bgr):
     """Binaere Gruen-Maske (uint8 0/255) fuer NPC-Namen (DESIGN-Schwellen)."""
@@ -205,35 +341,42 @@ def _green_mask(bgr):
 def find_npc_name(bgr, word_template, roi=None, thresh=NCC_WORD):
     """Sucht den gruenen NPC-Schriftzug ``word_template`` in der Szene.
 
-    ``bgr`` wird ``geometry.to_client``-normiert; im Szenen-ROI wird eine
-    Gruen-Maske gebildet und ``word_template`` (selbst gruen-maskiert) per NCC
-    gesucht. Liefert ``(ok, pt, ncc)`` mit ``pt`` im CLIENT-Koordinatensystem
-    (NPC-Punkt = Treffer-Mitte). ``word_template`` None / kein Treffer >= thresh
-    -> ``(False, None, ncc)``. KEIN Blind-Fallback auf den groessten Cluster.
-    Wirft NIE.
+    ``bgr`` wird ``geometry.to_client``-normiert; im Szenen-ROI wird
+    ``word_template`` per NCC gesucht. Liefert ``(ok, pt, ncc)`` mit ``pt`` im
+    CLIENT-Koordinatensystem (NPC-Punkt = Treffer-Mitte). ``word_template`` None /
+    kein Treffer >= thresh -> ``(False, None, ncc)``. KEIN Blind-Fallback. Wirft NIE.
+
+    Die gelieferten NPC-Wortbilder (``templates/npc/*.png``) sind direkte Roh-
+    Crops des gruenen Labels; das volle Farb-Template diskriminiert bereits
+    konfusionsfrei (self 1.00, cross 0.30). Liegt ein bereits gruen-maskiertes
+    Template vor (Test-Pfad), funktioniert die NCC trotzdem.
     """
     if np is None or _cv is None or bgr is None or word_template is None:
         return (False, None, 0.0)
     client = _geo.to_client(bgr)
-    roi = roi if roi is not None else _geo.ROI_SCENE
+    roi = roi if roi is not None else _cal.ROI_NPC_SEARCH
     region = _geo.crop(client, roi)
     if region is None:
         return (False, None, 0.0)
     tpl = _to_bgr(word_template)
     if tpl is None:
         return (False, None, 0.0)
-    try:
-        region_m = _cv.cvtColor(_green_mask(region), _cv.COLOR_GRAY2BGR)
-        # Template ebenfalls maskieren, falls es ein Roh-Crop ist (gruener Text
-        # auf Szene); ist es bereits eine Maske, bleibt es naeherungsweise gleich.
-        tpl_m = _cv.cvtColor(_green_mask(tpl), _cv.COLOR_GRAY2BGR)
-    except Exception:
-        return (False, None, 0.0)
-    ok, pt, ncc = match_word(region_m, tpl_m)
+    # Primaer: Farb-NCC (Live-Asset). Faellt der Treffer durch (z.B. ein bereits
+    # gruen-maskiertes Test-Template), zusaetzlich auf der Gruen-Maske matchen.
+    ok, pt, ncc = match_word(region, tpl)
+    if not ok or pt is None or ncc < thresh:
+        try:
+            region_m = _cv.cvtColor(_green_mask(region), _cv.COLOR_GRAY2BGR)
+            tpl_m = _cv.cvtColor(_green_mask(tpl), _cv.COLOR_GRAY2BGR)
+            ok2, pt2, ncc2 = match_word(region_m, tpl_m)
+            if ok2 and pt2 is not None and ncc2 >= thresh and ncc2 > ncc:
+                ok, pt, ncc = ok2, pt2, ncc2
+        except Exception:
+            pass
     if not ok or pt is None or ncc < thresh:
         return (False, None, ncc)
     rx, ry, _, _ = roi
-    th, tw = tpl_m.shape[:2]
+    th, tw = tpl.shape[:2]
     center = (rx + pt[0] + tw // 2, ry + pt[1] + th // 2)
     return (True, center, ncc)
 
@@ -252,11 +395,10 @@ def _red_mask(bgr):
 def selection_ring_present(bgr, near, y_min=240):
     """``True``, wenn um ``near=(x,y)`` ein roter Selektions-Ring liegt.
 
-    Sucht im Fenster ``RING_NEAR_PX`` um ``near`` (nur Zeilen ``>= y_min``, damit
-    Titel-X (y<32) und obere HUD-Elemente NICHT fehl-triggern) rote Pixel und
-    verlangt eine RING-Form: genug rote Pixel, die einen Rand bilden (Loch in der
-    Mitte = innen weniger Rot als am Rand). Liefert defensiv ``False`` bei
-    fehlendem/ungueltigem ``near``. Wirft NIE.
+    Sucht im Fenster ``RING_NEAR_PX`` um ``near`` (nur Zeilen ``>= y_min``) rote
+    Pixel und verlangt eine RING-Form: genug rote Pixel, die einen Rand bilden
+    (grosse Spannweite in beiden Achsen, niedriger Fuell-Grad). Defensiv
+    ``False`` bei fehlendem/ungueltigem ``near``. Wirft NIE.
     """
     if np is None or bgr is None or near is None:
         return False
@@ -281,12 +423,6 @@ def selection_ring_present(bgr, near, y_min=240):
         span_y = int(ys.max() - ys.min() + 1)
         bbox_area = max(1, span_x * span_y)
         fill = total / bbox_area
-        # Ring-Form (Ellipse, an echten Bildern gemessen):
-        #   * grosse Spannweite in BEIDEN Achsen (Durchmesser ~ Fenster) -- eine
-        #     flache HP-Leiste (span_y ~ 3) oder ein verstreuter HUD-Rot-Fleck
-        #     (span_y klein) faellt durch;
-        #   * niedriger Fuell-Grad (duenner Ring-Rand, kein solider Block) -- die
-        #     HP-Leiste hat fill ~ 0.9, der Ring ~ 0.1.
         if span_x < ww // 2 or span_y < hh // 2:
             return False
         return fill <= RING_MAX_FILL
@@ -295,13 +431,22 @@ def selection_ring_present(bgr, near, y_min=240):
 
 
 # ----------------------------------------------------------------------------
-# Dialog-Zustand / Shop / Panel -- asset-gebunden (NotReady ohne Templates)
+# Dialog-Zustand / Shop / Panel
 # ----------------------------------------------------------------------------
+# Der Dialog hat KEINE Wortbild-Templates in der neuen Asset-Lieferung (nur
+# Item-/NPC-Templates + Yang-Ziffern). Bis ein Marker-Crop vorliegt, kann der
+# 'Test-injizierte Template'-Seam ueber _load_template weiter genutzt werden.
 def _load_template(lang, word):
-    """Laedt ein gebundeltes Wortbild-Template als BGR, oder ``None``."""
+    """Marker-Wortbild-Template (Test-Injektions-Seam) -> BGR | None.
+
+    Phase 1 buendelt KEINE Dialog-/Header-Wortbilder (nur Item/NPC/Yang). Diese
+    Funktion existiert als kompatibler Lade-Seam (Tests injizieren echte Crops,
+    um die Diskriminierung zu beweisen). Ohne gebundeltes Template -> ``None``
+    (NotReady). Wirft nie.
+    """
     if _cv is None:
         return None
-    path = _template_path(lang, word)
+    path = os.path.join(_dir(TEMPLATE_DIR), lang, word + '.png')
     if not _exists(path):
         return None
     try:
@@ -311,11 +456,7 @@ def _load_template(lang, word):
 
 
 def _word_in_region(bgr, roi, word, thresh):
-    """``(ok, ncc)``: sucht ``word`` (de ODER en) im ROI per NCC. NotReady -> None.
-
-    Liefert ``None``, wenn KEIN Sprach-Template gebundelt ist (Phase-0) -> der
-    Aufrufer kann NotReady von 'nicht vorhanden' unterscheiden.
-    """
+    """``(ok, ncc)``: sucht ``word`` (de ODER en) im ROI per NCC. NotReady -> None."""
     region = _geo.crop(_geo.to_client(bgr), roi)
     if region is None:
         return None
@@ -328,17 +469,17 @@ def _word_in_region(bgr, roi, word, thresh):
         if ok and (best is None or ncc > best):
             best = ncc
     if best is None:
-        return None  # kein Template -> NotReady
+        return None
     return (best >= thresh, best)
 
 
 def dialog_state(bgr):
     """``'locked'`` | ``'unlocked'`` | ``None`` per NCC-Marker-Templates.
 
-    LOCKED  = Zeile ``eine_neue_technik`` vorhanden (Erstgespraech),
-    UNLOCKED = Zeile ``energiesplitter_extrahieren`` vorhanden. Fehlen BEIDE
-    Marker-Templates (Phase-0) ODER ist kein Dialog erkennbar -> ``None``
-    (NotReady/kein Dialog). Wirft NIE.
+    LOCKED = Zeile ``eine_neue_technik`` (Erstgespraech, Energie-Freischalt-
+    Option), UNLOCKED = Zeile ``energiesplitter_extrahieren``. Fehlen BEIDE
+    Marker-Templates ODER ist kein Dialog erkennbar -> ``None`` (NotReady/kein
+    Dialog). Wirft NIE.
     """
     if bgr is None:
         return None
@@ -346,7 +487,7 @@ def dialog_state(bgr):
                                NCC_WORD)
     locked = _word_in_region(bgr, _geo.ROI_DIALOG, 'eine_neue_technik', NCC_WORD)
     if unlocked is None and locked is None:
-        return None  # keine Marker-Templates gebundelt -> NotReady
+        return None
     if unlocked is not None and unlocked[0]:
         return 'unlocked'
     if locked is not None and locked[0]:
@@ -357,8 +498,8 @@ def dialog_state(bgr):
 def shop_open(bgr):
     """``True``, wenn ein Shop offen ist (``laden_header``-NCC). NotReady -> False.
 
-    Fehlt das Header-Template (Phase-0), liefert die Funktion ``False`` (sicher:
-    'nicht offen' -> kein Kauf), NICHT True. Wirft NIE.
+    Fehlt das Header-Template, liefert die Funktion ``False`` (sicher: 'nicht
+    offen' -> kein Kauf), NICHT True. Wirft NIE.
     """
     if bgr is None:
         return False
@@ -369,8 +510,8 @@ def shop_open(bgr):
 def panel_is_bag(bgr):
     """``True``, wenn das rechte Panel die Tasche (``inventar_header``) ist.
 
-    Unterscheidet Inventar von Ausruestungsfenster per Header-NCC. NotReady
-    (kein Template) -> ``False`` (sicher: nicht als Tasche behandeln). Wirft NIE.
+    Unterscheidet Inventar von Ausruestungsfenster per Header-NCC. NotReady ->
+    ``False`` (sicher: nicht als Tasche behandeln). Wirft NIE.
     """
     if bgr is None:
         return False
@@ -379,25 +520,44 @@ def panel_is_bag(bgr):
 
 
 # ----------------------------------------------------------------------------
-# Shop-Item / Stack / Splitter-Wachstum
+# Shop-Item / Stack
 # ----------------------------------------------------------------------------
+# Default-Such-ROI fuer das Shop-Item: ENG um den kalibrierten Hammer-Shop-Anker
+# (CALIBRATION.md: 200er-Stack-Zell-Mitte (425,121)). Das Shop-Panel zeigt mehrere
+# hammeraehnliche Icons; nur der gemessene 200er-Slot ist der buyable Anker. Eine
+# weite ROI wuerde ein anderes Hammer-Icon (oder den Inventar-Bestand) treffen ->
+# der bridges-Anker-Cross-Check wuerde dann ablehnen (kein Kauf). Anker-zentriert
+# liefert ``find_shop_item`` direkt den buyable Slot (~(426,122), NCC 0.91).
+def _shop_default_roi():
+    a = getattr(_cal, 'SHOP_HAMMER_ANCHOR', None)
+    if a is None:
+        return (360, 70, 230, 200)
+    half = 20
+    return (int(a[0]) - half, int(a[1]) - half, 2 * half, 2 * half)
+
+
+SHOP_PANEL_ROI = _shop_default_roi()   # KALIBRIER-BAR (anker-zentriert)
+
+
 def find_shop_item(bgr, item_template, roi=None, thresh=NCC_ITEM):
-    """Sucht ``item_template`` (Item-Icon) im Shop -> ``(ok, pt, ncc)``.
+    """Sucht ``item_template`` (Item-Icon) im Shop-Panel -> ``(ok, pt, ncc)``.
 
     ``pt`` = Icon-Mitte im CLIENT-Koordinatensystem. Ohne Template / kein Treffer
-    -> ``(False, None, ncc)``. Wirft NIE. (Phase-0: das Hammer-/Dolch-Icon fehlt
-    in ``inventory_icons/`` -> der Bot ruft das erst nach P0.1 mit echtem Template.)
+    -> ``(False, None, ncc)``. Wirft NIE. Default-ROI ist das Shop-Panel
+    (``SHOP_PANEL_ROI``) -- so wird der Shop-Anker NICHT mit demselben Item im
+    Inventar verwechselt (Erkennung vor Aktion).
     """
     if np is None or _cv is None or bgr is None or item_template is None:
         return (False, None, 0.0)
     client = _geo.to_client(bgr)
-    region = _geo.crop(client, roi) if roi is not None else client
+    roi = roi if roi is not None else SHOP_PANEL_ROI
+    region = _geo.crop(client, roi)
     if region is None:
         return (False, None, 0.0)
     ok, pt, ncc = match_word(region, item_template)
     if not ok or pt is None or ncc < thresh:
         return (False, None, ncc)
-    ox, oy = (roi[0], roi[1]) if roi is not None else (0, 0)
+    ox, oy = roi[0], roi[1]
     tpl = _to_bgr(item_template)
     th, tw = tpl.shape[:2]
     center = (ox + pt[0] + tw // 2, oy + pt[1] + th // 2)
@@ -407,12 +567,23 @@ def find_shop_item(bgr, item_template, roi=None, thresh=NCC_ITEM):
 def read_shop_stack(slot_bgr):
     """Liest die Stack-Groesse auf einem Shop-Slot -> ``int | None``.
 
-    PHASE-0-STUB: Die Shop-Stack-Zahl steht in EINER anderen Geometrie/Font als
-    der Inventar-Zaehler; ohne kalibrierte Shop-Digit-Crops (P0.3) ist ein
-    confidenter Read nicht moeglich. Liefert daher defensiv ``None`` (NotReady) ->
-    der Aufrufer (Bot) waehlt den kleinsten sicheren Stack ODER stoppt, kauft NIE
-    auf Basis einer geratenen Menge. Wirft NIE.
-    # TODO-live-asset: Shop-Stack-Digit-Templates + ROI kalibrieren (P0.3).
+    Die Shop-Stack-Zahl steht in EINER anderen Geometrie/Font als der Inventar-
+    Zaehler; ohne kalibrierte Shop-Digit-Crops ist ein confidenter Read nicht
+    moeglich. Liefert daher defensiv ``None`` (NotReady) -> der Aufrufer waehlt
+    den kleinsten sicheren Stack ODER stoppt, kauft NIE auf Basis einer
+    geratenen Menge. Wirft nie.
+    # TODO-live-asset: Shop-Stack-Digit-Templates + ROI kalibrieren.
+    """
+    return None
+
+
+def read_shop_stack_sizes(bgr):
+    """Liest die zur Laufzeit angebotenen Stack-Groessen aus dem Shop -> tuple|None.
+
+    Die Stack-Zahlen brauchen kalibrierte Shop-Digit-Crops (vgl.
+    :func:`read_shop_stack`). Liefert defensiv ``None`` (NotReady) -> der Bot
+    faellt auf das gemessene Shop-Bild-Tupel (1/50/200) zurueck. Wirft nie.
+    # TODO-live-asset: Shop-Stack-Digit-Templates + Slot-ROIs.
     """
     return None
 
@@ -420,147 +591,231 @@ def read_shop_stack(slot_bgr):
 def read_splitter_growth(before, after):
     """Zuwachs am Splitter-Slot zwischen ``before`` und ``after`` -> ``int``.
 
-    PHASE-0: Ohne Splitter-Icon/Verarbeitungs-Crop (P0.5) kann der reale Stack-
-    Wert nicht gelesen werden. Liefert defensiv ``0`` (Fallback 'kein messbarer
-    Zuwachs') -> die 1:1-Verifikation (``verify_process``) verlangt einen
-    POSITIVEN Zuwachs und stoppt damit sicher, statt blind zu dekrementieren.
-    Wirft NIE.
-    # TODO-live-asset: Splitter-Slot-ROI + Stack-Diff kalibrieren (P0.5).
+    Der Energiesplitter (Ergebnis) muss laut neuer Grundwahrheit NICHT gezaehlt
+    werden -- die Verarbeitung wird ueber Re-Read (Dolch-Slot leer + Hammer-Stack
+    dekrementiert) verifiziert. Diese Funktion liefert daher defensiv ``0``
+    ('kein messbarer Zuwachs') -> die 1:1-Verifikation verlangt einen positiven
+    Wert und stoppt damit sicher, statt blind zu dekrementieren. Wirft nie.
     """
     return 0
 
 
 # ----------------------------------------------------------------------------
-# Vertrags-API fuer den Bot (bot.py ruft genau diese Namen). Defensiv und
-# NotReady-bewusst: ohne Live-Assets/Kalibrierung (Phase-0) liefern sie sicher
-# None/0/False (konsistent zur GATE-Semantik) und werfen NIE -- sie scharfen
-# KEINE Gold-Aktion (Item-Icons/Lattice fehlen -> echte Messung erst nach P0).
+# Inventar-Erkennung (kalibriertes Lattice, Glow-aware) -- Vertrags-API
 # ----------------------------------------------------------------------------
 def load_template(key):
-    """Laedt ein NCC-Template per Schluessel als BGR -> ``ndarray | None``.
+    """Laedt ein Item- ODER NPC-Template per Schluessel als BGR -> ``ndarray|None``.
 
-    Reihenfolge: erst ein Item-Icon ``inventory_icons/<key>.png``, dann ein
-    Wortbild-Template (``de`` bevorzugt, sonst ``en``). Fehlt beides (Phase-0:
-    Item-Icons/Wortbilder noch nicht gebundelt) -> ``None`` (der Detektor
+    Reihenfolge: erst ein Item-Template ``templates/<key>.png``, dann ein NPC-
+    Wortbild ``templates/npc/<key>.png``. Fehlt beides -> ``None`` (der Detektor
     behandelt None defensiv als 'kein Treffer'). Wirft nie.
     """
     if _cv is None or not key:
         return None
-    icon = _icon_path(key)
-    if _exists(icon):
-        try:
-            img = _cv.imread(icon, _cv.IMREAD_COLOR)
-            if img is not None:
-                return img
-        except Exception:
-            pass
-    for lang in ('de', 'en'):
-        tpl = _load_template(lang, key)
-        if tpl is not None:
-            return tpl
-    return None
-
-
-def item_template_available(item):
-    """``True``, wenn das Item-Icon ``inventory_icons/<item>.png`` gebundelt ist.
-
-    Reine Dateisystem-Pruefung -- KEINE Messung. Phase-0: die Crops fehlen noch
-    (User-Lieferung P0.1), daher ``False`` -> der Bot stoppt 'item_template_
-    missing', statt einen Bestand zu raten. Wirft nie.
-    """
-    if not item:
-        return False
-    return _exists(_icon_path(item))
+    item = _imread(_item_path(key))
+    if item is not None:
+        return item
+    return _imread(_npc_path(key))
 
 
 def count_item(bgr, item):
-    """Zaehlt Exemplare von ``item`` im Inventar -> ``int``.
+    """Zaehlt Inventar-Slots, die ``item`` tragen -> ``int`` (0..40).
 
-    PHASE-0-STUB: Ohne Item-Icon (P0.1) und kalibriertes Inventar-Lattice (P0.4)
-    ist KEINE messbare Zaehlung moeglich. Liefert defensiv ``0`` (NotReady) ->
-    der Dolch-Modus stoppt sauber ('done', 0 Haemmer), statt blind zu draggen.
+    Klassifiziert JEDE Slot-Zelle ueber das kalibrierte Lattice per Template-NCC
+    (Glow-tolerant). Zaehlt einen Slot als ``item``, wenn dessen NCC der
+    Gewinner ist und ``>= NCC_ITEM``. Defensiv ``0`` bei fehlendem Bild/Template
+    (NotReady -> der Dolch-Modus stoppt sauber 'done', statt blind zu draggen).
     Wirft nie.
-    # TODO-live-asset: Item-Icon + Inventar-Lattice -> Treffer pro Slot zaehlen.
+
+    HINWEIS: zaehlt SLOTS, nicht Stueck (eine 2er-Stack-Zelle = 1 Slot). Das
+    deckt den Bot-Bedarf (Bestand-da/-weg + Slot-Lokalisierung); die Stack-Zahl
+    ist eine separate Messung (read_shop_stack, P0.3-Luecke).
     """
-    return 0
+    if np is None or _cv is None or bgr is None or not item:
+        return 0
+    if _imread(_item_path(item)) is None:
+        return 0
+    client = _geo.to_client(bgr)
+    n = 0
+    for slot in range(1, MAX_SLOT + 1):
+        lbl, _ncc = _classify_slot(client, slot)
+        if lbl == item:
+            n += 1
+    return n
 
 
 def free_slot_count(bgr):
-    """Zaehlt freie (leere) Inventar-Slots -> ``int``.
+    """Zaehlt freie (leere) Inventar-Slots auf Seite I -> ``int`` (0..40).
 
-    PHASE-0-STUB: Das leere-Slot-Erkennen braucht das kalibrierte Inventar-
-    Lattice + ein Leer-Slot-Muster (P0.4). Liefert defensiv ``0`` (NotReady) ->
-    der Bot behandelt das wie 'kein Platz' und kauft NICHT. Wirft nie.
-    # TODO-live-asset: Inventar-Lattice + Leer-Slot-Maske (P0.4).
+    Ein Slot gilt als frei, wenn KEIN Item-Template ueber ``NCC_ITEM`` matcht UND
+    die Zelle nicht leuchtet (Glow = belegt durch frisch gekauftes Item) UND der
+    Zellen-Inhalt keine nennenswerte Struktur hat (leere Zelle ~ uniform dunkel).
+    Konservativ: im Zweifel NICHT als frei zaehlen (lieber 'kein Platz' melden
+    als blind in einen vermeintlich leeren Slot kaufen). Defensiv ``0`` bei
+    fehlendem Bild. Wirft nie.
     """
-    return 0
+    if np is None or _cv is None or bgr is None:
+        return 0
+    client = _geo.to_client(bgr)
+    free = 0
+    for slot in range(1, MAX_SLOT + 1):
+        cell = _slot_cell_bgr(client, slot)
+        if cell is None:
+            continue
+        if _slot_glowing(cell):
+            continue  # frisch gekauftes Item -> belegt
+        lbl, _ncc = _classify_slot(client, slot)
+        if lbl is not None:
+            continue  # erkanntes Item -> belegt
+        if _cell_is_empty(cell):
+            free += 1
+    return free
 
 
-def inventory_signature(bgr):
-    """Kompakte Signatur des Inventars (fuer Diff vor/nach einem Kauf).
+def _cell_is_empty(cell):
+    """Heuristik: leere Inventar-Zelle ~ uniform dunkel (kein Icon-Inhalt).
 
-    PHASE-0-STUB: Ohne kalibriertes Lattice (P0.4) gibt es kein stabiles
-    Slot-Raster, an dem sich ein Diff bilden liesse. Liefert defensiv ``None``
-    (NotReady) -> ``diff_landing_slot`` liefert dann ``None`` und der Kauf wird
-    nicht in einen Drag ueberfuehrt. Wirft nie.
-    # TODO-live-asset: Lattice-basierte Slot-Signatur (P0.4).
+    Misst die Helligkeits-Streuung der Zellen-Mitte (laesst den Slot-Rahmen aus).
+    Ein Item-Icon hat hohe Streuung; eine leere Zelle ist flach. Defensiv
+    ``False`` (NICHT leer) bei zu kleiner Zelle. Wirft nie.
     """
-    return None
-
-
-def diff_landing_slot(before, after):
-    """Bestimmt den Slot, in dem ein gekauftes Item gelandet ist (Diff).
-
-    PHASE-0-STUB: Braucht zwei vergleichbare ``inventory_signature``-Werte
-    (die Phase-0 ``None`` sind). Liefert defensiv ``None`` (NotReady) -> der Bot
-    behandelt den Lande-Slot als unbekannt und draggt NICHT. Wirft nie.
-    # TODO-live-asset: Signatur-Diff -> veraenderter Slot (P0.4).
-    """
-    return None
+    if cell is None:
+        return False
+    try:
+        h, w = cell.shape[:2]
+        m = 4
+        if h <= 2 * m or w <= 2 * m:
+            return False
+        inner = cell[m:h - m, m:w - m]
+        return float(inner.std()) < 14.0
+    except Exception:
+        return False
 
 
 def find_inventory_item(bgr, item):
-    """Sucht ``item`` im Inventar -> ``(ok: bool, slot)``.
+    """Sucht ``item`` im Inventar -> ``(ok: bool, slot_point)``.
 
-    PHASE-0-STUB: Ohne Item-Icon (P0.1) und Lattice (P0.4) ist kein Treffer
-    bestimmbar. Liefert defensiv ``(False, None)`` (NotReady) -> der Drag-Pfad
-    findet keine verifizierte Quelle und stoppt 'drag_unsafe' (KEIN Drag).
-    Wirft nie.
-    # TODO-live-asset: Item-Icon-NCC ueber das Inventar-Lattice (P0.1/P0.4).
+    Durchlaeuft das kalibrierte Lattice und gibt den ERSTEN Slot zurueck, dessen
+    Zelle als ``item`` klassifiziert (NCC-Gewinner >= NCC_ITEM). ``slot_point``
+    ist der **Pixel-Mittelpunkt** des Slots (so kann ``geometry.slot_center`` ihn
+    unveraendert durchreichen). Kein Treffer / fehlendes Template -> ``(False,
+    None)`` (NotReady -> der Drag-Pfad stoppt 'drag_unsafe', kein Drag). Wirft nie.
     """
+    if np is None or _cv is None or bgr is None or not item:
+        return (False, None)
+    if _imread(_item_path(item)) is None:
+        return (False, None)
+    client = _geo.to_client(bgr)
+    for slot in range(1, MAX_SLOT + 1):
+        lbl, _ncc = _classify_slot(client, slot)
+        if lbl == item:
+            return (True, _cal.slot_center(slot))
     return (False, None)
 
 
 def slot_is(bgr, slot, item):
-    """``True``, wenn auf ``slot`` das Icon ``item`` liegt (Drag-Ziel-Check).
+    """``True``, wenn auf ``slot`` das Icon ``item`` liegt (Drag-Quelle/Ziel-Check).
 
-    PHASE-0-STUB: Verlangt Item-Icon (P0.1) + Lattice (P0.4), um den Slot-
-    Inhalt zu klassifizieren. Liefert defensiv ``False`` (NotReady) -> der Drag
-    wird als unsicher abgebrochen (Quelle/Ziel nicht bestaetigt). Wirft nie.
-    # TODO-live-asset: Slot-Crop -> Item-Icon-NCC (P0.1/P0.4).
+    ``slot`` ist ein int-Index (1..40) ODER ein (x,y)-Punkt. Klassifiziert die
+    Slot-Zelle per Template-NCC (Glow-tolerant) und vergleicht den Gewinner mit
+    ``item``. Ungueltiger Slot / kein Bild / fehlendes Template -> ``False``
+    (NotReady -> der Drag wird als unsicher abgebrochen). Wirft nie.
     """
-    return False
+    if np is None or _cv is None or bgr is None or not item:
+        return False
+    idx = _slot_index(slot)
+    if idx is None:
+        return False
+    if _imread(_item_path(item)) is None:
+        return False
+    client = _geo.to_client(bgr)
+    lbl, _ncc = _classify_slot(client, idx)
+    return lbl == item
 
 
-def read_shop_stack_sizes(bgr):
-    """Liest die zur Laufzeit angebotenen Stack-Groessen aus dem Shop -> tuple.
+def slot_is_empty(bgr, slot):
+    """``True``, wenn ``slot`` jetzt LEER ist (Drag-Erfolgs-Beleg).
 
-    PHASE-0-STUB: Die Stack-Zahlen brauchen kalibrierte Shop-Digit-Crops (P0.3,
-    vgl. :func:`read_shop_stack`). Liefert defensiv ``None`` (NotReady) -> der
-    Bot faellt auf das gemessene Shop-Bild-Tupel zurueck (siehe
-    ``_read_shop_stack_sizes`` in bot.py). Wirft nie.
-    # TODO-live-asset: Shop-Stack-Digit-Templates + Slot-ROIs (P0.3).
+    Neue Grundwahrheit: nach erfolgreicher Verarbeitung ist der Dolch-Slot leer.
+    Leer = KEIN Item-Template ueber NCC_ITEM, NICHT leuchtend, und Zelle flach.
+    Ungueltiger Slot / kein Bild -> ``False`` (sicher: NICHT als leer behandeln
+    -> verify_process schlaegt fehl, kein Blind-Dekrement). Wirft nie.
     """
+    if np is None or _cv is None or bgr is None:
+        return False
+    idx = _slot_index(slot)
+    if idx is None:
+        return False
+    client = _geo.to_client(bgr)
+    cell = _slot_cell_bgr(client, idx)
+    if cell is None:
+        return False
+    if _slot_glowing(cell):
+        return False
+    lbl, _ncc = _classify_slot(client, idx)
+    if lbl is not None:
+        return False
+    return _cell_is_empty(cell)
+
+
+def inventory_signature(bgr):
+    """Kompakte Signatur des Inventars (Slot-Belegung) fuer Vor/Nach-Diff.
+
+    Liefert ein Tupel aus ``(slot, label_or_glow)`` fuer alle belegten Slots:
+    ``label`` = ``'hammer'``/``'dolch'``, sonst ``'glow'`` (leuchtende, nicht
+    klassifizierte Zelle = frisch gekauftes Item) oder ``'item'`` (belegt, aber
+    weder Hammer noch Dolch). Leere Slots erscheinen NICHT -> ein neuer Eintrag
+    nach einem Kauf ist der Lande-Slot. Defensiv ``None`` bei fehlendem Bild.
+    Wirft nie.
+    """
+    if np is None or _cv is None or bgr is None:
+        return None
+    client = _geo.to_client(bgr)
+    sig = []
+    for slot in range(1, MAX_SLOT + 1):
+        cell = _slot_cell_bgr(client, slot)
+        if cell is None:
+            continue
+        lbl, _ncc = _classify_slot(client, slot)
+        if lbl is not None:
+            sig.append((slot, lbl))
+        elif _slot_glowing(cell):
+            sig.append((slot, 'glow'))
+        elif not _cell_is_empty(cell):
+            sig.append((slot, 'item'))
+    return tuple(sig)
+
+
+def diff_landing_slot(before, after):
+    """Bestimmt den Slot, in dem ein gekauftes Item gelandet ist (Signatur-Diff).
+
+    Vergleicht zwei :func:`inventory_signature`-Werte und gibt den **Pixel-
+    Mittelpunkt** des EINEN neu belegten Slots zurueck (Lande-Slot des Kaufs).
+    Bevorzugt einen Slot, der jetzt leuchtet ('glow' = frisch gekauft). Mehr-
+    deutig (0 oder >1 neue Slots) oder fehlende Signatur -> ``None`` (NotReady ->
+    der Bot draggt NICHT). Wirft nie.
+    """
+    if not isinstance(before, tuple) or not isinstance(after, tuple):
+        return None
+    before_slots = {s for s, _ in before}
+    new_entries = [(s, lbl) for s, lbl in after if s not in before_slots]
+    if not new_entries:
+        return None
+    glow_new = [s for s, lbl in new_entries if lbl == 'glow']
+    if len(glow_new) == 1:
+        return _cal.slot_center(glow_new[0])
+    if len(new_entries) == 1:
+        return _cal.slot_center(new_entries[0][0])
     return None
 
 
 __all__ = [
     'assets_ready', 'match_word', 'find_npc_name', 'selection_ring_present',
     'dialog_state', 'shop_open', 'panel_is_bag', 'find_shop_item',
-    'read_shop_stack', 'read_splitter_growth',
+    'read_shop_stack', 'read_shop_stack_sizes', 'read_splitter_growth',
     'load_template', 'item_template_available', 'count_item',
     'free_slot_count', 'inventory_signature', 'diff_landing_slot',
-    'find_inventory_item', 'slot_is', 'read_shop_stack_sizes',
-    'HAMMER_WORDS', 'DAGGER_EXTRA_WORDS', 'HAMMER_ICONS', 'DAGGER_EXTRA_ICONS',
-    'NCC_WORD', 'NCC_HEADER', 'NCC_ITEM',
+    'find_inventory_item', 'slot_is', 'slot_is_empty',
+    'HAMMER_ITEMS', 'DAGGER_EXTRA_ITEMS', 'HAMMER_NPCS', 'DAGGER_EXTRA_NPCS',
+    'NCC_WORD', 'NCC_HEADER', 'NCC_ITEM', 'SLOT_CELL', 'MAX_SLOT',
 ]

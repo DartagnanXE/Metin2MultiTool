@@ -130,13 +130,37 @@ class HammerFlowMixin:
       self._stop('phase0_not_ready')
       return
 
-    self._right_click(*self._hammer_slot)
+    # ERKENNUNG VOR AKTION (pro Kauf): den Shop-Hammer JEDESMAL per TEMPLATE
+    # neu lokalisieren -- nie eine fixe/stale Koordinate rechtsklicken. Schlaegt
+    # die Re-Lokalisierung fehl, faellt der Bot auf den in ST_LOCATE_HAMMER
+    # verifizierten Slot zurueck; ist auch der unbekannt -> sauberer Stop, KEIN
+    # Blind-Klick.
+    slot = self._locate_shop_item('hammer')
+    if slot is None:
+      slot = getattr(self, '_hammer_slot', None)
+    if slot is None:
+      log.event(self.state, t('energiesplitter.item_not_in_shop', item='hammer'))
+      self._stop('item_not_in_shop')
+      return
+    self._hammer_slot = slot
+
+    # Bag-Stack VOR dem Kauf merken (zweiter, OCR-unabhaengiger Verifikations-
+    # Beleg: der Hammer-Bestand im Beutel muss nach dem Kauf um ``stack``
+    # gewachsen sein -- nicht nur das Gold gesunken).
+    bag_before = self._count_hammers()
+
+    self._right_click(*slot)
     self.actions_done += 1
 
     ok, gold_after = self.verify_purchase(gold_before, cost)
-    if ok:
+    # Cap-Drift-Haertung: die REAL GELESENE Yang-Abnahme IMMER fortschreiben --
+    # auch wenn der Kauf gleich als nicht-verifiziert gewertet wird -- damit der
+    # max_gold_spend-Deckel die tatsaechliche kumulierte Abnahme begrenzt (sonst
+    # advanciert ein bezahlter, aber unverifizierter Kauf den Deckel nicht).
+    self._note_real_spend(gold_before, gold_after)
+    bag_ok = self._verify_bag_growth(bag_before, stack)
+    if ok and bag_ok:
       self.gekauft += stack
-      self.gold_spent += (gold_before - (gold_after or gold_before))
       self.consecutive_unverified = 0
       self._buy_retries = 0
       log.event(self.state, t(

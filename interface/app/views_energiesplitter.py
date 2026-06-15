@@ -111,15 +111,15 @@ class EnergiesplitterViewMixin:
                                     self._es_price_var, opts,
                                     on_change=self._es_update_calc))
 
-    # Gold-Reserve (Hammer).
+    # Yang-Reserve (Hammer) -- Safety-Backstop.
     self._es_gold_floor_var = ctk.StringVar(value='50000')
     r = self._es_row(opts, r, t('ui.es_gold_floor_label'),
                      self._es_entry('hammer', 'gold_floor',
                                     self._es_gold_floor_var, opts))
 
-    # max_gold_spend (0 = auto).
+    # max_gold_spend (0 = auto) -- Safety-Backstop.
     self._es_max_spend_var = ctk.StringVar(value='0')
-    r = self._es_row(opts, r, 'max_gold_spend (0=auto)',
+    r = self._es_row(opts, r, t('ui.es_max_spend_label'),
                      self._es_entry('hammer', 'max_gold_spend',
                                     self._es_max_spend_var, opts))
 
@@ -162,7 +162,7 @@ class EnergiesplitterViewMixin:
                                     is_float=True))
 
     self._es_max_actions_var = ctk.StringVar(value='0')
-    r = self._es_row(opts, r, 'max_actions (0=auto)',
+    r = self._es_row(opts, r, t('ui.es_max_actions_label'),
                      self._es_entry('shared', 'max_actions',
                                     self._es_max_actions_var, opts))
 
@@ -187,16 +187,22 @@ class EnergiesplitterViewMixin:
     self._es_widgets['birdseye_on_miss'] = bsw
     r += 1
 
-    # dry_run -- arm-Flag. Default AN (sicher). Aus = scharfer Lauf (erst nach
-    # Phase-0 + bewusster Bestaetigung).
-    self._es_dry_run_var = ctk.BooleanVar(value=True)
-    dsw = ctk.CTkSwitch(
-        opts, text='dry_run (sicher: nur Erkennung)',
-        variable=self._es_dry_run_var,
+    # Scharf / Live -- der BEWUSSTE arm-Schalter. Er ist die INVERSION von
+    # ``dry_run``: Schalter AUS = Simulation (dry_run=True, sicher: nur
+    # Erkennung), Schalter AN = scharfer Lauf, der ECHTES Yang ausgibt
+    # (dry_run=False). Default AUS -> das erste echte Yang-Ausgeben ist eine
+    # bewusste Tester-Aktion (erst nach Phase-0).
+    self._es_scharf_var = ctk.BooleanVar(value=False)
+    ssw = ctk.CTkSwitch(
+        opts, text=t('ui.es_scharf_label'),
+        variable=self._es_scharf_var,
+        progress_color=DANGER,
         command=lambda: self._es_set('shared', 'dry_run',
-                                     bool(self._es_dry_run_var.get())))
-    dsw.grid(row=r, column=0, columnspan=2, sticky='w', pady=(6, 0))
-    self._es_widgets['dry_run'] = dsw
+                                     not bool(self._es_scharf_var.get())))
+    ssw.grid(row=r, column=0, sticky='w', pady=(6, 0))
+    InfoBadge(opts, text=t('ui.es_scharf_help')).grid(
+        row=r, column=1, sticky='w', padx=(6, 0), pady=(6, 0))
+    self._es_widgets['dry_run'] = ssw
     r += 1
 
     # -- Live-Yang-Rechner ------------------------------------------------
@@ -336,7 +342,8 @@ class EnergiesplitterViewMixin:
       self._es_unverif_var.set(str(s.get('consecutive_unverified_stop', 3)))
       self._es_jitter_var.set(str(s.get('jitter_pct', 0.15)))
       self._es_birdseye_var.set(bool(s.get('birdseye_on_miss', True)))
-      self._es_dry_run_var.set(bool(s.get('dry_run', True)))
+      # Scharf-Schalter = Inversion von dry_run (AN = scharf = dry_run False).
+      self._es_scharf_var.set(not bool(s.get('dry_run', True)))
     except Exception:
       pass
 

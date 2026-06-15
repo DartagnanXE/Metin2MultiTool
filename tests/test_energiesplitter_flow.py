@@ -157,8 +157,10 @@ class TestPhase0Gate(unittest.TestCase):
     bot = _make_bot()
     fake_detect = types.SimpleNamespace(
         assets_ready=lambda mode: (True, []))
-    fake_geo = types.SimpleNamespace(is_calibrated=lambda w: True)
-    fake_gold = types.SimpleNamespace(read_gold=lambda b, r: 1)
+    fake_geo = types.SimpleNamespace(is_calibrated=lambda w: True,
+                                     gold_roi=lambda mode=None: (0, 0, 1, 1))
+    fake_gold = types.SimpleNamespace(read_gold=lambda b, r: 1,
+                                      is_calibrated=lambda b, r=None: True)
     with mock.patch.object(esbot_mod, '_detect', fake_detect), \
          mock.patch.object(esbot_mod, '_geometry', fake_geo), \
          mock.patch.object(esbot_mod, '_gold_reader', fake_gold):
@@ -170,8 +172,10 @@ class TestPhase0Gate(unittest.TestCase):
     bot = _make_bot()
     fake_detect = types.SimpleNamespace(
         assets_ready=lambda mode: (False, ['item:hammer', 'gold_digits']))
-    fake_geo = types.SimpleNamespace(is_calibrated=lambda w: True)
-    fake_gold = types.SimpleNamespace(read_gold=lambda b, r: 1)
+    fake_geo = types.SimpleNamespace(is_calibrated=lambda w: True,
+                                     gold_roi=lambda mode=None: (0, 0, 1, 1))
+    fake_gold = types.SimpleNamespace(read_gold=lambda b, r: 1,
+                                      is_calibrated=lambda b, r=None: True)
     with mock.patch.object(esbot_mod, '_detect', fake_detect), \
          mock.patch.object(esbot_mod, '_geometry', fake_geo), \
          mock.patch.object(esbot_mod, '_gold_reader', fake_gold):
@@ -182,14 +186,62 @@ class TestPhase0Gate(unittest.TestCase):
   def test_uncalibrated_blocks(self):
     bot = _make_bot()
     fake_detect = types.SimpleNamespace(assets_ready=lambda mode: (True, []))
-    fake_geo = types.SimpleNamespace(is_calibrated=lambda w: False)
-    fake_gold = types.SimpleNamespace(read_gold=lambda b, r: 1)
+    fake_geo = types.SimpleNamespace(is_calibrated=lambda w: False,
+                                     gold_roi=lambda mode=None: (0, 0, 1, 1))
+    fake_gold = types.SimpleNamespace(read_gold=lambda b, r: 1,
+                                      is_calibrated=lambda b, r=None: True)
     with mock.patch.object(esbot_mod, '_detect', fake_detect), \
          mock.patch.object(esbot_mod, '_geometry', fake_geo), \
          mock.patch.object(esbot_mod, '_gold_reader', fake_gold):
       armed, missing = bot.phase0_gate()
     self.assertFalse(armed)
     self.assertIn('calibration:800x600', missing)
+
+  def test_content_uncalibrated_blocks(self):
+    # FIX 2: Fenster-Groesse OK, aber Inhalt liest NICHT plausibel -> rot.
+    bot = _make_bot()
+    fake_detect = types.SimpleNamespace(assets_ready=lambda mode: (True, []))
+    fake_geo = types.SimpleNamespace(is_calibrated=lambda w: True,
+                                     gold_roi=lambda mode=None: (0, 0, 1, 1))
+    fake_gold = types.SimpleNamespace(read_gold=lambda b, r: 1,
+                                      is_calibrated=lambda b, r=None: False)
+    with mock.patch.object(esbot_mod, '_detect', fake_detect), \
+         mock.patch.object(esbot_mod, '_geometry', fake_geo), \
+         mock.patch.object(esbot_mod, '_gold_reader', fake_gold):
+      armed, missing = bot.phase0_gate()
+    self.assertFalse(armed)
+    self.assertIn('content_calibration', missing)
+
+  def test_content_check_missing_function_blocks(self):
+    # Fehlt is_calibrated am Reader (alter Build) -> defensiv rot, kein Crash.
+    bot = _make_bot()
+    fake_detect = types.SimpleNamespace(assets_ready=lambda mode: (True, []))
+    fake_geo = types.SimpleNamespace(is_calibrated=lambda w: True,
+                                     gold_roi=lambda mode=None: (0, 0, 1, 1))
+    fake_gold = types.SimpleNamespace(read_gold=lambda b, r: 1)  # KEIN is_calibrated
+    with mock.patch.object(esbot_mod, '_detect', fake_detect), \
+         mock.patch.object(esbot_mod, '_geometry', fake_geo), \
+         mock.patch.object(esbot_mod, '_gold_reader', fake_gold):
+      armed, missing = bot.phase0_gate()
+    self.assertFalse(armed)
+    self.assertIn('content_calibration', missing)
+
+  def test_content_check_never_raises(self):
+    # is_calibrated wirft -> defensiv rot, kein Crash.
+    bot = _make_bot()
+    def _boom(*a, **k):
+      raise RuntimeError('frame kaputt')
+    fake_detect = types.SimpleNamespace(assets_ready=lambda mode: (True, []))
+    fake_geo = types.SimpleNamespace(is_calibrated=lambda w: True,
+                                     gold_roi=lambda mode=None: (0, 0, 1, 1))
+    fake_gold = types.SimpleNamespace(read_gold=lambda b, r: 1,
+                                      is_calibrated=_boom)
+    with mock.patch.object(esbot_mod, '_detect', fake_detect), \
+         mock.patch.object(esbot_mod, '_geometry', fake_geo), \
+         mock.patch.object(esbot_mod, '_gold_reader', fake_gold):
+      armed, missing = bot.phase0_gate()
+    self.assertFalse(armed)
+    self.assertIn('content_calibration', missing)
 
 
 class TestGateBlocksAllInput(unittest.TestCase):
@@ -306,6 +358,89 @@ class TestGoldGuard(unittest.TestCase):
     out = bot.gold_guard(15000)
     self.assertEqual(out, 500000)
     self.assertTrue(bot.botting)
+
+
+class TestRealSpendCapDrift(unittest.TestCase):
+  """FIX 1: gold_spent wird per gelesenem Yang-Delta fortgeschrieben -- auch
+  ohne Verifikation -- damit max_gold_spend die REAL kumulierte Abnahme deckelt."""
+
+  def test_note_real_spend_adds_positive_delta(self):
+    bot = _make_bot()
+    bot.gold_spent = 0
+    added = bot._note_real_spend(100000, 85000)
+    self.assertEqual(added, 15000)
+    self.assertEqual(bot.gold_spent, 15000)
+
+  def test_note_real_spend_ignores_non_positive_and_none(self):
+    bot = _make_bot()
+    bot.gold_spent = 5000
+    self.assertEqual(bot._note_real_spend(80000, 80000), 0)   # kein Delta
+    self.assertEqual(bot._note_real_spend(80000, 90000), 0)   # negativ (Anstieg)
+    self.assertEqual(bot._note_real_spend(80000, None), 0)    # unlesbar
+    self.assertEqual(bot._note_real_spend(None, 80000), 0)
+    self.assertEqual(bot.gold_spent, 5000)                    # unveraendert
+
+  def test_unverified_hammer_buy_advances_cap(self):
+    # Kauf real bezahlt (Gold sank um 150000) ABER nicht verifiziert
+    # (Bag wuchs nicht) -> gold_spent MUSS dennoch um 150000 steigen, damit
+    # der naechste gold_guard den Deckel korrekt anwendet.
+    _reset_input()
+    bot = _make_bot(mode=MODE_HAMMER)
+    _arm(bot)
+    bot.state = EnergiesplitterBot.ST_BUY_LOOP
+    bot._hammer_slot = (100, 90)
+    bot.hammer_count = 10
+    bot.gekauft = 0
+    bot.gold_floor = 0
+    bot.max_gold_spend = 10 ** 9
+    bot.consecutive_unverified_stop = 99   # nicht am Unverified-Stop scheitern
+    bot.botting = True
+    golds = [500000, 350000]               # before, after: real -150000
+    bot._read_gold = lambda: golds.pop(0)
+    bot._plan_stacks = lambda target, free: [10]
+    bot._locate_shop_item = lambda item: (100, 90)
+    bot._bag_count_measurable = lambda: True
+    bot._count_hammers = lambda: 0         # Bag wuchs NICHT -> unverifiziert
+    bot.runHack()
+    self.assertEqual(bot.gekauft, 0)       # NICHT als Kauf gezaehlt
+    self.assertEqual(bot.gold_spent, 150000)  # aber realer Verbrauch verbucht
+
+  def test_unverified_dagger_buy_advances_cap(self):
+    _reset_input()
+    bot = _make_bot(mode=MODE_DAGGER)
+    _arm(bot)
+    bot.state = EnergiesplitterBot.ST_BUY_ONE_DOLCH
+    bot.price_per_item = 15000
+    bot.gold_floor = 0
+    bot.max_gold_spend = 10 ** 9
+    bot.consecutive_unverified_stop = 99
+    bot.botting = True
+    golds = [200000, 185000]               # before, after: real -15000
+    bot._read_gold = lambda: golds.pop(0)
+    bot._locate_shop_item = lambda item: (300, 200)
+    bot._inventory_signature = lambda: object()
+    bot.verify_purchase = lambda gb, c: (False, 185000)   # bezahlt, unverifiziert
+    bot.runHack()
+    self.assertEqual(bot._dolche_gekauft, 0)
+    self.assertEqual(bot.gold_spent, 15000)  # realer Verbrauch verbucht
+
+  def test_cap_stops_after_unverified_drift(self):
+    # Kern der Haertung: nach einem unverifizierten, real bezahlten Kauf
+    # blockt der naechste gold_guard am Deckel -- der Cap driftet NICHT.
+    bot = _make_bot()
+    _arm(bot)
+    bot.gold_floor = 0
+    bot.max_gold_spend = 150000
+    bot.gold_spent = 0
+    # Simuliere den realen Verbrauch eines unverifizierten Kaufs:
+    bot._note_real_spend(500000, 350000)   # +150000 -> Deckel ausgeschoepft
+    self.assertEqual(bot.gold_spent, 150000)
+    bot._read_gold = lambda: 350000
+    bot.botting = True
+    out = bot.gold_guard(15000)            # 150000 + 15000 > 150000 -> Stop
+    self.assertIsNone(out)
+    self.assertFalse(bot.botting)
+    self.assertEqual(bot._stop_reason, 'max_gold_spend')
 
 
 class TestActionCap(unittest.TestCase):
@@ -530,6 +665,195 @@ class TestArmedPurchaseDoesInput(unittest.TestCase):
     self.assertEqual(_INPUT_CALLS['right'], 1)
     self.assertEqual(bot.gekauft, 10)
     self.assertEqual(bot.state, EnergiesplitterBot.ST_CHECK_DONE)
+
+
+class TestScharfSwitch(unittest.TestCase):
+  """Bewusster 'scharf'-Schalter = Umkehrung von dry_run (EINE Wahrheit)."""
+
+  def test_default_not_scharf(self):
+    bot = _make_bot()
+    self.assertTrue(bot.dry_run)
+    self.assertFalse(bot.scharf)
+
+  def test_scharf_setter_clears_dry_run(self):
+    bot = _make_bot()
+    bot.scharf = True
+    self.assertFalse(bot.dry_run)
+    self.assertTrue(bot.scharf)
+
+  def test_not_scharf_blocks_all_input(self):
+    _reset_input()
+    bot = _make_bot()
+    bot.armed = True
+    bot.scharf = False        # = dry_run True
+    bot.botting = True
+    bot.runHack()
+    self.assertFalse(bot.botting)
+    self.assertEqual(sum(_INPUT_CALLS.values()), 0, _INPUT_CALLS)
+
+
+class TestHammerPerBuyRelocate(unittest.TestCase):
+  """Pro Kauf wird der Shop-Hammer per Template neu lokalisiert; Re-Lokalisierung
+  scharf vorgeschaltet, mit Rueckfall auf den verifizierten Slot."""
+
+  def test_relocate_used_when_available(self):
+    _reset_input()
+    bot = _make_bot(mode=MODE_HAMMER)
+    _arm(bot)
+    bot.state = EnergiesplitterBot.ST_BUY_LOOP
+    bot._hammer_slot = (1, 1)
+    bot.hammer_count = 10
+    bot.gekauft = 0
+    bot.gold_floor = 0
+    bot.max_gold_spend = 10 ** 9
+    bot.botting = True
+    golds = [500000, 500000 - 150000]
+    bot._read_gold = lambda: golds.pop(0)
+    bot._plan_stacks = lambda target, free: [10]
+    seen = {}
+    bot._locate_shop_item = lambda item: (seen.__setitem__('item', item) or (200, 50))
+    bot.runHack()
+    self.assertEqual(seen['item'], 'hammer')
+    self.assertEqual(bot._hammer_slot, (200, 50))  # re-lokalisiert, nicht stale
+    self.assertEqual(_INPUT_CALLS['right'], 1)
+    self.assertEqual(bot.gekauft, 10)
+
+  def test_relocate_miss_falls_back_to_cached(self):
+    _reset_input()
+    bot = _make_bot(mode=MODE_HAMMER)
+    _arm(bot)
+    bot.state = EnergiesplitterBot.ST_BUY_LOOP
+    bot._hammer_slot = (100, 90)
+    bot.hammer_count = 10
+    bot.gekauft = 0
+    bot.gold_floor = 0
+    bot.max_gold_spend = 10 ** 9
+    bot.botting = True
+    golds = [500000, 350000]
+    bot._read_gold = lambda: golds.pop(0)
+    bot._plan_stacks = lambda target, free: [10]
+    bot._locate_shop_item = lambda item: None   # Re-Lokalisierung scheitert
+    bot.runHack()
+    self.assertEqual(_INPUT_CALLS['right'], 1)   # Rueckfall-Slot geklickt
+    self.assertEqual(bot.gekauft, 10)
+
+  def test_no_slot_at_all_stops_without_input(self):
+    _reset_input()
+    bot = _make_bot(mode=MODE_HAMMER)
+    _arm(bot)
+    bot.state = EnergiesplitterBot.ST_BUY_LOOP
+    bot._hammer_slot = None
+    bot.hammer_count = 10
+    bot.gekauft = 0
+    bot.gold_floor = 0
+    bot.max_gold_spend = 10 ** 9
+    bot.botting = True
+    bot._read_gold = lambda: 500000
+    bot._plan_stacks = lambda target, free: [10]
+    bot._locate_shop_item = lambda item: None
+    bot.runHack()
+    self.assertFalse(bot.botting)
+    self.assertEqual(bot._stop_reason, 'item_not_in_shop')
+    self.assertEqual(_INPUT_CALLS['right'], 0)
+
+
+class TestHammerBagGrowthGate(unittest.TestCase):
+  """Bag-Stack-Beleg: erzwungen nur wenn messbar; sonst Gold-Delta traegt."""
+
+  def _buy_bot(self):
+    bot = _make_bot(mode=MODE_HAMMER)
+    _arm(bot)
+    bot.state = EnergiesplitterBot.ST_BUY_LOOP
+    bot._hammer_slot = (100, 90)
+    bot.hammer_count = 10
+    bot.gekauft = 0
+    bot.gold_floor = 0
+    bot.max_gold_spend = 10 ** 9
+    bot.botting = True
+    bot._plan_stacks = lambda target, free: [10]
+    bot._locate_shop_item = lambda item: (100, 90)
+    return bot
+
+  def test_not_measurable_skips_bag_check(self):
+    _reset_input()
+    bot = self._buy_bot()
+    golds = [500000, 350000]
+    bot._read_gold = lambda: golds.pop(0)
+    bot._bag_count_measurable = lambda: False
+    bot.runHack()
+    self.assertEqual(bot.gekauft, 10)
+    self.assertEqual(bot.state, EnergiesplitterBot.ST_CHECK_DONE)
+
+  def test_measurable_requires_growth(self):
+    _reset_input()
+    bot = self._buy_bot()
+    bot.consecutive_unverified_stop = 1
+    golds = [500000, 350000]   # Gold sank korrekt ...
+    bot._read_gold = lambda: golds.pop(0)
+    bot._bag_count_measurable = lambda: True
+    bot._count_hammers = lambda: 0   # ... aber Bag wuchs NICHT
+    bot.runHack()
+    self.assertEqual(bot.gekauft, 0)          # NICHT als Kauf gezaehlt
+    self.assertNotEqual(bot.state, EnergiesplitterBot.ST_CHECK_DONE)
+
+
+class TestDaggerVerifyByReRead(unittest.TestCase):
+  """Neue Grundwahrheit: KEIN Dialog -> verify = Dolch-Slot leer UND Hammer
+  dekrementiert (Re-Read), NICHT Splitter-Aussehen."""
+
+  def test_slot_empty_and_hammer_drop_verifies(self):
+    bot = _make_bot(mode=MODE_DAGGER)
+    _arm(bot)
+    bot._dolch_inv_slot = (5, 5)
+    bot._hammer_count_before_proc = 3
+    fake_detect = types.SimpleNamespace()
+    with mock.patch.object(esbot_mod, '_detect', fake_detect):
+      bot._slot_is_empty = lambda slot, bgr=None: True
+      bot._bag_count_measurable = lambda: True
+      bot._count_hammers = lambda: 2   # 3 -> 2 = -1
+      out = bot.verify_process(object(), object())
+    self.assertEqual(out, 1)
+
+  def test_slot_not_empty_fails(self):
+    bot = _make_bot(mode=MODE_DAGGER)
+    _arm(bot)
+    bot._dolch_inv_slot = (5, 5)
+    bot._hammer_count_before_proc = 3
+    fake_detect = types.SimpleNamespace()
+    with mock.patch.object(esbot_mod, '_detect', fake_detect):
+      bot._slot_is_empty = lambda slot, bgr=None: False   # Dolch noch da
+      bot._bag_count_measurable = lambda: True
+      bot._count_hammers = lambda: 2
+      out = bot.verify_process(object(), object())
+    self.assertEqual(out, 0)
+
+  def test_hammer_not_dropped_fails_when_measurable(self):
+    bot = _make_bot(mode=MODE_DAGGER)
+    _arm(bot)
+    bot._dolch_inv_slot = (5, 5)
+    bot._hammer_count_before_proc = 3
+    fake_detect = types.SimpleNamespace()
+    with mock.patch.object(esbot_mod, '_detect', fake_detect):
+      bot._slot_is_empty = lambda slot, bgr=None: True
+      bot._bag_count_measurable = lambda: True
+      bot._count_hammers = lambda: 3   # NICHT gesunken
+      out = bot.verify_process(object(), object())
+    self.assertEqual(out, 0)
+
+  def test_drag_records_hammer_count_before(self):
+    _reset_input()
+    bot = _make_bot(mode=MODE_DAGGER)
+    _arm(bot)
+    bot.state = EnergiesplitterBot.ST_PROCESS_DRAG
+    bot.botting = True
+    bot._dolch_inv_slot = (5, 5)
+    bot._classified_hammer_slot = lambda: (1, 1)
+    bot._slot_is = lambda item, slot: True
+    bot._count_hammers = lambda: 4
+    bot._shot = lambda: object()
+    bot.runHack()
+    self.assertEqual(bot._hammer_count_before_proc, 4)
+    self.assertEqual(bot.state, EnergiesplitterBot.ST_VERIFY_PROCESS)
 
 
 if __name__ == '__main__':

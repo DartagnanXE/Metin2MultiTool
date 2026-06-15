@@ -113,22 +113,30 @@ class TestGeometry(unittest.TestCase):
 
 # ---------------------------------------------------------------------------
 class TestAssetsGate(unittest.TestCase):
+    """Neue Asset-Lieferung (Phase 1): Item-/NPC-Templates liegen vor; der Yang-
+    Reader bleibt unvollstaendig (Ziffern 3/4/6/8) -> Gate bleibt korrekt rot auf
+    ``yang_digits``, die vorhandenen Templates erscheinen NICHT mehr als fehlend."""
 
-    def test_hammer_gate_red_lists_missing(self):
+    def test_hammer_item_and_npc_present(self):
+        # Die in CALIBRATION.md gemessenen Live-Templates sind gebundelt.
+        self.assertTrue(d.item_template_available('hammer'))
         ready, missing = d.assets_ready('hammer')
-        self.assertFalse(ready)
-        # Wortbild-Templates de+en, Item-Icon, gold_digits muessen fehlen.
-        self.assertIn('item:hammer', missing)
-        self.assertIn('gold_digits', missing)
-        self.assertIn('tpl:de/laden_oeffnen', missing)
-        self.assertIn('tpl:en/laden_oeffnen', missing)
+        self.assertNotIn('item:hammer', missing)
+        self.assertNotIn('npc:alchemist', missing)
 
-    def test_dagger_gate_red_includes_dagger_assets(self):
-        ready, missing = d.assets_ready('dagger')
+    def test_hammer_gate_red_only_on_yang_digits(self):
+        ready, missing = d.assets_ready('hammer')
+        # Yang-Ziffern 3/4/6/8 fehlen -> Gate bleibt rot, aber NUR deswegen.
         self.assertFalse(ready)
-        self.assertIn('item:dolch', missing)
-        self.assertIn('item:energiesplitter', missing)
-        self.assertIn('tpl:de/npc_waffenhaendler', missing)
+        self.assertEqual(missing, ['yang_digits'])
+
+    def test_dagger_includes_dolch_and_waffenhaendler(self):
+        self.assertTrue(d.item_template_available('dolch'))
+        ready, missing = d.assets_ready('dagger')
+        self.assertNotIn('item:dolch', missing)
+        self.assertNotIn('npc:waffenhaendler', missing)
+        self.assertFalse(ready)            # weiterhin rot ...
+        self.assertEqual(missing, ['yang_digits'])  # ... nur wegen Yang-Ziffern
 
     def test_unknown_mode_rejected(self):
         ready, missing = d.assets_ready('bogus')
@@ -282,6 +290,140 @@ class TestShopHeaderDiscriminationWithInjectedTemplate(unittest.TestCase):
     def test_shop_open_false_in_overworld(self):
         img = _load('Alchemist', 'metin2client_BlRGzUUM3w.png')
         self.assertFalse(d.shop_open(img))
+
+
+class TestInventoryClassification(unittest.TestCase):
+    """ECHTE Slot-Klassifikation ueber das kalibrierte Lattice (Glow-aware),
+    gegen die User-Grundwahrheit der beiden Inventar-Bilder (CALIBRATION.md §1)."""
+
+    def setUp(self):
+        self.alch = _load('.', 'inventar_alchemist.png')
+        self.waf = _load('.', 'inventar_waffenhaendler.png')
+
+    def test_slot_is_hammer_and_dolch_groundtruth(self):
+        # GT: 18/25/28/29 = Hammer; 19/20/23/24 = Dolch (Alchemist-Bild).
+        for s in (18, 25, 28, 29):
+            self.assertTrue(d.slot_is(self.alch, s, 'hammer'), 'slot %d' % s)
+            self.assertFalse(d.slot_is(self.alch, s, 'dolch'), 'slot %d' % s)
+        for s in (19, 20, 23, 24):
+            self.assertTrue(d.slot_is(self.alch, s, 'dolch'), 'slot %d' % s)
+            self.assertFalse(d.slot_is(self.alch, s, 'hammer'), 'slot %d' % s)
+
+    def test_slot_21_neither_hammer_nor_dolch(self):
+        # Slot 21 = Schwert (Fremd-Item) -> keine Fehlklassifikation.
+        self.assertFalse(d.slot_is(self.alch, 21, 'hammer'))
+        self.assertFalse(d.slot_is(self.alch, 21, 'dolch'))
+
+    def test_slot_is_accepts_pixel_point(self):
+        import energiesplitter.calibration as cal
+        pt = cal.slot_center(18)
+        self.assertTrue(d.slot_is(self.alch, pt, 'hammer'))
+
+    def test_count_item_counts_slots(self):
+        # Alchemist-Bild: Haemmer in 18/25/28/29 = 4 Slots; Dolche 19/20/23/24 = 4.
+        self.assertEqual(d.count_item(self.alch, 'hammer'), 4)
+        self.assertEqual(d.count_item(self.alch, 'dolch'), 4)
+
+    def test_count_item_missing_template_is_zero(self):
+        self.assertEqual(d.count_item(self.alch, 'bogus_item'), 0)
+
+    def test_find_inventory_item_returns_pixel_point(self):
+        ok, pt = d.find_inventory_item(self.alch, 'hammer')
+        self.assertTrue(ok)
+        self.assertIsNotNone(pt)
+        # Punkt liegt auf einem echten Hammer-Slot-Mittelpunkt (Pixel, nicht Index).
+        import energiesplitter.calibration as cal
+        self.assertEqual(pt, cal.slot_center(18))
+
+    def test_find_inventory_item_no_template_none(self):
+        ok, pt = d.find_inventory_item(self.alch, 'bogus')
+        self.assertFalse(ok)
+        self.assertIsNone(pt)
+
+    def test_glow_detected_on_fresh_slots(self):
+        import energiesplitter.calibration as cal
+        client = geo.to_client(self.alch)
+        # 25/28/29 leuchten im Alchemist-Bild (frisch gekauft), 18/19 nicht.
+        for s in (25, 28, 29):
+            cell = d._slot_cell_bgr(client, s)
+            self.assertTrue(d._slot_glowing(cell), 'slot %d should glow' % s)
+        for s in (18, 19):
+            cell = d._slot_cell_bgr(client, s)
+            self.assertFalse(d._slot_glowing(cell), 'slot %d should not glow' % s)
+
+    def test_free_slot_count_positive_and_excludes_occupied(self):
+        free = d.free_slot_count(self.alch)
+        # Es gibt belegte Slots (1..30 teils) und freie -> Zahl plausibel.
+        self.assertGreater(free, 0)
+        self.assertLessEqual(free, d.MAX_SLOT)
+
+    def test_defensive_none_image(self):
+        self.assertEqual(d.count_item(None, 'hammer'), 0)
+        self.assertEqual(d.free_slot_count(None), 0)
+        self.assertFalse(d.slot_is(None, 18, 'hammer'))
+        self.assertEqual(d.find_inventory_item(None, 'hammer'), (False, None))
+
+
+class TestInventorySignatureDiff(unittest.TestCase):
+    """Signatur + Lande-Slot-Diff fuer die Kauf-Verifikation."""
+
+    def test_signature_lists_occupied_slots(self):
+        img = _load('.', 'inventar_alchemist.png')
+        sig = d.inventory_signature(img)
+        self.assertIsInstance(sig, tuple)
+        labels = dict(sig)
+        self.assertEqual(labels.get(18), 'hammer')
+        self.assertEqual(labels.get(19), 'dolch')
+
+    def test_diff_landing_slot_detects_single_new_slot(self):
+        before = ((18, 'hammer'),)
+        after = ((18, 'hammer'), (25, 'glow'))
+        import energiesplitter.calibration as cal
+        self.assertEqual(d.diff_landing_slot(before, after), cal.slot_center(25))
+
+    def test_diff_landing_slot_ambiguous_none(self):
+        before = ((18, 'hammer'),)
+        after = ((18, 'hammer'), (25, 'glow'), (26, 'glow'))
+        self.assertIsNone(d.diff_landing_slot(before, after))
+
+    def test_diff_landing_slot_no_change_none(self):
+        sig = ((18, 'hammer'),)
+        self.assertIsNone(d.diff_landing_slot(sig, sig))
+
+    def test_diff_defensive_non_tuple(self):
+        self.assertIsNone(d.diff_landing_slot(None, None))
+
+
+class TestSlotEmpty(unittest.TestCase):
+    """slot_is_empty: Drag-Erfolgs-Beleg (Dolch-Slot leer nach Verarbeitung)."""
+
+    def test_occupied_slot_not_empty(self):
+        img = _load('.', 'inventar_alchemist.png')
+        self.assertFalse(d.slot_is_empty(img, 18))   # Hammer
+        self.assertFalse(d.slot_is_empty(img, 19))   # Dolch
+
+    def test_glowing_slot_not_empty(self):
+        img = _load('.', 'inventar_alchemist.png')
+        self.assertFalse(d.slot_is_empty(img, 25))   # frisch gekauft (leuchtet)
+
+    def test_defensive_none(self):
+        self.assertFalse(d.slot_is_empty(None, 18))
+        img = _load('.', 'inventar_alchemist.png')
+        self.assertFalse(d.slot_is_empty(img, None))
+
+
+class TestLoadTemplate(unittest.TestCase):
+
+    def test_load_item_template(self):
+        self.assertIsNotNone(d.load_template('hammer'))
+        self.assertIsNotNone(d.load_template('dolch'))
+
+    def test_load_npc_template(self):
+        self.assertIsNotNone(d.load_template('alchemist'))
+        self.assertIsNotNone(d.load_template('waffenhaendler'))
+
+    def test_load_unknown_none(self):
+        self.assertIsNone(d.load_template('does_not_exist'))
 
 
 if __name__ == '__main__':

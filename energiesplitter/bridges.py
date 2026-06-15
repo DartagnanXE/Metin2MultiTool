@@ -25,10 +25,20 @@ from i18n import t
 
 from energiesplitter import bot as _b
 
+try:  # pragma: no cover - calibration ist rein/headless, defensiv importiert
+  from energiesplitter import calibration as _cal
+except Exception:  # pragma: no cover
+  _cal = None
+
 # Fallback-Stack-Groessen, falls der Shop-Reader (Phase-0) noch ``None`` liefert.
 # WAHRHEIT laut Addendum A1: Hammer-Stacks 1 / 50 / 200 (groesster zuerst fuer
 # greedy 'largest_fit'). Frueher faelschlich (200,100,10,1) aus dem Shop-Bild.
 FALLBACK_STACK_SIZES: Tuple[int, ...] = (200, 50, 1)
+
+# Toleranz (Pixel), in der ein lokalisierter Shop-Hammer mit dem kalibrierten
+# Shop-Anker uebereinstimmen muss (Erkennung vor Aktion). Abweichung groesser ->
+# kein verifizierter Anker -> KEIN Kauf (sauberer Stopp im Bot-Kern).
+SHOP_ANCHOR_TOL = 18
 
 
 class BridgesMixin:
@@ -68,6 +78,30 @@ class BridgesMixin:
     except Exception:  # pragma: no cover
       return 0
 
+  def _bag_count_measurable(self) -> bool:
+    """``True`` nur, wenn der Inventar-Hammer-Zaehler real messbar ist (Live-
+    Asset P0.1/P0.4 vorhanden). Solange ``detect.count_item`` ein Phase-0-Stub
+    ist (liefert defensiv 0), ist der Bag-Stack NICHT messbar -> der Bag-Beleg
+    wird uebersprungen (der Gold-Delta-Beleg traegt den Kauf)."""
+    if _b._detect is None or not hasattr(_b._detect, 'count_item'):
+      return False
+    return bool(getattr(_b._detect, 'count_item_ready', False))
+
+  def _verify_bag_growth(self, bag_before, expected) -> bool:
+    """Zweiter Kauf-Beleg (OCR-unabhaengig): der Hammer-Bestand im Beutel ist um
+    ``expected`` gewachsen. NUR erzwungen, wenn der Bag-Stack real messbar ist
+    (siehe :meth:`_bag_count_measurable`); ist er es NICHT (Phase-0-Stub), gilt
+    der Beleg als erbracht (``True``) und der Gold-Delta-Beleg traegt allein.
+    Read-only, wirft nie."""
+    if not self._bag_count_measurable():
+      return True
+    if bag_before is None:
+      return True
+    now = self._count_hammers()
+    if now is None:
+      return True
+    return now - int(bag_before) >= int(expected)
+
   def _count_hammers(self) -> int:
     if _b._detect is None or not hasattr(_b._detect, 'count_item'):
       return 0
@@ -80,6 +114,13 @@ class BridgesMixin:
       return 0
 
   def _locate_shop_item(self, item):
+    """Lokalisiert ``item`` im Shop-Panel per Template-NCC (A) UND verifiziert
+    den Treffer gegen den kalibrierten Shop-Anker (Erkennung vor Aktion).
+
+    Nur ein Treffer, der zum gemessenen Anker passt (Hammer: ``SHOP_HAMMER_
+    ANCHOR``), gilt als verifiziert -> liefert dann den Klick-Punkt. Fehlt der
+    Anker (Dolch: ``SHOP_DAGGER_ANCHOR=None`` -> Luecke) ODER weicht der Treffer
+    ab -> ``None`` (kein Blind-Kauf). Read-only, wirft nie."""
     if _b._detect is None:
       return None
     bgr = self._shot()
@@ -90,7 +131,30 @@ class BridgesMixin:
       ok, pt, _ncc = _b._detect.find_shop_item(bgr, tpl)
     except Exception:  # pragma: no cover
       ok, pt = False, None
-    return pt if ok else None
+    if not ok or pt is None:
+      return None
+    anchor = self._shop_anchor(item)
+    if anchor is None:
+      return None  # kein verifizierter Anker (z.B. Dolch-Luecke) -> kein Kauf
+    if abs(pt[0] - anchor[0]) > SHOP_ANCHOR_TOL or abs(pt[1] - anchor[1]) > SHOP_ANCHOR_TOL:
+      return None  # Treffer passt nicht zum gemessenen Shop-Slot -> kein Kauf
+    return pt
+
+  def _shop_anchor(self, item):
+    """Kalibrierter Shop-Slot-Anker fuer ``item`` (Hammer/Dolch) oder ``None``.
+
+    Hammer -> ``calibration.SHOP_HAMMER_ANCHOR``; Dolch -> ``SHOP_DAGGER_ANCHOR``
+    (derzeit ``None``, Luecke). Fehlende Kalibrierung -> ``None``. Wirft nie."""
+    if _cal is None:
+      return None
+    try:
+      if item == 'hammer':
+        return getattr(_cal, 'SHOP_HAMMER_ANCHOR', None)
+      if item in ('dolch', 'dagger'):
+        return getattr(_cal, 'SHOP_DAGGER_ANCHOR', None)
+    except Exception:  # pragma: no cover
+      return None
+    return None
 
   def _plan_stacks(self, target: int, free_slots: int) -> List[int]:
     """Greedy Stack-Plan ueber Agent B (LAUFZEIT-gelesene Stack-Groessen).
@@ -178,6 +242,33 @@ class BridgesMixin:
       return False
     try:
       return bool(_b._detect.slot_is(bgr, slot, item))
+    except Exception:  # pragma: no cover
+      return False
+
+  def _slot_is_empty(self, slot, bgr=None) -> bool:
+    """``True``, wenn ``slot`` jetzt LEER ist (Drag-Erfolgs-Beleg, neue
+    Grundwahrheit: Dolch verbraucht -> Slot leer). Bevorzugt einen dedizierten
+    Detektor ``detect.slot_is_empty``; fehlt der, defensiver Fallback:
+    'weder Hammer NOCH Dolch erkannt' = leer. NotReady/Fehler -> ``False``
+    (sicher: NICHT als leer behandeln -> verify_process schlaegt fehl, kein
+    Blind-Dekrement). Read-only, wirft nie."""
+    if slot is None:
+      return False
+    shot = bgr if bgr is not None else self._shot()
+    if shot is None:
+      return False
+    if _b._detect is not None and hasattr(_b._detect, 'slot_is_empty'):
+      try:
+        return bool(_b._detect.slot_is_empty(shot, slot))
+      except Exception:  # pragma: no cover
+        return False
+    # Fallback ueber slot_is: leer = nicht Dolch UND nicht Hammer.
+    if _b._detect is None or not hasattr(_b._detect, 'slot_is'):
+      return False
+    try:
+      is_dolch = bool(_b._detect.slot_is(shot, slot, 'dolch'))
+      is_hammer = bool(_b._detect.slot_is(shot, slot, 'hammer'))
+      return not is_dolch and not is_hammer
     except Exception:  # pragma: no cover
       return False
 
