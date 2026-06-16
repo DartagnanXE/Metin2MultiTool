@@ -3,6 +3,20 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.13] — 2026-06-16
+
+### Behoben (Energiesplitter-Reiter: Buttons + Reihenfolge + Klartext)
+
+- **Buttons wackelten/flackerten** beim Start auf dem Energie-Reiter: die zwei
+  Start/Stopp-Knöpfe wurden ~100×/s neu konfiguriert (jeder Bot-Tick). Jetzt nur
+  noch bei echter Zustandsänderung (Dirty-Check) — kein Flackern mehr.
+- **Reiter-Reihenfolge:** „Energie" steht jetzt **über** der Rangliste
+  (bei den Bot-Modi: Angeln, Puzzle, Inventar, Seher, **Energie**, Rangliste …).
+- **Klartext bei vollem Inventar:** Stoppt der Bot mangels Platz, sagt die
+  Meldung jetzt deutlich „Inventar zeigt 0 freie Plätze (Seite I) – bitte
+  Inventar öffnen UND Platz schaffen, dann erneut starten" (vorher knapp „Kein
+  freier Inventarplatz").
+
 ## [1.2.12] — 2026-06-16
 
 ### Behoben (Energiesplitter: NPC-Erkennung – jetzt in ALLEN Perspektiven)

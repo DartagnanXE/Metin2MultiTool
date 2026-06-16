@@ -9,6 +9,14 @@ behaviour is fully preserved as the default.
 > violates the game's Terms of Service and may get your account banned. Use at
 > your own risk. See [`LICENSE.txt`](LICENSE.txt).
 
+## 🆕 What's new in 1.2.13
+
+- **Energiesplitter tab polish.** The two start/stop buttons no longer flicker
+  on the Energie tab (they were reconfigured ~100×/s every bot tick; now only on
+  real state changes). The Energie tab now sits **above** the ranking (with the
+  bot modes). And the "inventory full" stop is now explicit: "inventory shows 0
+  free slots (page I) – open the inventory AND free up space, then start again."
+
 ## 🆕 What's new in 1.2.12
 
 - **Energiesplitter: NPC recognition now works across all camera angles.** The

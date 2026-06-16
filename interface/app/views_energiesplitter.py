@@ -333,12 +333,22 @@ class EnergiesplitterViewMixin:
     self._es_commit_number('shared', 'jitter_pct', self._es_jitter_var, True)
 
   def _es_sync_buttons(self):
-    """Spiegelt den Laufzustand auf die beiden Start/Stop-Knoepfe."""
+    """Spiegelt den Laufzustand auf die beiden Start/Stop-Knoepfe.
+
+    Wird aus ``sync_controls`` bei JEDEM Tick (~100x/s) gerufen -> ein
+    bedingungsloses ``configure`` pro Tick liess die Knoepfe sichtbar flackern/
+    wackeln. Das Aussehen haengt NUR von ``(running, mode)`` ab: solange sich das
+    nicht aendert, ist nichts zu tun (Dirty-Check) -> kein Reconfigure-Flicker.
+    """
     try:
       running = self.controller.running
       mode = self.controller.mode
     except Exception:
       running, mode = False, ''
+    sig = (bool(running), mode)
+    if sig == getattr(self, '_es_btn_sig', None):
+      return  # Zustand unveraendert -> keine (flackernde) Neukonfiguration
+    self._es_btn_sig = sig
     hammer_active = running and mode == ES_MODE_HAMMER
     dagger_active = running and mode == ES_MODE_DAGGER
     other_running = running and mode not in (ES_MODE_HAMMER, ES_MODE_DAGGER)

@@ -95,11 +95,13 @@ class ShellMixin:
         self._rail_items = {}
         self._rail_dots = {}
         # Grid-Zeile je Rail-Item. Top-Gruppe 0..7, Spacer 8 (waechst), Settings
-        # unten angepinnt 9. Energiesplitter sitzt als Bot-Modus unter Console.
+        # unten angepinnt 9. Energiesplitter ist ein BOT-MODUS -> bei den Modi
+        # oben, UEBER der Rangliste (User-Wunsch): Angeln, Puzzle, Inventar,
+        # Seher, Energie, Rangliste, Roadmap, Console.
         # WICHTIG: JEDER Eintrag in RAIL_ORDER (_common.py) MUSS hier eine Zeile
         # haben -- sonst fehlt das Item (defensiv via .get: kein App-Crash mehr).
         rows = {'fishing': 0, 'puzzle': 1, 'inventory': 2, 'seher': 3,
-                'ranking': 4, 'roadmap': 5, 'console': 6, 'energiesplitter': 7,
+                'energiesplitter': 4, 'ranking': 5, 'roadmap': 6, 'console': 7,
                 'settings': 9}
         tip_keys = {'fishing': 'ui.view_fishing', 'puzzle': 'ui.view_puzzle',
                     'console': 'ui.view_console',
