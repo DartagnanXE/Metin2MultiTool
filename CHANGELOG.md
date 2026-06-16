@@ -3,6 +3,34 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.9] — 2026-06-16
+
+### Behoben (Energiesplitter: lief „dauerhaft", war nicht stoppbar, tat nichts)
+
+- **Templates fehlten in der EXE.** Die Hammer-/Dolch-/NPC-Vorlagen
+  (`energiesplitter/templates/`) wurden bisher **nicht in die EXE gepackt** →
+  der Phase-0-GATE war in der gebauten App IMMER rot (`item:hammer`,
+  `npc:alchemist` „nicht gefunden") und der Bot konnte nie etwas tun („stand
+  nur rum"). Beide Spec-Dateien bündeln die Vorlagen jetzt.
+- **„Läuft dauerhaft / nicht stoppbar" behoben.** Der Start/Stop-Knopf des
+  Energiesplitters blieb nach einem Selbst-Stopp des Bots rot auf „Stoppen"
+  stehen, obwohl der Bot schon gestoppt war — ein Klick darauf **startete neu**
+  statt zu stoppen (Endlos-Restart). `sync_controls` spiegelt jetzt bei jeder
+  Zustandsänderung den echten Laufzustand auf die Knöpfe; ein gestoppter Bot
+  zeigt wieder „Start". F6 stoppt weiterhin jederzeit.
+- **Klartext-Debug, warum es nicht ging.** Statt kryptischer Tokens
+  (`npc:alchemist`) meldet der Bot jetzt verständlich, **was fehlt**: „Alchemist
+  nicht erkennbar", „Waffenhändler nicht erkennbar", „Fenster nicht 800×600",
+  „Inventar-Raster nicht kalibriert" usw.
+- **Klare Trennung „nicht bereit" vs. „Simulation".** Fehlt wirklich etwas →
+  Stopp mit Klartext-Gründen. Ist alles bereit, aber „Scharf/Live" ist AUS →
+  klare Meldung „SIMULATION aktiv … schalte ‚Scharf/Live' ein", dann sauberer
+  Stopp (kein verwirrendes „phase0_not_ready", kein Dauer-Neustart).
+- **Auto-Stopp bei Fehlern bleibt garantiert.** Wie bei allen anderen Bot-Modi
+  stoppt der Energiesplitter bei jedem Fehler/Block automatisch (und über F6) —
+  er läuft nie unkontrolliert weiter. Im scharfen Lauf werden „Gekauft …",
+  „Dolch gekauft", „Verarbeitet …" weiterhin lückenlos protokolliert.
+
 ## [1.2.8] — 2026-06-16
 
 ### Geändert (Energiesplitter: vereinfacht + Einstellungen aufgeräumt)

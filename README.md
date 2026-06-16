@@ -9,6 +9,19 @@ behaviour is fully preserved as the default.
 > violates the game's Terms of Service and may get your account banned. Use at
 > your own risk. See [`LICENSE.txt`](LICENSE.txt).
 
+## 🆕 What's new in 1.2.9
+
+- **Energiesplitter fixes: it stood idle, kept "running" and couldn't be stopped.**
+  Three root causes fixed: (1) the hammer/dagger/NPC **templates were not bundled
+  into the EXE**, so the Phase-0 gate was always red ("item:hammer / npc:alchemist
+  not found") and the bot never acted; (2) the start/stop button stayed red on
+  "Stop" after the bot self-stopped, so clicking it **restarted** instead of
+  stopping (endless restart loop) — the buttons now always mirror the real run
+  state; (3) the debug log now states **in plain language what is missing**
+  ("Alchemist not recognisable", "window not 800x600", "inventory grid not
+  calibrated") and cleanly separates "not ready" from "simulation (flip
+  Sharp/Live)". Errors always auto-stop, and F6 always stops.
+
 ## 🆕 What's new in 1.2.8
 
 - **Energiesplitter simplified + settings cleaned up.** Yang no longer matters

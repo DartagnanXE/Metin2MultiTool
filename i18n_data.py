@@ -649,4 +649,11 @@ TRANSLATIONS = {
     'energiesplitter.done': {'en': 'Done. Hammers {hammers}, daggers {daggers}, splinters {splitters}. Reason: {reason}.', 'de': 'Fertig. Hämmer {hammers}, Dolche {daggers}, Splitter {splitters}. Grund: {reason}.'},
     'energiesplitter.debug_frame_saved': {'en': 'Debug frame saved: {path}', 'de': 'Debug-Frame gespeichert: {path}'},
     'energiesplitter.toggled_birdseye': {'en': "NPC not seen – triggered bird's-eye view ({key}).", 'de': 'NPC nicht gesehen – Vogelperspektive ({key}) ausgelöst.'},
+    'energiesplitter.miss_item': {'en': 'Item template "{item}" missing – {item} cannot be recognised in inventory/shop.', 'de': 'Item-Vorlage „{item}" fehlt – {item} kann im Inventar/Shop nicht erkannt werden.'},
+    'energiesplitter.miss_npc': {'en': 'NPC "{npc}" not recognisable – name template missing, the NPC cannot be addressed.', 'de': 'NPC „{npc}" nicht erkennbar – die Namens-Vorlage fehlt, der NPC kann nicht angesprochen werden.'},
+    'energiesplitter.miss_calibration': {'en': 'Game window is not 800x600 (or not found) – please set the client to 800x600.', 'de': 'Spiel-Fenster ist nicht 800×600 (oder nicht gefunden) – bitte den Client auf 800×600 stellen.'},
+    'energiesplitter.miss_grid': {'en': 'Inventory grid not calibrated – safe slot/drag targets are missing.', 'de': 'Inventar-Raster nicht kalibriert – sichere Slot-/Drag-Ziele fehlen.'},
+    'energiesplitter.miss_internal': {'en': 'Internal detection module/artifact missing: {token}.', 'de': 'Internes Erkennungs-Modul/Artefakt fehlt: {token}.'},
+    'energiesplitter.gate_red_hint': {'en': 'Phase-0 GATE RED – stopped, NO buying/dragging. Please fix the points above (window 800x600, NPC visible, correct inventory), then start again.', 'de': 'Phase-0-GATE ROT – gestoppt, KEIN Kauf/Drag. Bitte die oben genannten Punkte beheben (Fenster 800×600, NPC sichtbar, richtiges Inventar) und erneut starten.'},
+    'energiesplitter.simulation_idle': {'en': "SIMULATION active (the 'Sharp/Live' switch is OFF): GATE green, everything ready. NOTHING is really bought/dragged. Turn on 'Sharp/Live' for the supervised live run.", 'de': 'SIMULATION aktiv (Schalter „Scharf/Live" ist AUS): GATE grün, alles bereit. Es wird NICHT real gekauft/gedraggt. Für den überwachten Live-Lauf „Scharf/Live" einschalten.'},
 }

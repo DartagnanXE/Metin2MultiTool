@@ -80,6 +80,7 @@ a = Analysis(
         ('fishing_chat_templates', 'fishing_chat_templates'),  # Chat-OCR-Vorlagen (fishing_chat: Biss/Name-Whitelist)
         ('inventory_tab_templates', 'inventory_tab_templates'),  # Tab-Templates Offen-Erkennung (inventory.open_probe)
         ('seher/templates', 'seher/templates'),  # Seherwettstreit-Anker+Kreuz (seher.detect)
+        ('energiesplitter/templates', 'energiesplitter/templates'),  # Hammer/Dolch/NPC-Templates (energiesplitter.detect) -- OHNE diese ist der Phase-0-GATE in der EXE IMMER rot (item/npc 'nicht gefunden')
         ('pieces_second.json', '.'),
     ] + ctk_datas + tz_datas + ([(APP_ICON, '.')] if APP_ICON else []),
     hiddenimports=[

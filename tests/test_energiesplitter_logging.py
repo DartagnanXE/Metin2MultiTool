@@ -251,5 +251,65 @@ class TestLoggingNeverThrowsNeverChangesBehavior(unittest.TestCase):
     self.assertTrue(cap.has('FEHLER: unerwartete Ausnahme im Tick'), cap.lines)
 
 
+class TestHumanizedMissing(unittest.TestCase):
+  """Die fehlenden Artefakte muessen als KLARTEXT geloggt werden (Laien-Debug):
+  'Alchemist nicht erkennbar' statt 'npc:alchemist'. Produkt-Sprache = Deutsch
+  (nur deutschsprachige Clients) -> Tests fixieren die Sprache auf 'de'."""
+
+  def setUp(self):
+    import i18n
+    self._lang0 = i18n.get_lang()
+    i18n.set_lang('de')
+
+  def tearDown(self):
+    import i18n
+    i18n.set_lang(self._lang0)
+
+  def test_humanize_maps_npc_and_item_and_calib(self):
+    bot = _make_bot()
+    lines = bot._humanize_missing(
+        ['npc:alchemist', 'npc:waffenhaendler', 'item:hammer',
+         'item:dolch', 'calibration:800x600', 'grid_calibration',
+         'detect_module'])
+    blob = ' || '.join(lines)
+    self.assertIn('Alchemist', blob)
+    self.assertIn('Waffenhändler', blob)
+    self.assertIn('Hammer', blob)
+    self.assertIn('Dolch', blob)
+    self.assertIn('800', blob)        # 800x600-Kalibrier-Hinweis
+    self.assertIn('Raster', blob)     # Inventar-Raster
+    self.assertIn('detect_module', blob)  # unbekanntes Token nie verschluckt
+    self.assertEqual(len(lines), 7)   # jedes Token -> genau eine Klartext-Zeile
+
+  def test_runhack_not_armed_logs_clear_reason_and_stops(self):
+    # GATE rot (Assets fehlen): runHack loggt die KLARTEXT-Gruende + stoppt
+    # automatisch (kein endloser Restart, kein Klick).
+    bot = _make_bot(mode=MODE_HAMMER)   # nicht armed (keine echten Assets)
+    bot.botting = True
+    bot._missing = ['npc:alchemist', 'item:hammer']
+    bot.armed = False
+    with _Capture() as cap:
+      bot.runHack()
+    self.assertFalse(bot.botting)
+    self.assertEqual(bot._stop_reason, 'phase0_not_ready')
+    self.assertTrue(cap.has('Alchemist'), cap.lines)
+    self.assertTrue(cap.has('Phase-0-GATE ROT') or cap.has('GATE rot'),
+                    cap.lines)
+
+  def test_runhack_armed_but_simulation_logs_hint_and_stops(self):
+    # GATE gruen, aber 'Scharf/Live' AUS -> klare Simulations-Meldung + Stop
+    # (NICHT der verwirrende phase0_not_ready, NICHT endlos neu starten).
+    bot = _make_bot(mode=MODE_HAMMER)
+    bot.botting = True
+    bot.armed = True
+    bot.dry_run = True
+    with _Capture() as cap:
+      bot.runHack()
+    self.assertFalse(bot.botting)
+    self.assertEqual(bot._stop_reason, 'simulation_idle')
+    self.assertTrue(cap.has('SIMULATION'), cap.lines)
+    self.assertTrue(cap.has('Scharf/Live'), cap.lines)
+
+
 if __name__ == '__main__':
   unittest.main()

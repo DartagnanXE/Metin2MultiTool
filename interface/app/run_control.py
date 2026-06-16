@@ -148,6 +148,22 @@ class RunControlMixin:
             pass
         # Settings-Schalter bleiben aktiv (kein Konflikt mit dem Lauf).
 
+        # Energiesplitter-Knoepfe an den ECHTEN Laufzustand koppeln. KRITISCH:
+        # ohne diesen Aufruf blieb der Knopf nach einem Selbst-Stopp des Bots
+        # (GATE rot / Fehler / fertig) rot auf "Stoppen" stehen, obwohl
+        # controller.running bereits False ist -> ein Klick darauf landete im
+        # START-Zweig und startete NEU (Nutzer-Report: "laeuft dauerhaft, kann
+        # man nicht stoppen"). sync_controls laeuft bei jeder Zustandsaenderung
+        # und in jedem Tick (sync_button) -> der Knopf spiegelt jetzt immer den
+        # wahren Zustand. Defensiv: vor dem Bau der View existiert die Methode/
+        # die Knoepfe evtl. noch nicht -> getattr/try, nie den Sync kippen.
+        try:
+            sync = getattr(self, '_es_sync_buttons', None)
+            if callable(sync):
+                sync()
+        except Exception:
+            pass
+
     def sync_button(self):
         self.sync_controls()
 

@@ -335,6 +335,42 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
     except Exception:  # pragma: no cover - defensiv
       return False
 
+  # -- Klartext-Diagnose der fehlenden Artefakte (Laien-Debug) ------------
+  # Labels fuer die internen Tokens aus assets_ready ('item:hammer',
+  # 'npc:alchemist', ...). So liest der Nutzer im Log "Alchemist nicht
+  # erkennbar" statt "npc:alchemist".
+  _MISSING_ITEM_LABELS = {'hammer': 'Hammer', 'dolch': 'Dolch'}
+  _MISSING_NPC_LABELS = {'alchemist': 'Alchemist',
+                         'waffenhaendler': 'Waffenhändler'}
+
+  def _humanize_missing(self, missing):
+    """Uebersetzt die internen ``missing``-Tokens in KLARE deutsche Saetze
+    (welcher NPC/Item/Kalibrierung fehlt). Wirft nie -- ein unbekanntes Token
+    wird als internes Artefakt gemeldet, nie verschluckt."""
+    lines = []
+    for tok in (missing or []):
+      try:
+        lines.append(self._humanize_token(str(tok)))
+      except Exception:  # pragma: no cover - defensiv
+        lines.append(str(tok))
+    return lines
+
+  def _humanize_token(self, tok):
+    """Ein einzelnes missing-Token -> Klartext-Satz (i18n). Wirft nie."""
+    if tok.startswith('item:'):
+      name = tok.split(':', 1)[1]
+      return t('energiesplitter.miss_item',
+               item=self._MISSING_ITEM_LABELS.get(name, name))
+    if tok.startswith('npc:'):
+      name = tok.split(':', 1)[1]
+      return t('energiesplitter.miss_npc',
+               npc=self._MISSING_NPC_LABELS.get(name, name))
+    if tok.startswith('calibration'):
+      return t('energiesplitter.miss_calibration')
+    if tok == 'grid_calibration':
+      return t('energiesplitter.miss_grid')
+    return t('energiesplitter.miss_internal', token=tok)
+
   # -- runHack: EIN blockierender Tick ------------------------------------
   def runHack(self):
     """Ein Tick: verzweigt nach ``self.mode``. Bei ``dry_run or not armed``
@@ -360,11 +396,23 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
       return
 
     # PHASE-0-GATE: blockt VOR jeder Maus-/Tasten-Aktion (CONTRACT §2/§7).
-    if self.dry_run or not self.armed:
+    # (a) ECHTE Luecke (Asset/NPC/Fenster/Raster fehlt) -> harter Stop mit
+    #     KLAREN Klartext-Gruenden (welcher NPC/Item/Kalibrierung) -- wie jede
+    #     andere Bot-Methode: bei Fehler automatisch stoppen; F6 stoppt ebenso.
+    if not self.armed:
       self._log_section()
-      log.event('-', t('energiesplitter.phase0_not_ready',
-                       missing=', '.join(self._missing) or 'dry_run'))
+      for line in self._humanize_missing(self._missing):
+        log.event('-', line)
+      log.event('-', t('energiesplitter.gate_red_hint'))
       self._stop('phase0_not_ready')
+      return
+    # (b) GATE gruen, aber SIMULATION (Schalter 'Scharf/Live' aus): NICHTS real
+    #     tun -- klar melden, DASS + WIE man scharf schaltet, dann sauber stoppen
+    #     (kein endloser Restart, kein verwirrendes "phase0_not_ready").
+    if self.dry_run:
+      self._log_section()
+      log.event('-', t('energiesplitter.simulation_idle'))
+      self._stop('simulation_idle')
       return
 
     try:
