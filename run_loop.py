@@ -592,6 +592,14 @@ class RunLoop:
                                if mode == 'energiesplitter_dagger'
                                else 'hammer')
             self.esbot.stop_signal = self.stop_signal
+            # Inventar-Toggle-Taste aus der Config (Default 'i') injizieren --
+            # der Energiesplitter oeffnet die Tasche selbst (open_probe).
+            try:
+                self.esbot.inventory_hotkey = (
+                    self.controller.current_config()
+                    .get('inventory', {}).get('hotkey', 'i'))
+            except Exception:
+                self.esbot.inventory_hotkey = 'i'
             self.apply_energiesplitter_config(values, mode)
             self.esbot.set_to_begin(values)   # erzeugt wincap, friert Config ein,
             #                                    ruft phase0_gate -> self.armed

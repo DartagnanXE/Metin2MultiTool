@@ -38,6 +38,10 @@ class DaggerFlowMixin:
       return
 
     if st == self.ST_INVENTORY_BASE:
+      # ZUERST Tasche offen sicherstellen (bewaehrte open_probe-Logik) -- sonst
+      # liest der Hammer-Bestands-Scan auf geschlossener Tasche 0.
+      if not self._ensure_inventory_open():
+        return  # hat sich selbst gestoppt
       if not self._item_template_ready('hammer'):
         log.event(st, t('energiesplitter.item_template_missing', item='hammer'))
         self._stop('item_template_missing')

@@ -634,6 +634,7 @@ TRANSLATIONS = {
     'energiesplitter.phase0_not_ready': {'en': 'Phase 0 not ready – missing artifacts: {missing}. No buying/dragging.', 'de': 'Phase-0 nicht bereit – fehlende Artefakte: {missing}. Es wird NICHT gekauft/gedraggt.'},
     'energiesplitter.no_window': {'en': 'No game window found. Stopping.', 'de': 'Kein Spiel-Fenster gefunden. Stoppe.'},
     'energiesplitter.no_space': {'en': 'Inventory shows 0 free slots (page I) – nothing is bought. Open the inventory AND free up space, then start again.', 'de': 'Inventar zeigt 0 freie Plätze (Seite I) – es wird NICHTS gekauft. Bitte das Inventar öffnen UND Platz schaffen, dann erneut starten.'},
+    'energiesplitter.inventory_not_open': {'en': 'Inventory could not be opened (toggle key did not show the bag). Stopping. Open it manually (key I) and start again.', 'de': 'Tasche konnte nicht geöffnet werden (Toggle-Taste zeigte das Inventar nicht). Stoppe. Bitte manuell öffnen (Taste I) und erneut starten.'},
     'energiesplitter.item_template_missing': {'en': 'Item template missing ({item}) – stock not measurable. Stopping.', 'de': 'Item-Template fehlt ({item}) – Bestand nicht messbar. Stoppe.'},
     'energiesplitter.npc_not_found': {'en': 'NPC {npc} not found. Stopping.', 'de': 'NPC {npc} nicht gefunden. Stoppe.'},
     'energiesplitter.select_failed': {'en': 'Targeting failed (no selection ring). Stopping.', 'de': 'Anvisieren fehlgeschlagen (kein Selektions-Ring). Stoppe.'},

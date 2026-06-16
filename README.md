@@ -9,6 +9,14 @@ behaviour is fully preserved as the default.
 > violates the game's Terms of Service and may get your account banned. Use at
 > your own risk. See [`LICENSE.txt`](LICENSE.txt).
 
+## 🆕 What's new in 1.2.14
+
+- **Energiesplitter now detects whether the bag is open – and opens it.** It used
+  to scan the inventory "blind" and read 0 free slots on a closed/wrong bag (false
+  "no space" stop). It now reuses the fishing bot's proven open-state logic
+  (`inventory.open_probe`: tab-template probe + toggle hotkey): it checks the bag
+  is open before scanning and opens it itself (key I) if not, in both actions.
+
 ## 🆕 What's new in 1.2.13
 
 - **Energiesplitter tab polish.** The two start/stop buttons no longer flicker

@@ -72,6 +72,16 @@ try:
 except Exception:  # pragma: no cover
     _discard_drag = None
 
+# Inventar-Offen-Erkennung WIEDERVERWENDET aus dem Angel-Inventar (bewaehrt:
+# Tab-Template-Probe + Toggle-Hotkey). So weiss der Energiesplitter -- wie die
+# anderen Funktionen -- ob die Tasche offen ist, und oeffnet sie sonst selbst.
+try:
+    from inventory import open_probe as _open_probe
+    from inventory.constants import DEFAULT_CALIBRATION as _INV_CALIB
+except Exception:  # pragma: no cover
+    _open_probe = None
+    _INV_CALIB = None
+
 
 MODE_HAMMER = 'hammer'
 MODE_DAGGER = 'dagger'
@@ -166,6 +176,7 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
     self.jitter_pct = 0.15
     self.birdseye_on_miss = True
     self.birds_eye_key = 'g'
+    self.inventory_hotkey = 'i'   # Toggle-Taste Tasche (run_loop injiziert Config)
     self.max_actions = 2
     self.consecutive_unverified_stop = 3
     self.dry_run = True
@@ -586,6 +597,39 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
       return ok
     except Exception:  # pragma: no cover - defensiv
       return False
+
+  def _ensure_inventory_open(self):
+    """Stellt sicher, dass die TASCHE offen ist -- WIEDERVERWENDUNG der bewaehrten
+    Angel-Inventar-Logik (``inventory.open_probe.ensure_inventory_open``: Tab-
+    Template-Probe; ist die Tasche zu, wird die Toggle-Taste gedrueckt und erneut
+    geprobt). Genau das fehlte dem Energiesplitter -- er scannte 'blind' und las
+    bei geschlossener Tasche 0 freie Plaetze.
+
+    Rueckgabe: ``True`` weiter (offen verifiziert ODER Probe headless nicht
+    verfuegbar -> nicht blockieren), ``False`` = konnte nicht geoeffnet werden ->
+    der Aufrufer bricht ab (der Bot hat sich bereits gestoppt). Wirft NIE."""
+    if _open_probe is None or _INV_CALIB is None:
+      return True  # headless/ohne Inventar-Paket: nicht blockieren (GATE deckt ab)
+    try:
+      res = _open_probe.ensure_inventory_open(
+          capture_fn=self._shot,
+          press_fn=lambda: self._press_key(self.inventory_hotkey),
+          calib=_INV_CALIB)
+    except Exception:  # pragma: no cover - Probe-Fehler nie zum Stop eskalieren
+      return True
+    if res is False:
+      try:
+        log.event(self.state, t('energiesplitter.inventory_not_open'))
+      except Exception:  # pragma: no cover
+        pass
+      self._stop('inventory_not_open')
+      return False
+    try:
+      log.event(self.state, 'WAHRNEHMUNG: Tasche offen',
+                verifiziert=bool(res), hotkey=self.inventory_hotkey)
+    except Exception:  # pragma: no cover
+      pass
+    return True
 
   def _right_click(self, x, y):
     if self._guarded():

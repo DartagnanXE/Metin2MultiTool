@@ -729,6 +729,57 @@ class TestDaggerVerifyByReRead(unittest.TestCase):
     self.assertEqual(out, 0)
 
 
+class TestEnsureInventoryOpen(unittest.TestCase):
+    """Der Energiesplitter muss -- wie das Angel-Inventar -- die Tasche-Offen-
+    Erkennung nutzen (open_probe) statt blind zu scannen. Sonst las er bei
+    geschlossener Tasche 0 freie Plaetze (-> falscher no_space)."""
+
+    def test_open_when_probe_true_proceeds(self):
+        bot = _make_bot(mode=MODE_HAMMER)
+        _arm(bot)
+        fake = types.SimpleNamespace(
+            ensure_inventory_open=lambda **kw: True)
+        with mock.patch.object(esbot_mod, '_open_probe', fake), \
+             mock.patch.object(esbot_mod, '_INV_CALIB', {'tabs': {}}):
+            self.assertTrue(bot._ensure_inventory_open())
+        self.assertNotEqual(bot._stop_reason, 'inventory_not_open')
+
+    def test_closed_unopenable_stops(self):
+        bot = _make_bot(mode=MODE_HAMMER)
+        _arm(bot)
+        bot.botting = True
+        fake = types.SimpleNamespace(
+            ensure_inventory_open=lambda **kw: False)
+        with mock.patch.object(esbot_mod, '_open_probe', fake), \
+             mock.patch.object(esbot_mod, '_INV_CALIB', {'tabs': {}}):
+            self.assertFalse(bot._ensure_inventory_open())
+        self.assertEqual(bot._stop_reason, 'inventory_not_open')
+        self.assertFalse(bot.botting)
+
+    def test_probe_unavailable_does_not_block(self):
+        # headless / kein Inventar-Paket -> nicht blockieren (GATE deckt ab).
+        bot = _make_bot(mode=MODE_HAMMER)
+        _arm(bot)
+        with mock.patch.object(esbot_mod, '_open_probe', None):
+            self.assertTrue(bot._ensure_inventory_open())
+
+    def test_presses_configured_hotkey_when_closed(self):
+        # Bei geschlossener Tasche wird die konfigurierte Toggle-Taste gedrueckt.
+        _reset_input()
+        bot = _make_bot(mode=MODE_HAMMER)
+        _arm(bot)
+        bot.inventory_hotkey = 'i'
+        # Fake-Probe: ruft press_fn EINMAL (simuliert 'war zu, jetzt offen').
+        def _ensure(**kw):
+            kw['press_fn']()
+            return True
+        fake = types.SimpleNamespace(ensure_inventory_open=_ensure)
+        with mock.patch.object(esbot_mod, '_open_probe', fake), \
+             mock.patch.object(esbot_mod, '_INV_CALIB', {'tabs': {}}):
+            bot._ensure_inventory_open()
+        self.assertEqual(_INPUT_CALLS['keyDown'], 1)   # genau eine Taste
+
+
 class TestWindowFocus(unittest.TestCase):
   """Tasten brauchen FOKUS -- der Bot muss das Spiel-Fenster in den Vordergrund
   holen (sonst landet z.B. die Vogelperspektive 'g' im Bot-Fenster). Genau das

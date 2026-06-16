@@ -28,6 +28,10 @@ class HammerFlowMixin:
       return
 
     if st == self.ST_INVENTORY_BASE:
+      # ZUERST sicherstellen, dass die Tasche OFFEN ist (sonst liest der Scan
+      # 0 freie Plaetze auf einer geschlossenen Tasche -> falscher no_space).
+      if not self._ensure_inventory_open():
+        return  # hat sich selbst gestoppt
       # Item-Template Pflicht -- ohne Hammer-Icon kein messbarer Bestand.
       if not self._item_template_ready('hammer'):
         log.event(st, t('energiesplitter.item_template_missing', item='hammer'))

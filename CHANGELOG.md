@@ -3,6 +3,19 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.14] — 2026-06-16
+
+### Behoben (Energiesplitter: erkennt jetzt, ob die Tasche offen ist – und öffnet sie)
+
+- **Tasche-offen-Erkennung wiederverwendet.** Der Energiesplitter scannte das
+  Inventar bisher „blind" und las bei geschlossener/falscher Tasche 0 freie
+  Plätze (→ falscher „kein Platz"-Stopp). Jetzt nutzt er **dieselbe bewährte
+  Logik wie der Angel-Bot** (`inventory.open_probe`: Tab-Template-Probe + Toggle-
+  Hotkey): er prüft vor dem Scan, ob die Tasche offen ist, und **öffnet sie
+  selbst** (Taste I), wenn nicht. Schlägt das fehl, stoppt er mit klarer Meldung.
+  Greift in beiden Aktionen (Hammer kaufen + Dolche verarbeiten).
+- Die Inventar-Toggle-Taste kommt aus der Config (Default `I`).
+
 ## [1.2.13] — 2026-06-16
 
 ### Behoben (Energiesplitter-Reiter: Buttons + Reihenfolge + Klartext)
