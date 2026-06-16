@@ -457,6 +457,11 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
       self._did_focus = True
       self._focus_game()
 
+    # AFK-Dialog ("Du bist im AFK-Modus") blockiert alle Klicks/Tasten -> zuerst
+    # wegklicken; dann erst (naechster Tick) normal weiter.
+    if self._dismiss_afk_if_present():
+      return
+
     try:
       log.event(self.state, 'ZUSTAND: Tick', modus=self.mode,
                 actions_done=self.actions_done, gekauft=self.gekauft,
@@ -629,6 +634,32 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
                 verifiziert=bool(res), hotkey=self.inventory_hotkey)
     except Exception:  # pragma: no cover
       pass
+    return True
+
+  def _dismiss_afk_if_present(self):
+    """Erkennt den zentrierten 'Du bist im AFK-Modus'-Dialog und klickt OK weg.
+
+    Der AFK-Dialog blockiert ALLE Klicks/Tasten -- ohne Wegklicken kommt der Bot
+    nie zum NPC/Inventar. Wird zu Beginn JEDES scharfen Ticks geprueft (er kann
+    jederzeit auftauchen). Liefert ``True``, wenn ein Dialog erkannt + ein OK-
+    Klick abgesetzt wurde (der Aufrufer ueberspringt dann den Rest dieses Ticks).
+    Wirft NIE."""
+    if _detect is None or not hasattr(_detect, 'afk_dialog_present'):
+      return False
+    bgr = self._shot()
+    if bgr is None:
+      return False
+    try:
+      present, center = _detect.afk_dialog_present(bgr)
+    except Exception:  # pragma: no cover - defensiv
+      return False
+    if not present or center is None:
+      return False
+    try:
+      log.event(self.state, 'AKTION: AFK-Dialog erkannt -> OK klicken', ziel=tuple(center))
+    except Exception:  # pragma: no cover
+      pass
+    self._left_click(int(center[0]), int(center[1]))
     return True
 
   def _right_click(self, x, y):
@@ -880,56 +911,45 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
 
   # -- NPC-Selektion / Dialog (gemeinsam) ---------------------------------
   def _select_npc(self, pt):
-    """Rechtsklick auf NPC -> Selektions-Ring formbasiert bestaetigen (A).
-    Kein Ring -> Stop (nie blind Linksklick). Liefert ``True`` bei Ring."""
+    """NPC ANSPRECHEN: LINKSklick MITTIG auf den gefundenen gruenen Namen.
+
+    Das ist der sichere Weg, einen NPC anzusprechen (User-Grundwahrheit): ein
+    LINKSklick auf den Namen oeffnet den Dialog. Rechtsklick = anvisieren/
+    angreifen -- NICHT ansprechen (darum hier bewusst NICHT mehr). ``pt`` ist die
+    Namens-Mitte aus ``find_npc_name`` (die Vogelperspektive in ``approach_npc``
+    laeuft davor, falls der Name sonst nicht sichtbar ist). Liefert ``True``
+    (Klick abgesetzt) oder ``False`` (kein Punkt -> Stop)."""
     if pt is None:
       self._stop('select_failed')
       return False
     try:
-      log.event(self.state, 'ABSICHT: NPC rechtsklicken (anvisieren)', ziel=tuple(pt))
+      log.event(self.state, 'ABSICHT: NPC ansprechen -- LINKSklick MITTIG auf den Namen',
+                ziel=tuple(pt))
     except Exception:  # pragma: no cover
       pass
-    self._right_click(pt[0], pt[1])
-    bgr = self._shot()
-    ring = False
-    if bgr is not None and _detect is not None:
-      try:
-        ring = bool(_detect.selection_ring_present(bgr, pt))
-      except Exception:  # pragma: no cover
-        ring = False
-    try:
-      log.event(self.state, 'WAHRNEHMUNG: Selektions-Ring', ring=bool(ring),
-                bei=tuple(pt))
-    except Exception:  # pragma: no cover
-      pass
-    if not ring:
-      log.event(self.state, t('energiesplitter.select_failed'))
-      self._stop('select_failed')
-      return False
+    self._left_click(int(pt[0]), int(pt[1]))
     return True
 
   def _open_dialog(self, pt):
-    """Linksklick NPC -> warten bis ``dialog_state`` != None. Timeout ->
-    Snapshot + Stop."""
-    try:
-      log.event(self.state, 'ABSICHT: NPC linksklicken (Dialog oeffnen)', ziel=tuple(pt))
-    except Exception:  # pragma: no cover
-      pass
-    self._left_click(pt[0], pt[1])
+    """Beobachtet NACH dem Ansprechen den Dialog-Zustand. KEIN weiterer Klick
+    (der Linksklick auf den Namen in ``_select_npc`` oeffnet den Dialog bereits).
+
+    Ist die Dialog-Erkennung (noch) nicht kalibriert (kein Template -> ``None``),
+    wird NICHT blind gestoppt, sondern mit klarem Log fortgefahren -- der Shop-
+    Schritt verifiziert anschliessend hart. Liefert ``True`` (weiter)."""
     bgr = self._shot()
-    ds = None
-    if bgr is not None:
-      ds = self._dialog_state_of(bgr)
+    ds = self._dialog_state_of(bgr) if bgr is not None else None
     try:
       log.event(self.state, 'WAHRNEHMUNG: Dialog-Zustand', zustand=ds,
                 energie_freischalt_option=(ds == 'locked'))
     except Exception:  # pragma: no cover
       pass
     if ds is None:
-      self._snapshot('dialog_timeout')
-      log.event(self.state, t('energiesplitter.dialog_timeout'))
-      self._stop('dialog_timeout')
-      return False
+      try:
+        log.event(self.state, 'HINWEIS: Dialog-Erkennung noch nicht kalibriert '
+                  '(kein Template) -- fahre fort, Shop-Schritt verifiziert')
+      except Exception:  # pragma: no cover
+        pass
     return True
 
   def _dialog_state(self):

@@ -9,6 +9,16 @@ behaviour is fully preserved as the default.
 > violates the game's Terms of Service and may get your account banned. Use at
 > your own risk. See [`LICENSE.txt`](LICENSE.txt).
 
+## 🆕 What's new in 1.2.15
+
+- **Energiesplitter: auto-dismiss the AFK dialog + talk to NPCs via left-click.**
+  The centered "you are AFK" dialog blocked all input → the bot never reached the
+  NPC. It now detects it (OK-button NCC, bundled template) and clicks OK at the
+  start of each tick. NPCs are now addressed via a **left-click centered on the
+  name** (the correct way to talk to an NPC), using the detected green name
+  center; bird's-eye runs first if the name isn't otherwise visible. The dialog
+  step no longer hard-stops when its template isn't calibrated yet.
+
 ## 🆕 What's new in 1.2.14
 
 - **Energiesplitter now detects whether the bag is open – and opens it.** It used

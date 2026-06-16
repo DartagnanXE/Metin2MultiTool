@@ -484,6 +484,32 @@ class TestLoadTemplate(unittest.TestCase):
         self.assertIsNotNone(d.load_template('npc_waffenhaendler'))
 
 
+class TestAfkDialog(unittest.TestCase):
+    """Der zentrierte 'Du bist im AFK-Modus'-Dialog muss am OK-Knopf erkannt
+    werden (er blockiert alle Klicks/Tasten) -- und NICHT auf normalen Szenen
+    oder im Shop falsch ausloesen."""
+
+    def test_detected_on_afk_image_with_ok_center(self):
+        img = _load('.', 'afk_dialog.png')
+        present, center = d.afk_dialog_present(img)
+        self.assertTrue(present)
+        self.assertIsNotNone(center)
+        # OK-Knopf liegt zentriert (~ client (396,335)) -- grosszuegige Toleranz.
+        self.assertTrue(330 <= center[0] <= 460, center)
+        self.assertTrue(305 <= center[1] <= 360, center)
+
+    def test_not_detected_on_normal_scene(self):
+        present, center = d.afk_dialog_present(_load('Alchemist',
+                                              'metin2client_BlRGzUUM3w.png'))
+        self.assertFalse(present)
+        self.assertIsNone(center)
+
+    def test_not_detected_in_shop(self):
+        present, _c = d.afk_dialog_present(_load('Einkauf_Hammer',
+                                           'shop_alchemist.png'))
+        self.assertFalse(present)
+
+
 class TestNpcFoundAcrossAllPerspectives(unittest.TestCase):
     """Der NPC-Name muss in ALLEN gelieferten Perspektiven gefunden werden
     (8 Alchemist + 9 Waffenschmied). 'Mit allen Bildern validiert'-Garantie:

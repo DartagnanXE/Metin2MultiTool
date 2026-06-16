@@ -729,6 +729,52 @@ class TestDaggerVerifyByReRead(unittest.TestCase):
     self.assertEqual(out, 0)
 
 
+class TestAfkDismissAndNpcClick(unittest.TestCase):
+    """AFK-Dialog wird per OK-Klick weggeklickt; NPC wird per LINKSklick MITTIG
+    auf den Namen angesprochen (nicht mehr Rechtsklick-Anvisieren)."""
+
+    def test_dismiss_afk_clicks_ok_center(self):
+        _reset_input()
+        bot = _make_bot(mode=MODE_HAMMER)
+        _arm(bot)
+        fake = types.SimpleNamespace(
+            afk_dialog_present=lambda bgr: (True, (396, 335)))
+        with mock.patch.object(esbot_mod, '_detect', fake):
+            handled = bot._dismiss_afk_if_present()
+        self.assertTrue(handled)
+        self.assertEqual(_INPUT_CALLS['click'], 1)   # ein Linksklick (OK)
+
+    def test_dismiss_afk_noop_when_absent(self):
+        _reset_input()
+        bot = _make_bot(mode=MODE_HAMMER)
+        _arm(bot)
+        fake = types.SimpleNamespace(
+            afk_dialog_present=lambda bgr: (False, None))
+        with mock.patch.object(esbot_mod, '_detect', fake):
+            self.assertFalse(bot._dismiss_afk_if_present())
+        self.assertEqual(_INPUT_CALLS['click'], 0)
+
+    def test_select_npc_left_clicks_name_center(self):
+        _reset_input()
+        bot = _make_bot(mode=MODE_HAMMER)
+        _arm(bot)
+        ok = bot._select_npc((487, 291))
+        self.assertTrue(ok)
+        self.assertEqual(_INPUT_CALLS['click'], 1)   # LINKSklick
+        self.assertEqual(_INPUT_CALLS['right'], 0)   # KEIN Rechtsklick mehr
+
+    def test_open_dialog_does_not_hard_stop_without_template(self):
+        # Dialog-Template (noch) nicht kalibriert -> dialog_state None -> NICHT
+        # hart stoppen, sondern fortfahren (Shop-Schritt verifiziert).
+        bot = _make_bot(mode=MODE_HAMMER)
+        _arm(bot)
+        bot.botting = True
+        bot._dialog_state_of = lambda bgr: None
+        self.assertTrue(bot._open_dialog((487, 291)))
+        self.assertNotEqual(bot._stop_reason, 'dialog_timeout')
+        self.assertTrue(bot.botting)
+
+
 class TestEnsureInventoryOpen(unittest.TestCase):
     """Der Energiesplitter muss -- wie das Angel-Inventar -- die Tasche-Offen-
     Erkennung nutzen (open_probe) statt blind zu scannen. Sonst las er bei

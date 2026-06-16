@@ -3,6 +3,26 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.15] — 2026-06-16
+
+### Energiesplitter: AFK-Dialog wegklicken + NPC per Linksklick ansprechen
+
+- **AFK-Dialog wird automatisch weggeklickt.** Der zentrierte „Du bist im AFK-
+  Modus"-Dialog blockiert alle Klicks/Tasten → der Bot kam nie zum NPC. Er
+  erkennt ihn jetzt am OK-Knopf (NCC, gebündeltes Template; self 1.00, normale
+  Szene/Shop ≤ 0.44) und klickt zu Beginn jedes Ticks **OK** weg.
+- **NPC wird per LINKSklick mittig auf den Namen angesprochen** (statt Rechtsklick-
+  Anvisieren) — der sichere Weg, einen NPC anzusprechen. Der gefundene grüne
+  Namens-Mittelpunkt aus der Erkennung ist das Klickziel; die Vogelperspektive
+  läuft davor, falls der Name sonst nicht sichtbar ist.
+- Der Dialog-Schritt stoppt nicht mehr hart, wenn die Dialog-Vorlage noch nicht
+  kalibriert ist (klarer Hinweis-Log statt Abbruch).
+- Volles Debug für beide: „AFK-Dialog erkannt → OK klicken", „NPC ansprechen —
+  LINKSklick MITTIG auf den Namen".
+
+> Noch offen für einen vollständigen Kauf (nächste Stufe): Dialog-/Shop-Erkennung
+> aus den `erstgespräch*`/`Shopgeöffnet*`-Bildern kalibrieren + Mehrseiten-Scan.
+
 ## [1.2.14] — 2026-06-16
 
 ### Behoben (Energiesplitter: erkennt jetzt, ob die Tasche offen ist – und öffnet sie)

@@ -392,6 +392,39 @@ def find_npc_name(bgr, word_template, roi=None, thresh=NCC_WORD):
     return (True, center, ncc)
 
 
+# ROI fuer den zentrierten AFK-Dialog-OK-Knopf (client-Koordinaten). Grosszuegiges
+# Mittelband; der OK-Knopf liegt fix bei ~(360,320) (gemessen am echten Bild).
+ROI_AFK_OK = (300, 290, 220, 90)
+# OK-Knopf 'OK' auf dunklem Dialog: self-NCC 1.00, Nicht-Dialog-Szenen <= 0.44 ->
+# 0.65 trennt sicher (am echten AFK-Bild + Normal-/Shop-Bild gemessen).
+NCC_AFK = 0.65
+
+
+def afk_dialog_present(bgr):
+    """Erkennt den zentrierten 'Du bist im AFK-Modus'-Dialog an seinem OK-Knopf.
+
+    Der AFK-Dialog blockiert ALLE Klicks/Tasten -- der Bot muss ihn wegklicken,
+    bevor er handeln kann. Liefert ``(present, center)`` mit ``center`` = Klick-
+    punkt des OK-Knopfes (client-Koordinaten) oder ``(False, None)``. Reiner
+    NCC-Match des gebundelten ``templates/afk_ok.png`` im Mittelband. Wirft NIE.
+    """
+    if np is None or _cv is None or bgr is None:
+        return (False, None)
+    tpl = _imread(_item_path('afk_ok'))
+    if tpl is None:
+        return (False, None)
+    client = _geo.to_client(bgr)
+    region = _geo.crop(client, ROI_AFK_OK)
+    if region is None:
+        return (False, None)
+    ok, pt, ncc = match_word(region, tpl)
+    if not ok or pt is None or ncc < NCC_AFK:
+        return (False, None)
+    rx, ry, _, _ = ROI_AFK_OK
+    th, tw = tpl.shape[:2]
+    return (True, (rx + pt[0] + tw // 2, ry + pt[1] + th // 2))
+
+
 # ----------------------------------------------------------------------------
 # Selektions-Ring (Rot-Maske + Ring-Form)
 # ----------------------------------------------------------------------------
