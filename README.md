@@ -9,6 +9,16 @@ behaviour is fully preserved as the default.
 > violates the game's Terms of Service and may get your account banned. Use at
 > your own risk. See [`LICENSE.txt`](LICENSE.txt).
 
+## 🆕 What's new in 1.2.17
+
+- **CRITICAL: the update helper spawned dozens of CMD windows (unkillable).** On
+  update, many black `ping`/`find` console windows popped up and the PC needed a
+  hard reset. Cause: the self-replace `.bat` was launched with `DETACHED_PROCESS`
+  (no console → every child command opened its own visible console). Fixed: it now
+  runs with `CREATE_NO_WINDOW` (hidden console, inherited) — no windows at all —
+  and the wait/copy loops are now hard-bounded. (If you're on an older build, replace
+  the EXE manually once from the releases page; the old helper still has the bug.)
+
 ## 🆕 What's new in 1.2.16
 
 - **Energiesplitter: opening the shop is now calibrated — the hammer purchase

@@ -3,6 +3,24 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.17] — 2026-06-16
+
+### KRITISCH behoben: Update-Helfer öffnete Dutzende CMD-Fenster (unbeendbar)
+
+- **Beim Update poppten viele schwarze CMD-Fenster auf** (`ping -n 2 127.0.0.1`,
+  `find "<PID>"`) und der PC ließ sich nur per Hard-Reset retten. Ursache: das
+  Selbstersetzungs-`.bat` wurde mit `DETACHED_PROCESS` gestartet → das `cmd` hatte
+  **gar keine Konsole**, also allokierte **jeder** Kindbefehl (tasklist/find/ping)
+  eine **eigene sichtbare** Konsole — im Sekundentakt, fokus-stehlend, unbeendbar.
+- **Fix:** Der Helfer läuft jetzt mit `CREATE_NO_WINDOW` (versteckte Konsole, von
+  allen Kindbefehlen geerbt) → **kein einziges Fenster**. Zusätzlich sind die
+  Warte-/Kopier-Schleifen **hart begrenzt** (statt potenziell endlos), falls die
+  alte Instanz mal nicht sofort schließt.
+
+> Wichtig: Wer noch eine ältere Version hat, sollte dieses Update **NICHT** über
+> den In-App-Button ziehen (der alte Helfer hat den Bug noch), sondern die EXE
+> einmalig **manuell** von der Releases-Seite ersetzen. Ab dann sind Updates sauber.
+
 ## [1.2.16] — 2026-06-16
 
 ### Energiesplitter: Shop öffnen (Dialog → „Laden öffnen") kalibriert — Hammer-Kauf jetzt durchgehend

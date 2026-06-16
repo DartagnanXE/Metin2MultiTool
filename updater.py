@@ -293,28 +293,34 @@ _BAT_TEMPLATE = '''@echo off
 setlocal enableextensions
 rem --- Metin2FishBot self-update helper (generated; safe to delete) -------
 rem Values are baked in by updater.py: PID, target exe, freshly downloaded exe.
+rem Laeuft windowless (CREATE_NO_WINDOW); ALLE Schleifen sind HART BEGRENZT,
+rem damit der Helfer nie endlos weiterlaeuft (frueherer Bug: Fenster-Flut +
+rem nicht beendbar, wenn die alte PID nicht starb).
 set "PID=@@PID@@"
 set "TARGET=@@TARGET@@"
 set "NEW=@@NEW@@"
+set "N=0"
 
-rem 1) Wait for THIS app (by PID) to fully exit so the exe is unlocked.
+rem 1) Warte (max ~60s) bis DIESE App (per PID) beendet ist -> exe entsperrt.
 :waitloop
 tasklist /FI "PID eq %PID%" 2>nul | find "%PID%" >nul
-if not errorlevel 1 (
-    ping -n 2 127.0.0.1 >nul
-    goto waitloop
-)
-
-rem 2) Give Windows a beat to release the file handle, then copy over it.
+if errorlevel 1 goto copyloop
+set /a N+=1
+if %N% GEQ 60 goto copyloop
 ping -n 2 127.0.0.1 >nul
-:copyloop
-copy /Y "%NEW%" "%TARGET%" >nul
-if errorlevel 1 (
-    ping -n 2 127.0.0.1 >nul
-    goto copyloop
-)
+goto waitloop
 
-rem 3) Relaunch the updated app, clean up the download, self-delete.
+rem 2) Datei-Handle freigeben lassen, dann drueberkopieren (max ~60 Versuche).
+:copyloop
+ping -n 2 127.0.0.1 >nul
+copy /Y "%NEW%" "%TARGET%" >nul
+if not errorlevel 1 goto relaunch
+set /a N+=1
+if %N% GEQ 120 goto relaunch
+goto copyloop
+
+rem 3) Aktualisierte App neu starten, Download aufraeumen, selbst loeschen.
+:relaunch
 start "" "%TARGET%"
 del /Q "%NEW%" >nul 2>&1
 del /Q "%~f0" >nul 2>&1
@@ -366,17 +372,22 @@ def apply_update_onefile(downloaded_path):
 
 
 def _launch_detached(bat_path):
-    """Start the helper .bat fully detached (survives our exit) and windowless.
+    """Start the helper .bat windowless + surviving our exit.
 
-    Because the app is elevated (uac_admin=True), the detached child inherits
-    elevation, so the relaunched exe stays elevated too.
+    KRITISCH (Bug-Fix): NUR ``CREATE_NO_WINDOW`` -- NICHT ``DETACHED_PROCESS``.
+    ``DETACHED_PROCESS`` gibt dem ``cmd`` GAR KEINE Konsole, woraufhin jeder
+    Kindbefehl (``tasklist``/``find``/``ping``) sich eine EIGENE SICHTBARE Konsole
+    allokiert -> beim Update ploppten Dutzende CMD-Fenster auf (unbeendbar).
+    ``CREATE_NO_WINDOW`` gibt dem ``cmd`` eine VERSTECKTE Konsole, die die Kinder
+    erben -> kein einziges Fenster. Der Prozess ueberlebt unseren Exit ohnehin
+    (Popen bindet die Lebensdauer nicht). ``CREATE_NEW_PROCESS_GROUP`` entkoppelt
+    von Ctrl+C. App elevated -> Kind erbt Elevation (relaunch bleibt elevated).
     """
-    detached = 0x00000008          # DETACHED_PROCESS
     new_group = 0x00000200         # CREATE_NEW_PROCESS_GROUP
-    no_window = 0x08000000         # CREATE_NO_WINDOW (console=False app)
+    no_window = 0x08000000         # CREATE_NO_WINDOW (versteckte Konsole, vererbt)
     subprocess.Popen(
         ['cmd', '/c', bat_path],
-        creationflags=detached | new_group | no_window,
+        creationflags=new_group | no_window,
         close_fds=True,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
