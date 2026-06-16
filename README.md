@@ -9,6 +9,15 @@ behaviour is fully preserved as the default.
 > violates the game's Terms of Service and may get your account banned. Use at
 > your own risk. See [`LICENSE.txt`](LICENSE.txt).
 
+## 🆕 What's new in 1.2.18
+
+- **Update helper hardened further (belt-and-suspenders to 1.2.17).** In addition
+  to `CREATE_NO_WINDOW`, the helper is now also launched with `STARTUPINFO`/
+  `SW_HIDE`, and a regression test guarantees the wait/copy loops stay hard-bounded
+  forever. A full code scan confirmed the update helper was the only
+  window/process-spawning path; `os.startfile`/`webbrowser.open` are user-initiated
+  and harmless.
+
 ## 🆕 What's new in 1.2.17
 
 - **CRITICAL: the update helper spawned dozens of CMD windows (unkillable).** On

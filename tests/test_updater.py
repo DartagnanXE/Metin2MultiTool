@@ -152,6 +152,19 @@ class TestBatGeneration(unittest.TestCase):
         self.assertIn('%~f0', bat)
         self.assertNotIn('%%', bat)
 
+    def test_loops_are_bounded(self):
+        # KRITISCH (Regression): die Warte-/Kopier-Schleifen MUESSEN hart begrenzt
+        # sein -- sonst kann der Helfer endlos laufen (frueherer Bug: Fenster-Flut,
+        # unbeendbar). Jede Schleife braucht einen Zaehler-Abbruch + einen Ausweg.
+        bat = updater.build_update_bat(
+            pid=4321, target=r'C:\A\x.exe', new=r'C:\T\n.exe')
+        self.assertIn('set /a N+=1', bat)           # Zaehler wird hochgezaehlt
+        self.assertIn('GEQ', bat)                    # harte Obergrenze
+        self.assertIn(':relaunch', bat)              # Ausweg aus beiden Schleifen
+        # Keine UNBEDINGTE Endlosschleife: jedes 'goto waitloop'/'goto copyloop'
+        # steht hinter einem Zaehler-Check (heuristisch: GEQ kommt davor je Label).
+        self.assertGreaterEqual(bat.count('GEQ'), 2)  # waitloop + copyloop begrenzt
+
 
 class TestDownloadUrlWhitelist(unittest.TestCase):
     """The download is pinned to trusted GitHub HTTPS hosts (a spoofed API

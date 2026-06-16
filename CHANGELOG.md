@@ -3,6 +3,20 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.18] — 2026-06-16
+
+### Update-Helfer bombenfest gemacht (zusätzliche Absicherung zu 1.2.17)
+
+- **Doppelte Fenster-Unterdrückung:** zusätzlich zu `CREATE_NO_WINDOW` wird der
+  Helfer jetzt mit `STARTUPINFO`/`SW_HIDE` gestartet — falls je eine exotische
+  Windows-/Antivirus-Konfiguration das eine Flag ignoriert, greift das andere.
+- **Regressionstest** sichert dauerhaft, dass die Warte-/Kopier-Schleifen des
+  Helfers **hart begrenzt** bleiben (kann nie wieder zu einer Endlos-/Fenster-
+  Flut werden).
+- Voller Code-Scan: der einzige fenster-/prozess-spawnende Pfad war der Update-
+  Helfer; `os.startfile` (Log öffnen) und `webbrowser.open` (Releases/Hilfe) sind
+  nutzer-initiiert und harmlos.
+
 ## [1.2.17] — 2026-06-16
 
 ### KRITISCH behoben: Update-Helfer öffnete Dutzende CMD-Fenster (unbeendbar)

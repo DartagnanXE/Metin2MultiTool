@@ -385,9 +385,20 @@ def _launch_detached(bat_path):
     """
     new_group = 0x00000200         # CREATE_NEW_PROCESS_GROUP
     no_window = 0x08000000         # CREATE_NO_WINDOW (versteckte Konsole, vererbt)
+    # Doppelte Absicherung (bombenfest): zusaetzlich STARTUPINFO mit SW_HIDE,
+    # falls eine exotische Windows-/AV-Konfig CREATE_NO_WINDOW ignorieren wuerde.
+    # STARTUPINFO existiert nur unter Windows -> defensiv (None sonst).
+    startupinfo = None
+    try:
+        startupinfo = subprocess.STARTUPINFO()
+        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+        startupinfo.wShowWindow = 0          # SW_HIDE
+    except Exception:
+        startupinfo = None
     subprocess.Popen(
         ['cmd', '/c', bat_path],
         creationflags=new_group | no_window,
+        startupinfo=startupinfo,
         close_fds=True,
         stdin=subprocess.DEVNULL,
         stdout=subprocess.DEVNULL,
