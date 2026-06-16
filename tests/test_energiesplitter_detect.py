@@ -484,6 +484,39 @@ class TestLoadTemplate(unittest.TestCase):
         self.assertIsNotNone(d.load_template('npc_waffenhaendler'))
 
 
+class TestDialogLadenOeffnen(unittest.TestCase):
+    """Die Dialogzeile 'Laden oeffnen' muss in den echten Dialog-Bildern gefunden
+    werden (Alchemist + Waffenhaendler) und NICHT im offenen Shop / normaler
+    Szene -- das ist der Schritt, der den Shop oeffnet."""
+
+    def test_found_in_alchemist_dialog(self):
+        tpl = d.load_template('laden_oeffnen')
+        self.assertIsNotNone(tpl)
+        ok, center, ncc = d.find_dialog_line(
+            _load('Einkauf_Hammer', 'erstgespraech1.png'), tpl)
+        self.assertTrue(ok, ncc)
+        self.assertIsNotNone(center)
+        self.assertGreaterEqual(ncc, 0.9)
+
+    def test_found_in_dagger_dialog(self):
+        tpl = d.load_template('laden_oeffnen')
+        ok, _c, ncc = d.find_dialog_line(
+            _load('Einkauf_Dolche', 'angesprochen1.png'), tpl)
+        self.assertTrue(ok, ncc)
+
+    def test_not_found_in_open_shop(self):
+        tpl = d.load_template('laden_oeffnen')
+        ok, _c, _n = d.find_dialog_line(
+            _load('Einkauf_Hammer', 'shop_alchemist.png'), tpl)
+        self.assertFalse(ok)
+
+    def test_not_found_in_overworld(self):
+        tpl = d.load_template('laden_oeffnen')
+        ok, _c, _n = d.find_dialog_line(
+            _load('Alchemist', 'metin2client_BlRGzUUM3w.png'), tpl)
+        self.assertFalse(ok)
+
+
 class TestAfkDialog(unittest.TestCase):
     """Der zentrierte 'Du bist im AFK-Modus'-Dialog muss am OK-Knopf erkannt
     werden (er blockiert alle Klicks/Tasten) -- und NICHT auf normalen Szenen

@@ -775,6 +775,38 @@ class TestAfkDismissAndNpcClick(unittest.TestCase):
         self.assertTrue(bot.botting)
 
 
+class TestOpenShopViaDialog(unittest.TestCase):
+    """'Laden oeffnen' finden -> klicken -> Settle -> weiter (Shop-Verifikation
+    macht der Locate-Schritt). Nicht gefunden -> sauberer Stop."""
+
+    def test_clicks_laden_oeffnen_when_found(self):
+        _reset_input()
+        bot = _make_bot(mode=MODE_HAMMER)
+        _arm(bot)
+        bot.SHOP_OPEN_SETTLE_S = 0
+        fake = types.SimpleNamespace(
+            find_dialog_line=lambda bgr, tpl: (True, (400, 285), 0.99))
+        with mock.patch.object(esbot_mod, '_detect', fake):
+            bot._template = lambda k: object()
+            ok = bot.open_shop_via_dialog()
+        self.assertTrue(ok)
+        self.assertEqual(_INPUT_CALLS['click'], 1)        # Linksklick auf die Zeile
+        self.assertNotEqual(bot._stop_reason, 'shop_not_open')
+
+    def test_stops_when_laden_oeffnen_absent(self):
+        bot = _make_bot(mode=MODE_HAMMER)
+        _arm(bot)
+        bot.botting = True
+        bot.SHOP_OPEN_SETTLE_S = 0
+        fake = types.SimpleNamespace(
+            find_dialog_line=lambda bgr, tpl: (False, None, 0.2))
+        with mock.patch.object(esbot_mod, '_detect', fake):
+            bot._template = lambda k: object()
+            ok = bot.open_shop_via_dialog()
+        self.assertFalse(ok)
+        self.assertEqual(bot._stop_reason, 'shop_not_open')
+
+
 class TestEnsureInventoryOpen(unittest.TestCase):
     """Der Energiesplitter muss -- wie das Angel-Inventar -- die Tasche-Offen-
     Erkennung nutzen (open_probe) statt blind zu scannen. Sonst las er bei

@@ -9,6 +9,18 @@ behaviour is fully preserved as the default.
 > violates the game's Terms of Service and may get your account banned. Use at
 > your own risk. See [`LICENSE.txt`](LICENSE.txt).
 
+## 🆕 What's new in 1.2.16
+
+- **Energiesplitter: opening the shop is now calibrated — the hammer purchase
+  runs end-to-end.** The "Laden öffnen" (open shop) dialog line is detected via
+  color-NCC in the centered options band (calibrated from your dialog
+  screenshots; present ≥0.985, absent ≤0.36) and clicked, for both Alchemist and
+  weapon dealer. Shop-open is verified by finding the item (the 200-stack hammer
+  at the calibrated anchor, NCC 0.91) instead of a fragile fixed header. So:
+  address NPC → open shop → right-click the 200-hammer → re-read verification.
+  (Multi-page scan II/III/IV is the next step for buying more than page-I free
+  slots.)
+
 ## 🆕 What's new in 1.2.15
 
 - **Energiesplitter: auto-dismiss the AFK dialog + talk to NPCs via left-click.**

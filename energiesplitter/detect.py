@@ -392,6 +392,37 @@ def find_npc_name(bgr, word_template, roi=None, thresh=NCC_WORD):
     return (True, center, ncc)
 
 
+# NPC-Dialog-Optionen (z.B. 'Laden oeffnen'): zentriertes Optionen-Band. Die
+# Zeilen-Y variieren je Dialoggroesse -> grosszuegig (an erstgespraech*/
+# angesprochen* gemessen: 'Laden oeffnen' bei y 221..285, x-zentriert ~400).
+ROI_DIALOG_OPTIONS = (290, 150, 260, 200)
+# 'Laden oeffnen'-Wortbild: self 1.00, vorhandene Dialoge >= 0.985, abwesend
+# <= 0.36 -> 0.80 trennt sicher (gemessen).
+NCC_DIALOG = 0.80
+
+
+def find_dialog_line(bgr, word_template, roi=None, thresh=NCC_DIALOG):
+    """Sucht eine Dialog-Option (z.B. 'Laden oeffnen') per Farb-NCC im zentrierten
+    Optionen-Band. Liefert ``(ok, center, ncc)`` mit ``center`` = Klickpunkt
+    (client-Koordinaten) oder ``(False, None, ncc)``. Wirft NIE."""
+    if np is None or _cv is None or bgr is None or word_template is None:
+        return (False, None, 0.0)
+    client = _geo.to_client(bgr)
+    roi = roi if roi is not None else ROI_DIALOG_OPTIONS
+    region = _geo.crop(client, roi)
+    if region is None:
+        return (False, None, 0.0)
+    tpl = _to_bgr(word_template)
+    if tpl is None:
+        return (False, None, 0.0)
+    ok, pt, ncc = match_word(region, tpl)
+    if not ok or pt is None or ncc < thresh:
+        return (False, None, ncc)
+    rx, ry, _, _ = roi
+    th, tw = tpl.shape[:2]
+    return (True, (rx + pt[0] + tw // 2, ry + pt[1] + th // 2), ncc)
+
+
 # ROI fuer den zentrierten AFK-Dialog-OK-Knopf (client-Koordinaten). Grosszuegiges
 # Mittelband; der OK-Knopf liegt fix bei ~(360,320) (gemessen am echten Bild).
 ROI_AFK_OK = (300, 290, 220, 90)

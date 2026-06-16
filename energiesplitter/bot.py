@@ -151,6 +151,9 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
   # setzen 0). Als Instanz-Attribute ueberschreibbar.
   NPC_MAX_TRIES = 4
   NPC_SETTLE_S = 0.8
+  # Wartezeit, damit der Shop nach 'Laden oeffnen' rendert, bevor das Item
+  # gesucht wird (Tests setzen 0).
+  SHOP_OPEN_SETTLE_S = 0.5
 
   def __init__(self):
     # Konstruktor haelt das Objekt headless-konstruierbar; die echte Config
@@ -662,6 +665,16 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
     self._left_click(int(center[0]), int(center[1]))
     return True
 
+  def _settle(self, seconds):
+    """Kurze Renderpause (z.B. nach 'Laden oeffnen'/Seitenwechsel). Blockiert den
+    Tick bewusst (wie jede Aktion); F6 wird am Tick-Kopf geprueft. Wirft NIE."""
+    try:
+      s = max(0.0, float(seconds))
+      if s > 0:
+        time.sleep(s)
+    except Exception:  # pragma: no cover
+      pass
+
   def _right_click(self, x, y):
     if self._guarded():
       return False
@@ -783,28 +796,33 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
     return None
 
   def open_shop_via_dialog(self):
-    """Klickt die Dialogzeile 'Laden oeffnen' (eindeutiger NCC-Match) und
-    verifiziert ``shop_open``. Uneindeutig/Timeout -> Snapshot + Stop. Liefert
-    ``True`` bei offenem Shop."""
+    """Findet die Dialogzeile 'Laden oeffnen' (Farb-NCC im Dialog-Optionen-Band,
+    gegen alle Dialog-Bilder kalibriert: vorhanden >= 0.985, abwesend <= 0.36)
+    und KLICKT sie. Danach kurze Settle-Zeit, damit der Shop rendert -- die
+    eigentliche Shop-offen-Verifikation macht der naechste Zustand
+    (``_locate_shop_item`` findet das Item NUR bei offenem Shop; sonst sauberer
+    Stop ``item_not_in_shop``). KEIN fragiles fixes Header-Template (das Shop-
+    Panel ist frei verschiebbar). Liefert ``True``, wenn geklickt wurde."""
     bgr = self._shot()
-    if bgr is None or _detect is None:
+    if bgr is None or _detect is None or not hasattr(_detect, 'find_dialog_line'):
       self._snapshot('shop_not_open')
       log.event(self.state, t('energiesplitter.shop_not_open'))
       self._stop('shop_not_open')
       return False
     tpl = self._template('laden_oeffnen')
-    ok, pt, _ncc = (False, None, 0.0)
+    ok, pt, ncc = (False, None, 0.0)
     try:
-      ok, pt, _ncc = _detect.find_shop_item(bgr, tpl)
+      ok, pt, ncc = _detect.find_dialog_line(bgr, tpl)
     except Exception:  # pragma: no cover
       ok, pt = False, None
     try:
       log.event(self.state, "WAHRNEHMUNG: Dialogzeile 'Laden oeffnen'",
-                gefunden=bool(ok and pt is not None), ncc=round(float(_ncc), 3),
+                gefunden=bool(ok and pt is not None), ncc=round(float(ncc), 3),
                 pos=(tuple(pt) if pt is not None else None))
     except Exception:  # pragma: no cover
       pass
     if not ok or pt is None:
+      # Kein 'Laden oeffnen' sichtbar -> Dialog nicht offen / falsche Seite.
       self._snapshot('shop_not_open')
       log.event(self.state, t('energiesplitter.shop_not_open'))
       self._stop('shop_not_open')
@@ -813,22 +831,8 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
       log.event(self.state, "ABSICHT: 'Laden oeffnen' anklicken", ziel=tuple(pt))
     except Exception:  # pragma: no cover
       pass
-    self._left_click(pt[0], pt[1])
-    after = self._shot()
-    is_open = False
-    try:
-      is_open = bool(_detect.shop_open(after)) if after is not None else False
-    except Exception:  # pragma: no cover
-      is_open = False
-    try:
-      log.event(self.state, 'WAHRNEHMUNG: Shop offen?', offen=is_open)
-    except Exception:  # pragma: no cover
-      pass
-    if not is_open:
-      self._snapshot('shop_not_open')
-      log.event(self.state, t('energiesplitter.shop_not_open'))
-      self._stop('shop_not_open')
-      return False
+    self._left_click(int(pt[0]), int(pt[1]))
+    self._settle(self.SHOP_OPEN_SETTLE_S)   # Shop rendern lassen
     return True
 
   def verify_hammer_purchase(self, bag_before):

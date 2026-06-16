@@ -3,6 +3,27 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.16] — 2026-06-16
+
+### Energiesplitter: Shop öffnen (Dialog → „Laden öffnen") kalibriert — Hammer-Kauf jetzt durchgehend
+
+- **„Laden öffnen" wird im Dialog erkannt + geklickt.** Aus deinen Dialog-Bildern
+  kalibriert (`templates/laden_oeffnen.png`): die Zeile wird per Farb-NCC im
+  zentrierten Optionen-Band gefunden (vorhanden ≥ 0.985, abwesend ≤ 0.36) —
+  funktioniert für Alchemist UND Waffenhändler (die Zeile sitzt je nach
+  Dialoggröße bei anderer Höhe). Danach kurze Render-Pause, dann sucht der Bot
+  das Item im Shop (200er-Hammer am kalibrierten Anker, NCC 0.91 verifiziert).
+- **Kein fragiles fixes Shop-Header-Template mehr** (das Shop-Panel ist frei
+  verschiebbar): „Shop offen" wird dadurch verifiziert, dass das Item gefunden
+  wird — sonst sauberer Stop.
+- Damit läuft die **Hammer-Kauf-Kette durchgehend**: NPC ansprechen → „Laden
+  öffnen" → Shop → 200er-Hammer rechtsklicken → Re-Read-Verifikation.
+
+> Hinweis: Für mehr Stacks als auf **Inventar-Seite I** frei sind, kommt als
+> nächstes der **Mehrseiten-Scan (II/III/IV)** inkl. seitenübergreifender
+> Kauf-Verifikation. Für einen ersten scharfen Test: `Hammer-Stacks` ≤ freie
+> Plätze auf Seite I wählen.
+
 ## [1.2.15] — 2026-06-16
 
 ### Energiesplitter: AFK-Dialog wegklicken + NPC per Linksklick ansprechen
