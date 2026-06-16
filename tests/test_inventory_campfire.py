@@ -398,6 +398,36 @@ class TestRunCampfireOrchestration(unittest.TestCase):
                             if e[0] == 'move' and i < up_i)
             self.assertEqual(ev[last_move][1:], fire_screen)
 
+    def test_stops_grilling_when_fire_expired(self):
+        # Feuer-Lebensdauer ~35s: ist die Frist abgelaufen, wird NICHT mehr
+        # gegrillt (Fisch-Drag ins Leere vermieden). Sauberer Abschluss 'done'.
+        from unittest import mock
+        rec = _Recorder()
+        inv = _inv({
+            'I': [_slot('Lagerfeuer', 0, 0), _slot('Carp', 1, 2)],
+            'II': [_slot('Zander', 0, 0)],
+        })
+        orig = campfire.find_label
+        campfire.find_label = lambda *a, **k: (True, 0.99, (300, 400))
+        try:
+            # monotonic: Platzieren bei 0 (Frist=35), erste Loop-Pruefung bei 100
+            # (>35) -> sofort Schluss, KEIN Fisch gegrillt.
+            with mock.patch.object(campfire.time, 'monotonic',
+                                   side_effect=[0.0] + [100.0] * 10):
+                res = campfire.run_campfire(
+                    {'Carp': 2, 'Zander': 2},
+                    inp=rec,
+                    capture_rgb_fn=lambda: 'frame',
+                    scan_fn=self._scan_returning(inv),
+                    offset=(10, 20),
+                    sleep=_noop_sleep)
+        finally:
+            campfire.find_label = orig
+        self.assertEqual(res.status, 'done')
+        self.assertEqual(len(res.grilled), 0)        # Frist abgelaufen vor Fisch 1
+        # KEIN Fisch-Drag passiert (kein down/up).
+        self.assertEqual([e[0] for e in rec.events].count('down'), 0)
+
     def test_no_fish_marked_short_circuits_without_window_work(self):
         rec = _Recorder()
         called = {'scan': False}

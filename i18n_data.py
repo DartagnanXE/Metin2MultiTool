@@ -439,6 +439,7 @@ TRANSLATIONS = {
     'campfire.status_error': {'en': 'Campfire grilling failed - see Console', 'de': 'Lagerfeuer-Braten fehlgeschlagen - siehe Console'},
     'campfire.status_not_open': {'en': 'Inventory could not be opened - grilling aborted (nothing was clicked)', 'de': 'Inventar liess sich nicht öffnen - Braten abgebrochen (nichts geklickt)'},
     'campfire.aborted': {'en': 'Grilling stopped after {count} fish (stop requested)', 'de': 'Braten nach {count} Fisch(en) gestoppt (Stopp angefordert)'},
+    'campfire.fire_expired': {'en': 'Campfire is gone (~35s elapsed) – stopping grilling after {count} fish', 'de': 'Lagerfeuer ist weg (~35s vorbei) – Braten nach {count} Fisch(en) gestoppt'},
     'campfire.status_aborted': {'en': 'Grilling stopped (F6 / clean-up cutoff)', 'de': 'Braten gestoppt (F6 / Cleanup-Limit)'},
     # -- discard / drop (Wegwerfen / fallen lassen) -------------------------
     'discard.started': {'en': 'Dropping marked items...', 'de': 'Markierte Items werden fallen gelassen ...'},

@@ -9,6 +9,13 @@ behaviour is fully preserved as the default.
 > violates the game's Terms of Service and may get your account banned. Use at
 > your own risk. See [`LICENSE.txt`](LICENSE.txt).
 
+## 🆕 What's new in 1.2.24
+
+- **Campfire grilling: hard 35-second limit.** The placed campfire only lasts
+  ~35 seconds — the bot no longer counts on it being there a second longer. A hard
+  deadline starts at placement; once it's up, grilling stops (no more fish dragged
+  onto a fire that's already gone).
+
 ## 🆕 What's new in 1.2.23
 
 - **Energiesplitter dagger mode: the shop buys now + ALL daggers get processed.**

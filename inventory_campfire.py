@@ -37,6 +37,8 @@ exactly like every other click in the bot (fishingbot/puzzle/refill add
 ``wincap.offset_x/y``).
 """
 
+import time
+
 from inventory.constants import DEFAULT_CALIBRATION, INPUT_SETTLE_S
 from inventory.grid import lattice_from_calibration
 
@@ -125,6 +127,12 @@ MAX_ROTATE_ATTEMPTS = 8
 
 #: Settle after a fish drag onto the fire, before the next one.
 GRILL_SETTLE_S = INPUT_SETTLE_S
+
+#: LEBENSDAUER des gelegten Lagerfeuers (User-Grundwahrheit 2026-06-17): das
+#: Feuer ist NUR ~35 s da -- KEINE Sekunde laenger darauf rechnen. Ab dem
+#: Platzieren (Doppelklick) gemessen; ist die Frist abgelaufen, wird NICHT mehr
+#: gegrillt (sonst landen Fische ins Leere, wo kein Feuer mehr ist).
+FIRE_LIFETIME_S = 35.0
 
 
 def _flog(state, key, **fmt):
@@ -395,8 +403,8 @@ def run_campfire(states, *, inp, capture_rgb_fn, scan_fn, offset=(0, 0),
     circuits to a clear status (and the button is released in :func:`drag`'s
     finally), never an exception into the bot/UI.
     """
+    # ``time`` ist modulweit importiert (auch fuer die Feuer-Lebensdauer-Frist).
     if sleep is None:
-        import time
         sleep = time.sleep
 
     fish_names = campfire_fish_names(states)
@@ -428,6 +436,9 @@ def run_campfire(states, *, inp, capture_rgb_fn, scan_fn, offset=(0, 0),
         tool_page, tool_xy = tool
         _switch_page(inp, calib, ox, oy, tool_page, sleep)
         _double_click(inp, tool_xy[0], tool_xy[1])
+        # Ab JETZT laeuft die Feuer-Lebensdauer (~35 s) -- die Bird's-Eye-/
+        # Such-Phase frisst davon schon etwas auf, darum ab dem Platzieren messen.
+        fire_deadline = time.monotonic() + FIRE_LIFETIME_S
         sleep(PLACE_SETTLE_S)
 
         # 3) Bird's-eye view: HOLD the configured key (~1 s) so the top-down
@@ -462,6 +473,12 @@ def run_campfire(states, *, inp, capture_rgb_fn, scan_fn, offset=(0, 0),
                                           rotations=rotations)
             except Exception:
                 pass
+            # FEUER-FRIST: nach ~35 s ist das Feuer weg -> NICHT weiter grillen
+            # (sonst Fisch-Drag ins Leere). Sauberer Abschluss mit dem Stand.
+            if time.monotonic() >= fire_deadline:
+                _flog('0', 'campfire.fire_expired', count=len(grilled))
+                return CampfireResult('done', grilled=grilled, fire_point=fire,
+                                      label_score=score, rotations=rotations)
             _switch_page(inp, calib, ox, oy, page, sleep)
             fx, fy = _slot_screen(row, col, calib, ox, oy, lattice=lattice)
             drag(inp, fx, fy, fire_screen[0], fire_screen[1], sleep=sleep)

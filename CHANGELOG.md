@@ -3,6 +3,15 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.24] — 2026-06-17
+
+### Lagerfeuer-Grillen: hartes 35-Sekunden-Limit
+
+- Das gelegte Lagerfeuer ist nur **~35 Sekunden** da — der Bot rechnet jetzt
+  **keine Sekunde länger** damit. Ab dem Platzieren läuft eine harte Frist;
+  ist sie abgelaufen, wird **nicht weiter gegrillt** (kein Fisch-Drag mehr ins
+  Leere, wo kein Feuer mehr ist). Sauberer Abschluss mit dem bisherigen Stand.
+
 ## [1.2.23] — 2026-06-17
 
 ### Energiesplitter Dolch-Modus: Shop kauft jetzt + ALLE Dolche werden verarbeitet
