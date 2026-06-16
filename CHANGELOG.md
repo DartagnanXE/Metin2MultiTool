@@ -3,6 +3,26 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.25] — 2026-06-17
+
+### Fisch-Puzzle: leere Boxen automatisch aus dem Inventar nachlegen (opt-in)
+
+- Neuer Schalter **„Boxen automatisch nachlegen"** (Puzzle-Einstellungen, unter
+  „Force Deluxe"). Ist er an und läuft mitten im Spiel eine **Puzzle-Box leer**,
+  zieht der Bot selbstständig eine neue Box aus dem **Inventar** in den Box-Slot:
+  - **Standard-Box** → unterer Slot, **Deluxe-Box** → oberer Slot (nie vertauscht).
+  - Immer der **erste Fund**, gescannt über Inventarseiten **I → IV, Slots 1–45**.
+  - Es wird **nur eine sicher erkannte Box** gezogen — niemals ein anderes Item.
+  - Das **Inventar wird bei Bedarf geöffnet** (verifiziert; ohne offenes Inventar
+    kein Blind-Drag). Sind die Boxen **aufgebraucht** → der Bot **stoppt** mit
+    klarer Meldung statt endlos ins Leere zu klicken.
+  - **F6/Stop** bricht eine laufende Nachlege-Aktion sofort ab; Obergrenze von
+    20 Nachlegungen pro Lauf als Sicherheitsnetz.
+- **Default AUS (opt-in):** Drag + Icon-Erkennung sind nur am **echten Spiel**
+  verifizierbar. Bitte aktivieren und den **ersten Lauf beobachten**.
+- Baut vollständig auf der bereits getesteten Nachlege-Engine (Inventar-Scan +
+  Drag) auf, die auch das Köder-Nachlegen beim Angeln nutzt. 24 neue Tests.
+
 ## [1.2.24] — 2026-06-17
 
 ### Lagerfeuer-Grillen: hartes 35-Sekunden-Limit

@@ -43,6 +43,26 @@ QUICKSLOT_XY = {
 # Item names eligible for each refill (recognised by the inventory engine).
 BAIT_NAMES = ('Worm',)
 BOX_NAMES = ('Fischpuzzlebox', 'Fischpuzzlebox_Deluxe')
+# Getrennte Namen pro PUZZLE-Box-Slot: die STANDARD-Box darf NUR in den unteren
+# Standard-Slot, die DELUXE-Box NUR in den oberen Deluxe-Slot -- nie vertauscht.
+# (``find_first`` matcht ``s.name in want``, also findet ein 1-Tupel ausschliesslich
+# genau diese Box -> nie das jeweils andere Item.)
+BOX_STD_NAMES = ('Fischpuzzlebox',)
+BOX_DELUXE_NAMES = ('Fischpuzzlebox_Deluxe',)
+
+
+def box_refill_due(streak, *, min_streak, done, max_done):
+    """Pure Entscheidung fuers Puzzle-Box-Nachlegen (headless testbar).
+
+    ``True`` nur, wenn die Box als leer gilt (``streak`` leere getpiece IN FOLGE
+    >= ``min_streak``) UND die Sicherheits-Obergrenze noch nicht erreicht ist
+    (``done < max_done``). Streak-basiert statt Slot-OCR, weil das wiederholte
+    Ausbleiben eines Steins das robusteste "Box leer"-Signal des Spiels ist.
+    Defensiv: nicht-numerische Eingaben -> ``False`` (nie nachlegen im Zweifel)."""
+    try:
+        return int(streak) >= int(min_streak) and int(done) < int(max_done)
+    except (TypeError, ValueError):
+        return False
 
 # Inventory pages in scan order, and the grid shape.
 PAGE_ORDER = ('I', 'II', 'III', 'IV')

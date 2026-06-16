@@ -9,6 +9,18 @@ behaviour is fully preserved as the default.
 > violates the game's Terms of Service and may get your account banned. Use at
 > your own risk. See [`LICENSE.txt`](LICENSE.txt).
 
+## 🆕 What's new in 1.2.25
+
+- **Fish puzzle: auto-refill empty boxes from the inventory (opt-in).** New
+  _"Auto-refill boxes"_ switch in the puzzle settings. When a puzzle box runs
+  empty mid-game, the bot drags a fresh box from the inventory into the box slot
+  (standard box → lower slot, Deluxe → upper slot). Always the **first** box
+  found, scanning inventory pages I→IV, slots 1–45, and **only** a confidently
+  recognized box — never another item. The inventory is opened automatically if
+  needed; out of boxes → the bot stops with a clear message. F6 aborts instantly.
+  **Default OFF** — dragging/recognition is only verifiable on the live game, so
+  enable it and watch the first run.
+
 ## 🆕 What's new in 1.2.24
 
 - **Campfire grilling: hard 35-second limit.** The placed campfire only lasts

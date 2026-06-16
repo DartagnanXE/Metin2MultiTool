@@ -212,6 +212,18 @@ class FishingPuzzleConsoleViewsMixin:
             self._force_deluxe_var, self._on_force_deluxe_toggle,
             return_switch=True)
 
+        # "Box automatisch nachlegen"-Schalter darunter: leere Puzzle-Box mitten
+        # im Spiel aus dem Inventar in den Box-Slot ziehen (Standard/Deluxe, immer
+        # erster Fund). Default AUS (opt-in) -- Drag/OCR nur LIVE verifizierbar, der
+        # ?-Hilfetext sagt das ehrlich. Reicht den Toggle ueber _on_box_refill_toggle;
+        # waehrend des Laufs gesperrt (sync_controls).
+        self._box_refill_var = ctk.BooleanVar(
+            value=bool(self._cfg['puzzle'].get('box_refill_enabled', False)))
+        self.box_refill_switch = self._switch_row(
+            sbody, 2, t('ui.box_refill'), None, t('ui.box_refill_help'),
+            self._box_refill_var, self._on_box_refill_toggle,
+            return_switch=True)
+
     def _build_console_view(self, _parent):
         view = self._new_view('console')
         view.grid_rowconfigure(1, weight=1)

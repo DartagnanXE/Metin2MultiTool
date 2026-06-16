@@ -19,6 +19,21 @@ from i18n import t
 from interface.config.paths import debug_log_path
 from puzzle_detect import PuzzleDetectMixin
 
+# Box-Nachlegen (opt-in): das Schwerstueck (Inventar scannen + ersten Boxfund
+# zum Box-Slot draggen, F6-/Stop-aware) liegt im getesteten interface.refill;
+# das Inventar-Oeffnen im inventory.open_probe. Beide SOFT importiert -> fehlt
+# das Inventar-Paket (numpy/PIL) bleibt puzzle.py headless importierbar und das
+# Nachlegen einfach inaktiv (``_box_refill_active`` faellt auf False).
+import stop_signal as _stopsig
+try:
+    from interface import refill as _refill
+except Exception:  # pragma: no cover - nur ohne Inventar-Paket
+    _refill = None
+try:
+    from inventory import open_probe as _open_probe
+except Exception:  # pragma: no cover
+    _open_probe = None
+
 # Nach so vielen Verwerfen IN FOLGE (ohne Platzierung dazwischen) gilt der
 # box-optimale Loeser als "festgefahren" (wartet auf einen perfekten Stein) und
 # schaltet auf FINISH-Modus (irgendeinen least-bad Stein platzieren), damit das
@@ -61,6 +76,15 @@ PIECE_MIN_MARGIN = 30.0
 # Stein. Echte Fehl-Lesungen (verschobenes Fenster) faerben viele Zellen garbage.
 BOARD_MAX_GARBAGE = 4
 BOARD_READ_RETRY_S = 0.6
+
+# -- Box-Nachlegen (opt-in) -----------------------------------------------
+# So viele leere getpiece IN FOLGE (kein Stein erschienen) gelten als "Box im
+# Puzzle-Slot leer" -> aus dem Inventar nachlegen. >1 deckt einen einzelnen
+# Render-/Lese-Aussetzer ab, ohne bei echter Leere lange zu zoegern.
+BOX_EMPTY_STREAK = 3
+# Sicherheits-Obergrenze fuer Nachlegen pro Lauf (gegen Endlos-Drag bei
+# Dauer-Fehlerkennung). 20 Boxen sind weit mehr als eine reale Sitzung braucht.
+BOX_REFILL_MAX = 20
 
 
 fish_jigsaw_chest = cv.imread(resource_path("images/fish_jigsaw_chest.png"))
@@ -181,6 +205,15 @@ class PuzzleBot(PuzzleDetectMixin):
     _last_board_garbage = 0
     _board_retry_until = 0.0
 
+    # -- Box-Nachlegen (opt-in; von run_loop injiziert, Default AUS) --------
+    box_refill_enabled = False        # Schalter (Config 'box_refill_enabled')
+    box_refill_db = None              # gebuendelte Inventar-Item-DB (oder None)
+    box_refill_calib = None           # Kalibrierung (None -> DEFAULT_CALIBRATION)
+    inventory_hotkey = 'i'            # Spiel-Taste, die das Inventar oeffnet
+    stop_signal = _stopsig.NULL_SIGNAL  # gemeinsames Stop-Signal (F6)
+    _empty_getpiece_streak = 0        # leere getpiece IN FOLGE (Box-leer-Signal)
+    _box_refill_count = 0             # bereits nachgelegte Boxen (Cap-Zaehler)
+
     state = 0
 
     end = False
@@ -201,6 +234,10 @@ class PuzzleBot(PuzzleDetectMixin):
         self._expected_meta = None
         self._last_board_garbage = 0
         self._board_retry_until = 0.0
+        # Box-Nachlegen: Streak + Cap-Zaehler pro Lauf frisch (sonst zaehlt ein
+        # alter Lauf weiter -> verfruehtes Nachlegen / fruehes Cap-Limit).
+        self._empty_getpiece_streak = 0
+        self._box_refill_count = 0
         # Offset auf den Klassen-Default zuruecksetzen; die Integration setzt
         # danach den aus dem Detection-Modus aufgeloesten Offset (falls
         # abweichend). Garantiert einen wohldefinierten Startwert pro Lauf.
@@ -580,6 +617,132 @@ class PuzzleBot(PuzzleDetectMixin):
             log.error(t('puzzle.force_deluxe_open_failed'), exc=exc)
             return False
 
+    # -- Box-Nachlegen aus dem Inventar (opt-in) --------------------------
+    # Spiegelt fishingbot._maybe_refill_bait: die schwere Op (Inventar oeffnen +
+    # 4 Seiten scannen + ersten Boxfund zum Box-Slot draggen) liegt im getesteten
+    # interface.refill; hier nur Trigger, Inventar-Oeffnen und das Stop-Seam.
+
+    def _box_refill_active(self):
+        """True nur, wenn das Nachlegen scharf ist UND die Engine importiert
+        werden konnte UND ein Fenster-Capture existiert. Wirft nie."""
+        return (bool(getattr(self, 'box_refill_enabled', False))
+                and _refill is not None and self.wincap is not None)
+
+    def _refill_sleep(self, seconds):
+        """Interruptible Nap fuers Nachlegen: schlaeft ueber das Stop-Signal und
+        kehrt SOFORT zurueck, sobald ein Stop ansteht. Gibt ``False`` zurueck,
+        wenn ein Stop die Nap abgeschnitten hat (Engine bricht ab). Faellt ohne
+        Signal auf ``time.sleep`` zurueck. Wirft nie."""
+        sig = getattr(self, 'stop_signal', None)
+        if sig is not None:
+            try:
+                return sig.wait(seconds)
+            except Exception:
+                pass
+        try:
+            from time import sleep as _sleep
+            _sleep(seconds)
+        except Exception:
+            pass
+        return True
+
+    def _refill_should_stop(self):
+        """Predicate fuer die Refill-Engine: True, sobald ein Stop ansteht
+        (Stop-Signal gesetzt ODER botting bereits geraeumt). Wirft nie."""
+        try:
+            sig = getattr(self, 'stop_signal', None)
+            if sig is not None and sig.stopped:
+                return True
+            return not self.botting
+        except Exception:
+            return False
+
+    def _ensure_inventory_open_for_refill(self):
+        """Stellt sicher, dass das Inventar OFFEN ist (sonst Hotkey-Toggle), bevor
+        nachgelegt wird -- exakt die Spec ("waehrend des Puzzles muss das Inventar
+        offen sein, sonst aufmachen"). Nutzt die getestete open_probe (probe-then-
+        toggle, verifiziert offen). Gibt ``True`` nur bei VERIFIZIERT offenem
+        Inventar zurueck; bei unklarer/fehlgeschlagener Probe ``False`` -> es wird
+        NICHT blind gedraggt. Wirft nie."""
+        if _open_probe is None or self.wincap is None:
+            return False
+        try:
+            from inventory.constants import DEFAULT_CALIBRATION as _DC
+            calib = self.box_refill_calib or _DC
+            res = _open_probe.ensure_inventory_open(
+                capture_fn=self.wincap.get_screenshot,
+                press_fn=lambda: pydirectinput.press(self.inventory_hotkey),
+                calib=calib)
+            return res is True
+        except Exception:
+            return False
+
+    def _refill_box(self, names, target_xy, kind):
+        """Legt EINE Box aus dem Inventar in den Puzzle-Box-Slot ``target_xy``.
+
+        ``names`` ist die getrennte Box-Whitelist (Standard ODER Deluxe -> nie
+        vertauscht). Ablauf: Cap pruefen -> Inventar verifiziert oeffnen -> die
+        getestete ``refill.refill_from_inventory`` (4-Seiten-Scan, ERSTER Fund in
+        Seite->Reihen-Reihenfolge, Drag zum Ziel, F6-aware). Rueckgabe ``True`` NUR
+        bei tatsaechlich gedraggter Box (Aufrufer fordert dann neu an). Bei
+        ``'empty'`` (keine Box mehr im Inventar) -> Bot sauber stoppen + Log.
+        Streng defensiv -- wirft nie, blockiert den Loop nicht (stop-aware Naps)."""
+        if not self._box_refill_active():
+            return False
+        if getattr(self, '_box_refill_count', 0) >= BOX_REFILL_MAX:
+            log.event(self.state, t('puzzle.box_refill_cap', n=BOX_REFILL_MAX))
+            return False
+        if not self._ensure_inventory_open_for_refill():
+            log.event(self.state, t('puzzle.box_refill_inv_not_open', kind=kind))
+            return False
+        log.event(self.state, t('puzzle.box_refill_started', kind=kind))
+        calib = self.box_refill_calib or _refill.DEFAULT_CALIBRATION
+        try:
+            result = _refill.refill_from_inventory(
+                names, target_xy, inp=pydirectinput, wincap=self.wincap,
+                db=self.box_refill_db, calib=calib,
+                sleep=self._refill_sleep, should_stop=self._refill_should_stop)
+        except Exception:
+            result = 'error'
+        if result == 'dragged':
+            self._box_refill_count = getattr(self, '_box_refill_count', 0) + 1
+            log.event(self.state, t('puzzle.box_refill_done', kind=kind,
+                                    n=self._box_refill_count))
+            return True
+        if result == 'empty':
+            log.error(t('puzzle.box_refill_none_left', kind=kind))
+            self.botting = False
+            return False
+        if result == 'stopped':
+            return False
+        log.event(self.state, t('puzzle.box_refill_error', kind=kind))
+        return False
+
+    def _maybe_refill_standard_box(self):
+        """Standard-Box nachlegen, wenn genug leere getpiece in Folge auftraten
+        (= Box im Standard-Slot leer). Pure Trigger-Entscheidung in
+        ``refill.box_refill_due`` (headless getestet). Wirft nie."""
+        if not self._box_refill_active():
+            return False
+        if not _refill.box_refill_due(
+                getattr(self, '_empty_getpiece_streak', 0),
+                min_streak=BOX_EMPTY_STREAK,
+                done=getattr(self, '_box_refill_count', 0),
+                max_done=BOX_REFILL_MAX):
+            return False
+        return self._refill_box(_refill.BOX_STD_NAMES,
+                                self.standard_box_screen_point(), 'standard')
+
+    def _maybe_refill_deluxe_box(self):
+        """Deluxe-Box nachlegen, wenn Force-Deluxe eine Box braucht, aber keine
+        mehr im Inventar-Slot liegt (``_read_deluxe_available`` False). Wirft nie."""
+        if not self._box_refill_active():
+            return False
+        if getattr(self, '_box_refill_count', 0) >= BOX_REFILL_MAX:
+            return False
+        return self._refill_box(_refill.BOX_DELUXE_NAMES,
+                                self.deluxe_box_screen_point(), 'deluxe')
+
     def _place_deluxe(self):
         """Setzt den DELUXE-Stein (volles 2x3-Magenta) DETERMINISTISCH.
 
@@ -825,6 +988,23 @@ class PuzzleBot(PuzzleDetectMixin):
 
             if time() - self.timer_action > timep:
 
+                # Deluxe-Box NACHLEGEN (opt-in): will Force-Deluxe gerade das
+                # Reservat fuellen (18 Zellen voll, Reservat leer), liegt aber
+                # KEINE Deluxe-Box mehr im Inventar-Slot, dann zuerst aus dem
+                # Inventar nachlegen -> naechster Tick sieht die Box (frischer
+                # Cache) und oeffnet sie ueber den bestehenden Pfad. Nur bei
+                # aktivem Box-Nachlegen + konfiguriertem Force-Deluxe (trained).
+                if (self._box_refill_active()
+                        and getattr(self, 'force_deluxe', False)
+                        and self.solver_mode == 'trained'
+                        and self._non_reservat_full()
+                        and deluxe.reservat_is_empty(self.tetris.board)
+                        and not self._read_deluxe_available()):
+                    if self._maybe_refill_deluxe_box():
+                        self._reset_force_deluxe_cache()
+                        self.timer_action = time()
+                        return None
+
                 # Force Deluxe (V3): sind die 18 Nicht-Reservat-Zellen voll und
                 # das Reservat noch leer, NICHT einen normalen Stein anfordern,
                 # sondern die DELUXE-Box oeffnen -> der Magenta-Stein erscheint
@@ -906,6 +1086,23 @@ class PuzzleBot(PuzzleDetectMixin):
                     # Deadline geht ein echter Miss (voll geloggt) in den
                     # bestehenden Verwerfen-Pfad.
                     return None
+                # Box-Nachlegen: ein ECHTER Miss (kein Stein nach Ablauf des
+                # Retry-Fensters) bedeutet, der getpiece-Klick lieferte nichts ->
+                # moeglicher Hinweis auf eine LEERE Box im Slot. Streak zaehlen;
+                # ein erfolgreicher Read setzt sie zurueck (nur AUFEINANDER
+                # folgende Leerschuesse gelten als "Box leer").
+                if piece is not None:
+                    self._empty_getpiece_streak = 0
+                else:
+                    self._empty_getpiece_streak = (
+                        getattr(self, '_empty_getpiece_streak', 0) + 1)
+                    if self._maybe_refill_standard_box():
+                        # Box nachgelegt -> Streak zuruecksetzen und neu anfordern
+                        # (State 0 klickt getpiece an der frisch gefuellten Box).
+                        self._empty_getpiece_streak = 0
+                        self.state = 0
+                        self.timer_action = time()
+                        return None
                 self.state = 5
                 self.timer_action = time()
                 self.new_piece = piece

@@ -646,6 +646,26 @@ class RunLoop:
                 self.esbot.botting = False
         else:
             self.apply_puzzle_config()
+            # Box-Nachlegen (Puzzle): Schalter + Live-Infrastruktur injizieren,
+            # analog zum Koeder-Nachlegen beim Angeln. Default AUS -> der Bot
+            # legt nie nach (byte-stabil). Inventar-DB gebuendelt, Kalibrierung
+            # Engine-Default, Inventar-Hotkey aus der Inventar-Config, gemeinsames
+            # Stop-Signal (F6 bricht eine laufende Refill-Op in <1 Slice ab).
+            try:
+                pcfg = self.controller.current_config()['puzzle']
+                self.puzzlebot.box_refill_enabled = bool(
+                    pcfg.get('box_refill_enabled', False))
+            except Exception:
+                self.puzzlebot.box_refill_enabled = False
+            self.puzzlebot.box_refill_db = self._bait_refill_db()
+            self.puzzlebot.box_refill_calib = None
+            try:
+                self.puzzlebot.inventory_hotkey = (
+                    self.controller.current_config()
+                    .get('inventory', {}).get('hotkey', 'i'))
+            except Exception:
+                self.puzzlebot.inventory_hotkey = 'i'
+            self.puzzlebot.stop_signal = self.stop_signal
             self.puzzlebot.set_to_begin(values)  # erzeugt wincap, resettet Offset
             self.inject_offset()                 # Offset NACH set_to_begin injizieren
             self.puzzlebot.botting = True
