@@ -31,6 +31,8 @@ Headless-Sicherheit: ``pydirectinput`` und die Schwester-Module von Agent A
 ``missing``-Eintrag im GATE -- kein ImportError, kein Klick.
 """
 
+import time
+
 import constants
 from debuglog import log
 from i18n import t
@@ -126,6 +128,15 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
   # Fixe Mechanik-Konstante: ein Hammer-Kauf ist IMMER ein 200er-Stack.
   HAMMER_STACK_SIZE = 200
 
+  # NPC-Suche: wird der NPC nicht erkannt, schaltet der Bot die VOGELPERSPEKTIVE
+  # um (Taste 'g'), gibt der Kamera ZEIT zum Umschalten und sucht MEHRFACH
+  # erneut, bevor er aufgibt. NPC_MAX_TRIES = Anzahl Such-Versuche MIT Umschalten
+  # (jeder Versuch toggelt die Perspektive -> es wird abwechselnd in Normal- und
+  # Vogelperspektive gesucht). NPC_SETTLE_S = Wartezeit pro Umschalten (Tests
+  # setzen 0). Als Instanz-Attribute ueberschreibbar.
+  NPC_MAX_TRIES = 4
+  NPC_SETTLE_S = 0.8
+
   def __init__(self):
     # Konstruktor haelt das Objekt headless-konstruierbar; die echte Config
     # friert set_to_begin ein. Defensive Defaults setzen, damit Read-Only-
@@ -166,6 +177,11 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
     self._buy_retries = 0
     self._npc_tries = 0
     self._birdseye_used = False
+    # Deadline (time.monotonic), bis zu der die Kamera nach einem
+    # Vogelperspektive-Umschalten rendern darf -- bis dahin tut approach_npc
+    # nichts (kein Screenshot/Klick), der naechste Tick prueft erneut. 0 = keine
+    # Wartephase aktiv.
+    self._npc_wait_until = 0.0
     # Dolch-Verarbeitung: Warteschlange der gekauften, noch nicht verarbeiteten
     # Dolch-Slots der aktuellen Runde (EINZELN nacheinander abgearbeitet).
     self._dagger_queue = []
@@ -581,10 +597,27 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
 
   # -- gemeinsame Flow-Helfer (Detection von A) ---------------------------
   def approach_npc(self, npc_template_key):
-    """Sucht den NPC-Namen (Gruen+NCC, Agent A). Trifft -> Punkt; sonst 1x
-    Vogelperspektive-KEYPRESS, dann Stop. Liefert ``pt`` oder ``None``."""
+    """Sucht den NPC-Namen (Gruen+NCC, Agent A). Trifft -> Punkt.
+
+    Bei Fehlversuch wird die VOGELPERSPEKTIVE umgeschaltet (Taste 'g'), der
+    Kamera ZEIT zum Umschalten gegeben (``NPC_SETTLE_S``) und MEHRFACH
+    (``NPC_MAX_TRIES``) erneut gesucht -- abwechselnd Normal-/Vogelperspektive --
+    bevor der Bot sauber stoppt. Wird ueber mehrere Ticks im Zustand
+    ST_APPROACH_NPC getrieben (Rueckgabe ``None`` haelt den Zustand; F6 bleibt
+    responsiv, da runHack das Abbruch-Signal an seinem Kopf prueft).
+
+    Liefert ``pt`` (gefunden) oder ``None`` (warten/erneut versuchen/gestoppt).
+    """
+    # (1) Settle-Phase nach einem Umschalten: bis die Kamera gerendert hat NICHTS
+    #     tun (kein Screenshot, kein Log-Spam). Der naechste Tick prueft erneut.
+    now = time.monotonic()
+    if self._npc_wait_until and now < self._npc_wait_until:
+      return None
+    self._npc_wait_until = 0.0
+
     try:
-      log.event(self.state, 'ABSICHT: NPC ansprechen', npc=npc_template_key)
+      log.event(self.state, 'ABSICHT: NPC ansprechen', npc=npc_template_key,
+                versuch=self._npc_tries, von=self.NPC_MAX_TRIES)
     except Exception:  # pragma: no cover
       pass
     bgr = self._shot()
@@ -600,18 +633,34 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
       ok, pt = False, None
     try:
       log.event(self.state, 'WAHRNEHMUNG: NPC-Suche', npc=npc_template_key,
-                gefunden=bool(ok and pt is not None),
+                gefunden=bool(ok and pt is not None), versuch=self._npc_tries,
                 ncc=round(float(_ncc), 3), pos=(tuple(pt) if pt is not None else None))
     except Exception:  # pragma: no cover
       pass
     if ok and pt is not None:
+      # Treffer -> Zaehler/Wartephase fuer einen evtl. spaeteren Approach zuruecksetzen.
+      self._npc_tries = 0
+      self._npc_wait_until = 0.0
       return pt
-    # einmalige Vogelperspektive (KEYPRESS), dann Stop.
-    if self.birdseye_on_miss and not self._birdseye_used:
+    # Fehlversuch: solange Versuche uebrig sind, Vogelperspektive UMSCHALTEN und
+    # der Kamera Zeit geben -- dann (naechste Ticks) erneut suchen.
+    if self.birdseye_on_miss and self._npc_tries < int(self.NPC_MAX_TRIES):
+      self._npc_tries += 1
       self._birdseye_used = True
-      log.event(self.state, t('energiesplitter.toggled_birdseye', key=self.birds_eye_key))
+      # WICHTIG: t() hat einen positionellen Parameter ``key`` -> das Format-Feld
+      # MUSS ``taste`` heissen (sonst 't() got multiple values for argument key').
+      try:
+        log.event(self.state, t('energiesplitter.toggled_birdseye',
+                                taste=self.birds_eye_key),
+                  versuch=self._npc_tries, von=self.NPC_MAX_TRIES)
+      except Exception:  # pragma: no cover
+        pass
       self._press_key(self.birds_eye_key)
-      return None  # naechster Tick versucht erneut
+      # Kamera-Settle-Zeit: bis dahin haelt approach_npc (Rueckgabe None) den
+      # Zustand; danach naechster Such-Versuch.
+      self._npc_wait_until = time.monotonic() + max(0.0, float(self.NPC_SETTLE_S))
+      return None  # naechste Ticks: warten, dann erneut suchen
+    # Versuche erschoepft (oder Vogelperspektive aus) -> sauberer Stop mit Klartext.
     log.event(self.state, t('energiesplitter.npc_not_found', npc=npc_template_key))
     self._stop('npc_not_found')
     return None

@@ -9,6 +9,16 @@ behaviour is fully preserved as the default.
 > violates the game's Terms of Service and may get your account banned. Use at
 > your own risk. See [`LICENSE.txt`](LICENSE.txt).
 
+## 🆕 What's new in 1.2.10
+
+- **Energiesplitter: first sharp run.** Fixed a crash when addressing the NPC
+  (`t() got multiple values for argument 'key'` — a latent bug that could only
+  surface now that v1.2.9 lets the bot actually reach the flow). And the
+  **bird's-eye view** is now used properly when the NPC isn't recognised: the bot
+  toggles bird's-eye (key `g`), **gives the camera time to switch** (~0.8 s) and
+  **retries several times** (alternating normal/bird's-eye, up to 4 attempts)
+  before cleanly stopping with "NPC not recognisable". F6 stops anytime.
+
 ## 🆕 What's new in 1.2.9
 
 - **Energiesplitter fixes: it stood idle, kept "running" and couldn't be stopped.**

@@ -729,5 +729,71 @@ class TestDaggerVerifyByReRead(unittest.TestCase):
     self.assertEqual(out, 0)
 
 
+class TestApproachNpcBirdseyeRetry(unittest.TestCase):
+  """NPC nicht erkannt -> Vogelperspektive umschalten, Kamera Zeit geben und
+  MEHRFACH erneut suchen, bevor sauber gestoppt wird. Inkl. Regression fuer den
+  t()-Crash ('multiple values for argument key')."""
+
+  def _miss_detect(self, hits_on=None, counter=None):
+    # find_npc_name: Treffer ab dem ``hits_on``-ten Aufruf (None = nie).
+    def _find(bgr, tpl):
+      counter['n'] += 1
+      if hits_on is not None and counter['n'] >= hits_on:
+        return (True, (50, 60), 0.95)
+      return (False, None, 0.0)
+    return types.SimpleNamespace(find_npc_name=_find)
+
+  def test_miss_toggles_birdseye_n_times_then_stops_cleanly(self):
+    _reset_input()
+    bot = _make_bot(mode=MODE_HAMMER)
+    _arm(bot)
+    bot.NPC_SETTLE_S = 0          # keine Wartezeit im Test
+    bot._template = lambda k: object()
+    counter = {'n': 0}
+    with mock.patch.object(esbot_mod, '_detect',
+                           self._miss_detect(hits_on=None, counter=counter)):
+      results = [bot.approach_npc('npc_alchemist')
+                 for _ in range(EnergiesplitterBot.NPC_MAX_TRIES + 2)]
+    # KEIN Treffer -> immer None; Vogelperspektive genau NPC_MAX_TRIES mal
+    # gedrueckt (keyDown), danach sauberer Stop -- und KEINE Exception (t-Bug).
+    self.assertTrue(all(r is None for r in results))
+    self.assertEqual(_INPUT_CALLS['keyDown'], EnergiesplitterBot.NPC_MAX_TRIES)
+    self.assertEqual(bot._stop_reason, 'npc_not_found')
+
+  def test_found_after_retries_returns_point_no_stop(self):
+    _reset_input()
+    bot = _make_bot(mode=MODE_HAMMER)
+    _arm(bot)
+    bot.NPC_SETTLE_S = 0
+    bot.botting = True
+    bot._template = lambda k: object()
+    counter = {'n': 0}
+    pt = None
+    with mock.patch.object(esbot_mod, '_detect',
+                           self._miss_detect(hits_on=3, counter=counter)):
+      for _ in range(EnergiesplitterBot.NPC_MAX_TRIES + 1):
+        pt = bot.approach_npc('npc_alchemist')
+        if pt is not None:
+          break
+    self.assertEqual(pt, (50, 60))
+    self.assertNotEqual(bot._stop_reason, 'npc_not_found')
+    self.assertTrue(bot.botting)            # nicht gestoppt
+    self.assertEqual(bot._npc_tries, 0)     # nach Treffer zurueckgesetzt
+
+  def test_birdseye_disabled_stops_immediately(self):
+    _reset_input()
+    bot = _make_bot(mode=MODE_HAMMER)
+    _arm(bot)
+    bot.birdseye_on_miss = False
+    bot._template = lambda k: object()
+    counter = {'n': 0}
+    with mock.patch.object(esbot_mod, '_detect',
+                           self._miss_detect(hits_on=None, counter=counter)):
+      out = bot.approach_npc('npc_alchemist')
+    self.assertIsNone(out)
+    self.assertEqual(_INPUT_CALLS['keyDown'], 0)   # keine Vogelperspektive
+    self.assertEqual(bot._stop_reason, 'npc_not_found')
+
+
 if __name__ == '__main__':
   unittest.main()

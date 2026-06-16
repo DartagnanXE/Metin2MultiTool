@@ -3,6 +3,24 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.10] — 2026-06-16
+
+### Behoben + verbessert (Energiesplitter: erster scharfer Lauf)
+
+- **Absturz beim NPC-Ansprechen behoben.** Beim ersten scharfen Lauf (GATE grün)
+  brach `approach_npc` mit `TypeError: t() got multiple values for argument 'key'`
+  ab (das Log-Format-Feld hieß `key` und kollidierte mit dem `key`-Parameter der
+  Übersetzungsfunktion). Latenter Bug — er konnte erst auftreten, seit der Bot
+  dank v1.2.9 überhaupt bis zum Flow kommt. Der Bot stoppte dabei sauber (kein
+  unkontrolliertes Weiterlaufen), tat aber nichts.
+- **Vogelperspektive: jetzt mehrfach mit Renderzeit.** Wird der NPC nicht erkannt,
+  schaltet der Bot die **Vogelperspektive** (Taste `g`) um, **gibt der Kamera
+  Zeit zum Umschalten** (≈0,8 s) und sucht **mehrfach erneut** (abwechselnd
+  Normal-/Vogelperspektive, standardmäßig bis zu 4 Versuche), bevor er sauber mit
+  „NPC nicht erkennbar" stoppt. Vorher gab es genau einen Tastendruck + sofortige
+  Neusuche (10 ms später — die Kamera war da noch gar nicht umgeschaltet). F6
+  stoppt während der Versuche jederzeit.
+
 ## [1.2.9] — 2026-06-16
 
 ### Behoben (Energiesplitter: lief „dauerhaft", war nicht stoppbar, tat nichts)

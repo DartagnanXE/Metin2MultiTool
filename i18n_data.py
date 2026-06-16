@@ -648,7 +648,7 @@ TRANSLATIONS = {
     'energiesplitter.max_actions': {'en': 'Action cap ({n}) reached. Stopping.', 'de': 'Aktions-Obergrenze ({n}) erreicht. Stoppe.'},
     'energiesplitter.done': {'en': 'Done. Hammers {hammers}, daggers {daggers}, splinters {splitters}. Reason: {reason}.', 'de': 'Fertig. Hämmer {hammers}, Dolche {daggers}, Splitter {splitters}. Grund: {reason}.'},
     'energiesplitter.debug_frame_saved': {'en': 'Debug frame saved: {path}', 'de': 'Debug-Frame gespeichert: {path}'},
-    'energiesplitter.toggled_birdseye': {'en': "NPC not seen – triggered bird's-eye view ({key}).", 'de': 'NPC nicht gesehen – Vogelperspektive ({key}) ausgelöst.'},
+    'energiesplitter.toggled_birdseye': {'en': "NPC not seen – triggered bird's-eye view ({taste}).", 'de': 'NPC nicht gesehen – Vogelperspektive ({taste}) ausgelöst.'},
     'energiesplitter.miss_item': {'en': 'Item template "{item}" missing – {item} cannot be recognised in inventory/shop.', 'de': 'Item-Vorlage „{item}" fehlt – {item} kann im Inventar/Shop nicht erkannt werden.'},
     'energiesplitter.miss_npc': {'en': 'NPC "{npc}" not recognisable – name template missing, the NPC cannot be addressed.', 'de': 'NPC „{npc}" nicht erkennbar – die Namens-Vorlage fehlt, der NPC kann nicht angesprochen werden.'},
     'energiesplitter.miss_calibration': {'en': 'Game window is not 800x600 (or not found) – please set the client to 800x600.', 'de': 'Spiel-Fenster ist nicht 800×600 (oder nicht gefunden) – bitte den Client auf 800×600 stellen.'},
