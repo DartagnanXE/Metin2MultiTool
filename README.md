@@ -9,6 +9,14 @@ behaviour is fully preserved as the default.
 > violates the game's Terms of Service and may get your account banned. Use at
 > your own risk. See [`LICENSE.txt`](LICENSE.txt).
 
+## 🆕 What's new in 1.2.20
+
+- **Energiesplitter now defaults to Sharp/Live** (fresh installs) so testers can
+  start right away without flipping a switch. The "Sharp/Live" toggle stays (you
+  can switch back to simulation anytime). All safety backstops remain fully active:
+  detect-before-action (only verified targets are bought/dragged), the Phase-0 gate
+  (no click without recognized assets/800×600/calibration), the action cap, and F6.
+
 ## 🆕 What's new in 1.2.19
 
 - **Energiesplitter: buy confirmation, real bird's-eye (drag), dagger processing.**

@@ -50,7 +50,9 @@ class TestEnergiesplitterConfig(unittest.TestCase):
     self.assertEqual(es['hammer']['energie_freischalten'], True)
     self.assertEqual(es['dagger']['daggers_per_round'], 1)
     self.assertEqual(es['shared']['speed_profile'], 'fast')
-    self.assertEqual(es['shared']['dry_run'], True)
+    # Default = SCHARF/Live (dry_run False) -- Tester sollen direkt testen koennen
+    # (User-Entscheidung 2026-06-16). Der 'Scharf/Live'-Schalter bleibt erhalten.
+    self.assertEqual(es['shared']['dry_run'], False)
 
   def test_no_yang_keys_remain(self):
     # Yang/gold/price/floor/spend/prefer_stack/process_mode/batch sind ENTFERNT.

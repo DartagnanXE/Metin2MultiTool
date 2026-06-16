@@ -104,7 +104,8 @@ class EnergiesplitterViewMixin:
     bs.grid_columnconfigure(1, weight=1)
     r = 0
     # Scharf / Live (rot) -- Inversion von dry_run. AUS = Simulation.
-    self._es_scharf_var = ctk.BooleanVar(value=False)
+    # Default AN (dry_run-Default ist jetzt False = Scharf, siehe defaults.py).
+    self._es_scharf_var = ctk.BooleanVar(value=True)
     ssw = ctk.CTkSwitch(
         bs, text=t('ui.es_scharf_label'), variable=self._es_scharf_var,
         progress_color=DANGER,
@@ -270,7 +271,8 @@ class EnergiesplitterViewMixin:
       self._es_speed_var.set(v2l.get(str(s.get('speed_profile', 'fast')),
                                      t('ui.es_speed_fast')))
       # Scharf-Schalter = Inversion von dry_run (AN = scharf = dry_run False).
-      self._es_scharf_var.set(not bool(s.get('dry_run', True)))
+      # Default dry_run = False -> Schalter standardmaessig AN (scharf).
+      self._es_scharf_var.set(not bool(s.get('dry_run', False)))
     except Exception:
       pass
 

@@ -3,6 +3,18 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.20] — 2026-06-16
+
+### Energiesplitter: Standard ist jetzt SCHARF/Live (direkt testbar)
+
+- Der Energiesplitter startet bei einer **frischen Installation jetzt im
+  Scharf/Live-Modus** (statt Simulation) — Tester können direkt loslegen, ohne
+  erst einen Schalter umzulegen. Der **„Scharf/Live"-Schalter bleibt** (jederzeit
+  auf Simulation zurückstellbar). Die Sicherheits-Backstops bleiben voll aktiv:
+  **Erkennung-vor-Aktion** (Kauf/Drag nur auf verifizierte Ziele), das
+  **Phase-0-GATE** (kein Klick ohne erkannte Assets/800×600/Kalibrierung), das
+  **Aktions-Limit** und **F6**.
+
 ## [1.2.19] — 2026-06-16
 
 ### Energiesplitter: Kauf-Bestätigung, echte Vogelperspektive (Drag), Dolch-Verarbeitung

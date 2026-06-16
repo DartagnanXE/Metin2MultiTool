@@ -195,7 +195,11 @@ DEFAULTS = {
             'max_actions': 0,             # 0 = auto
             'consecutive_unverified_stop': 3,
             'jitter_pct': 0.15,
-            'dry_run': True,              # arm-Flag, sicherer Erststart-Default
+            # Default = SCHARF/Live (User-Entscheidung 2026-06-16: Tester sollen
+            # direkt testen koennen). Der 'Scharf/Live'-Schalter bleibt; die
+            # Erkennung-vor-Aktion + das Phase-0-GATE stoppen weiterhin sauber,
+            # wenn etwas nicht verifiziert ist (kein Blind-Klick).
+            'dry_run': False,
         },
     },
     'log': {
