@@ -9,10 +9,10 @@ import version
 
 
 class TestVersionConstant(unittest.TestCase):
-    def test_version_is_1222(self):
+    def test_version_is_1223(self):
         # Pro Release nachziehen -- der Pin verhindert ein versehentliches
         # Shipping mit alter Versionsnummer (Updater vergleicht gegen den Tag).
-        self.assertEqual(version.__version__, '1.2.22')
+        self.assertEqual(version.__version__, '1.2.23')
 
 
 class TestVersionTuple(unittest.TestCase):

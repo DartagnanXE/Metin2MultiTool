@@ -3,6 +3,21 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.23] — 2026-06-17
+
+### Energiesplitter Dolch-Modus: Shop kauft jetzt + ALLE Dolche werden verarbeitet
+
+- **`bag_not_open`-Stopp behoben.** Beim Waffenhändler ging der Shop auf, dann
+  stoppte der Bot mit „bag_not_open". Ursache: ein doppelter Taschen-Check
+  (`panel_is_bag`) war nicht kalibriert → lieferte immer „nicht offen" → Stopp.
+  Entfernt — die Tasche wird ohnehin schon zuverlässig (open_probe) verifiziert.
+  Der Dolch-Kauf läuft jetzt durch.
+- **Auch bereits vorhandene Dolche werden weggehämmert.** Der Bot verarbeitet
+  jetzt **alle Dolche im Inventar** (gekaufte **und** schon vorher vorhandene) —
+  aber **NUR Slots, die sicher als Dolch erkannt sind** (NCC-Gewinner unter allen
+  Item-Vorlagen). **Niemals ein anderes Item.** Vor jedem Zug wird das Ziel
+  zusätzlich erneut als Dolch geprüft (doppelte Sicherheit).
+
 ## [1.2.22] — 2026-06-16
 
 ### Energiesplitter: NPC-Dialog bekommt Zeit zum Erscheinen (Kauf scheiterte an „Laden öffnen")

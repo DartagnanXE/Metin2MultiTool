@@ -973,6 +973,35 @@ class TestShopLocateRenderRetry(unittest.TestCase):
     self.assertEqual(bot._shop_locate_tries, 0)        # nach Treffer zurueckgesetzt
 
 
+class TestProcessAllDaggers(unittest.TestCase):
+  """Verarbeitung haemmert ALLE sicher erkannten Dolche im Inventar weg
+  (gekauft + bereits vorhanden), nicht nur die gekauften Lande-Slots."""
+
+  def test_queue_becomes_all_dolch_slots(self):
+    bot = _make_bot(mode=MODE_DAGGER)
+    _arm(bot)
+    bot.SHOP_OPEN_SETTLE_S = 0
+    bot._dagger_queue = [(7, 7)]                 # nur 1 gekaufter Lande-Slot
+    # Inventar enthaelt 3 sichere Dolche (gekauft + 2 bereits vorhandene).
+    bot._all_dolch_slots = lambda: [(7, 7), (8, 8), (9, 9)]
+    bot._start_processing_queue()
+    self.assertEqual(bot.state, EnergiesplitterBot.ST_PROCESS_DRAG)
+    # 1 sofort verarbeitet (gepoppt) + 2 in der Queue = alle 3 Dolche.
+    self.assertEqual(bot._dolch_inv_slot, (7, 7))
+    self.assertEqual(bot._dagger_queue, [(8, 8), (9, 9)])
+
+  def test_fallback_to_bought_when_scan_empty(self):
+    bot = _make_bot(mode=MODE_DAGGER)
+    _arm(bot)
+    bot.SHOP_OPEN_SETTLE_S = 0
+    bot._dagger_queue = [(5, 5), (6, 6)]
+    bot._all_dolch_slots = lambda: []            # Scan faellt aus
+    bot._start_processing_queue()
+    self.assertEqual(bot.state, EnergiesplitterBot.ST_PROCESS_DRAG)
+    self.assertEqual(bot._dolch_inv_slot, (5, 5))
+    self.assertEqual(bot._dagger_queue, [(6, 6)])
+
+
 class TestBuyConfirmAndCloseShop(unittest.TestCase):
   """Kauf-Bestaetigung 'Ja' wird geklickt, wenn der Dialog erscheint; vor dem
   Dolch-Drag wird der Laden geschlossen (ESC)."""

@@ -256,6 +256,27 @@ class BridgesMixin:
       pass
     return slot if ok else None
 
+  def _all_dolch_slots(self):
+    """ALLE SICHER als Dolch erkannten Inventar-Slots (Pixel-Mittelpunkte) --
+    fuer das Weghaemmern bereits vorhandener Dolche. NUR echte Dolche (kein
+    Fremd-Item): die Klassifikation nimmt den NCC-Gewinner >= Schwelle. Defensiv
+    leere Liste. Read-only, wirft NIE."""
+    if _b._detect is None or not hasattr(_b._detect, 'find_all_inventory_items'):
+      return []
+    bgr = self._shot()
+    if bgr is None:
+      return []
+    try:
+      slots = list(_b._detect.find_all_inventory_items(bgr, 'dolch'))
+    except Exception:  # pragma: no cover
+      slots = []
+    try:
+      log.event(self.state, 'WAHRNEHMUNG: Dolche im Inventar (alle, sicher erkannt)',
+                anzahl=len(slots))
+    except Exception:  # pragma: no cover
+      pass
+    return slots
+
   def _slot_is(self, item, slot) -> bool:
     if _b._detect is None or not hasattr(_b._detect, 'slot_is') or slot is None:
       return False

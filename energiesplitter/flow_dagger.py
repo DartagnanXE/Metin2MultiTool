@@ -80,8 +80,10 @@ class DaggerFlowMixin:
     if st == self.ST_OPEN_SHOP:
       if not self.open_shop_via_dialog():
         return
-      if not self._ensure_bag_open():
-        return
+      # HINWEIS: der fruehere _ensure_bag_open()-Doppelcheck (panel_is_bag) ist
+      # ENTFERNT -- sein Marker-Template ist nicht kalibriert -> lieferte IMMER
+      # False -> Stop 'bag_not_open' (genau der Tester-Fall). Die Tasche ist
+      # bereits am ST_INVENTORY_BASE ueber die bewaehrte open_probe verifiziert.
       self.state = self.ST_LOCATE_DOLCH
       return
 
@@ -220,6 +222,12 @@ class DaggerFlowMixin:
       return
     self._close_shop()                       # Laden zu -> Drag erlaubt
     self._settle(self.SHOP_OPEN_SETTLE_S)     # Schliessen rendern lassen
+    # ALLE Dolche im Inventar verarbeiten (gerade gekaufte + bereits vorhandene)
+    # -- NUR sicher als Dolch erkannte Slots (User-Vorgabe: nie ein Fremd-Item).
+    # Faellt der Scan aus, bleiben die gekauften Lande-Slots als Fallback.
+    all_dolch = self._all_dolch_slots()
+    if all_dolch:
+      self._dagger_queue = list(all_dolch)
     self._dolch_inv_slot = self._dagger_queue.pop(0)
     self.state = self.ST_PROCESS_DRAG
 

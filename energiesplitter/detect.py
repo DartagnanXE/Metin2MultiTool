@@ -841,6 +841,25 @@ def find_inventory_item(bgr, item):
     return (False, None)
 
 
+def find_all_inventory_items(bgr, item):
+    """ALLE Inventar-Slots, deren Zelle SICHER als ``item`` klassifiziert ist ->
+    Liste von Pixel-Mittelpunkten (kalibriertes Lattice). 'Sicher' = der NCC-
+    Gewinner unter ALLEN Item-Templates ist ``item`` UND >= ``NCC_ITEM`` -> NIE
+    ein anderes Item (kritisch fuers Dolch-Weghaemmern: nur echte Dolche). Leere
+    Liste bei fehlendem Bild/Template. Read-only, wirft NIE."""
+    out = []
+    if np is None or _cv is None or bgr is None or not item:
+        return out
+    if _imread(_item_path(item)) is None:
+        return out
+    client = _geo.to_client(bgr)
+    for slot in range(1, MAX_SLOT + 1):
+        lbl, _ncc = _classify_slot(client, slot)
+        if lbl == item:
+            out.append(_cal.slot_center(slot))
+    return out
+
+
 def slot_is(bgr, slot, item):
     """``True``, wenn auf ``slot`` das Icon ``item`` liegt (Drag-Quelle/Ziel-Check).
 

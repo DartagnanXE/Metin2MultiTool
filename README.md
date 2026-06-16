@@ -9,6 +9,16 @@ behaviour is fully preserved as the default.
 > violates the game's Terms of Service and may get your account banned. Use at
 > your own risk. See [`LICENSE.txt`](LICENSE.txt).
 
+## 🆕 What's new in 1.2.23
+
+- **Energiesplitter dagger mode: the shop buys now + ALL daggers get processed.**
+  At the weapon dealer the shop opened but then stopped with "bag_not_open" — an
+  uncalibrated double bag-check that always failed; removed (the bag is already
+  verified via open_probe). And the bot now hammers **every dagger in the
+  inventory** (bought **and** pre-existing) — but **only slots safely recognized
+  as a dagger** (NCC winner among all item templates), never any other item, with
+  a second per-drag verification.
+
 ## 🆕 What's new in 1.2.22
 
 - **Energiesplitter: the NPC dialog now gets time to appear.** A full tester run

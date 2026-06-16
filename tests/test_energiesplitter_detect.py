@@ -377,6 +377,20 @@ class TestInventoryClassification(unittest.TestCase):
     def test_count_item_missing_template_is_zero(self):
         self.assertEqual(d.count_item(self.alch, 'bogus_item'), 0)
 
+    def test_find_all_dolch_slots_only_daggers(self):
+        # Fuers Weghaemmern bereits vorhandener Dolche: ALLE Dolch-Slots, aber
+        # NUR echte Dolche (19/20/23/24) -- NIE Hammer (18/25/28/29) oder Schwert
+        # (21). Das ist die kritische Sicherheits-Eigenschaft (User-Vorgabe).
+        import energiesplitter.calibration as cal
+        dolche = d.find_all_inventory_items(self.alch, 'dolch')
+        self.assertEqual(dolche, [cal.slot_center(s) for s in (19, 20, 23, 24)])
+        # Schwert-Slot 21 + Hammer-Slots sind NICHT dabei.
+        for s in (18, 21, 25, 28, 29):
+            self.assertNotIn(cal.slot_center(s), dolche)
+
+    def test_find_all_items_missing_template_empty(self):
+        self.assertEqual(d.find_all_inventory_items(self.alch, 'bogus'), [])
+
     def test_find_inventory_item_returns_pixel_point(self):
         ok, pt = d.find_inventory_item(self.alch, 'hammer')
         self.assertTrue(ok)
