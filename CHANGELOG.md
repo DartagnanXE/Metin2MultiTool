@@ -3,6 +3,21 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.22] — 2026-06-16
+
+### Energiesplitter: NPC-Dialog bekommt Zeit zum Erscheinen (Kauf scheiterte an „Laden öffnen")
+
+- Ein kompletter Tester-Lauf zeigte: NPC erkannt + angeklickt, aber dann
+  „Laden öffnen nicht gefunden" (NCC 0.274) → Stopp. Ursache: die Suche nach der
+  Dialogzeile lief **~30 ms nach dem NPC-Klick** — der NPC-Dialog war da noch gar
+  nicht aufgegangen.
+- **Fix:** Nach dem NPC-Ansprechen wartet der Bot jetzt kurz, **bis der Dialog
+  erscheint**, und sucht „Laden öffnen" **mehrfach mit Renderpause** (bis 5×),
+  bevor er aufgibt.
+- **Log-Flut reduziert:** „ZUSTAND: Tick" wird nur noch geloggt, wenn sich
+  wirklich etwas ändert (vorher ~80 identische Zeilen während Wartephasen — sah
+  eingefroren aus).
+
 ## [1.2.21] — 2026-06-16
 
 ### Energiesplitter: Shop-Item-Suche mit Render-Retry (Kauf scheiterte „knapp")

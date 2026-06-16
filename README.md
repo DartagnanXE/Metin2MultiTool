@@ -9,6 +9,15 @@ behaviour is fully preserved as the default.
 > violates the game's Terms of Service and may get your account banned. Use at
 > your own risk. See [`LICENSE.txt`](LICENSE.txt).
 
+## 🆕 What's new in 1.2.22
+
+- **Energiesplitter: the NPC dialog now gets time to appear.** A full tester run
+  showed the NPC recognized + clicked, but then "open shop not found" (NCC 0.274)
+  because the dialog search ran ~30 ms after the click — before the NPC dialog had
+  opened. The bot now waits for the dialog and retries the "open shop" line search
+  with a render pause (up to 5×). Also: the "ZUSTAND: Tick" log no longer spams
+  identical lines during waits (looked frozen).
+
 ## 🆕 What's new in 1.2.21
 
 - **Energiesplitter: shop-item search now retries while the shop renders.** The

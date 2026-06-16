@@ -796,18 +796,44 @@ class TestOpenShopViaDialog(unittest.TestCase):
         self.assertEqual(_INPUT_CALLS['click'], 1)        # Linksklick auf die Zeile
         self.assertNotEqual(bot._stop_reason, 'shop_not_open')
 
-    def test_stops_when_laden_oeffnen_absent(self):
+    def test_retries_then_stops_when_laden_oeffnen_absent(self):
+        # 'Laden oeffnen' nicht da -> erst mit Renderpause erneut suchen
+        # (Dialog evtl. noch am Erscheinen), nach DIALOG_OPEN_MAX_TRIES Stop.
         bot = _make_bot(mode=MODE_HAMMER)
         _arm(bot)
         bot.botting = True
         bot.SHOP_OPEN_SETTLE_S = 0
+        bot.DIALOG_SETTLE_S = 0
+        bot.DIALOG_OPEN_MAX_TRIES = 3
         fake = types.SimpleNamespace(
             find_dialog_line=lambda bgr, tpl: (False, None, 0.2))
         with mock.patch.object(esbot_mod, '_detect', fake):
             bot._template = lambda k: object()
-            ok = bot.open_shop_via_dialog()
-        self.assertFalse(ok)
+            results = [bot.open_shop_via_dialog()
+                       for _ in range(bot.DIALOG_OPEN_MAX_TRIES)]
+        self.assertTrue(all(r is False for r in results))
         self.assertEqual(bot._stop_reason, 'shop_not_open')
+        self.assertEqual(bot._dialog_open_tries, 3)
+
+    def test_clicks_after_render_retry(self):
+        # Erscheint 'Laden oeffnen' erst beim 2. Versuch -> wird dann geklickt.
+        bot = _make_bot(mode=MODE_HAMMER)
+        _arm(bot)
+        bot.botting = True
+        bot.SHOP_OPEN_SETTLE_S = 0
+        bot.DIALOG_SETTLE_S = 0
+        calls = {'n': 0}
+        def _find(bgr, tpl):
+            calls['n'] += 1
+            return (True, (400, 286), 0.95) if calls['n'] >= 2 else (False, None, 0.2)
+        fake = types.SimpleNamespace(find_dialog_line=_find)
+        with mock.patch.object(esbot_mod, '_detect', fake):
+            bot._template = lambda k: object()
+            r1 = bot.open_shop_via_dialog()   # noch nicht da -> retry
+            r2 = bot.open_shop_via_dialog()   # jetzt da -> klick
+        self.assertFalse(r1)
+        self.assertTrue(r2)
+        self.assertEqual(bot._dialog_open_tries, 0)   # nach Erfolg zurueckgesetzt
 
 
 class TestEnsureInventoryOpen(unittest.TestCase):

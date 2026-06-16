@@ -163,6 +163,13 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
   # Wartezeit, damit der Shop nach 'Laden oeffnen' rendert, bevor das Item
   # gesucht wird (Tests setzen 0).
   SHOP_OPEN_SETTLE_S = 0.5
+  # Wartezeit, damit der NPC-DIALOG nach dem Ansprechen (Linksklick) erscheint,
+  # bevor nach 'Laden oeffnen' gesucht wird. FEHLTE -> die Suche lief ~30ms nach
+  # dem Klick, der Dialog war noch nicht offen (Tester: ncc 0.274). Tests = 0.
+  DIALOG_SETTLE_S = 0.7
+  # Wie oft 'Laden oeffnen' (Dialog) mit Renderpause erneut gesucht wird, bevor
+  # 'Laden oeffnete nicht' gemeldet wird.
+  DIALOG_OPEN_MAX_TRIES = 5
 
   def __init__(self):
     # Konstruktor haelt das Objekt headless-konstruierbar; die echte Config
@@ -204,6 +211,8 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
     self._npc_tries = 0
     # Render-Retry-Zaehler fuers Shop-Item-Suchen (Shop blendet ein).
     self._shop_locate_tries = 0
+    # Render-Retry-Zaehler fuers Dialog-Oeffnen ('Laden oeffnen' erscheint).
+    self._dialog_open_tries = 0
     # Wurde fuer DIESEN Lauf schon die volle Vogelperspektive gefahren
     # (Rechtsklick-Drag)? Einmal pro Lauf -- danach bleibt die Kamera top-down,
     # der Bot kann den Shop beliebig oft neu oeffnen ohne erneut zu kippen.
@@ -475,12 +484,20 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
     if self._dismiss_afk_if_present():
       return
 
-    try:
-      log.event(self.state, 'ZUSTAND: Tick', modus=self.mode,
-                actions_done=self.actions_done, gekauft=self.gekauft,
-                rest=self.hammer_remaining)
-    except Exception:  # pragma: no cover
-      pass
+    # 'ZUSTAND: Tick' NUR loggen, wenn sich Zustand/Fortschritt aendert -- sonst
+    # spammt der 10ms-Tick waehrend Wartephasen (z.B. Kamera-Settle) ~80 gleiche
+    # Zeilen und das Log SIEHT eingefroren aus (Tester stoppte deshalb). Keine
+    # Verhaltensaenderung, nur weniger Rauschen.
+    _tick_sig = (self.state, self.actions_done, self.gekauft,
+                 self.hammer_remaining)
+    if _tick_sig != getattr(self, '_last_tick_sig', None):
+      self._last_tick_sig = _tick_sig
+      try:
+        log.event(self.state, 'ZUSTAND: Tick', modus=self.mode,
+                  actions_done=self.actions_done, gekauft=self.gekauft,
+                  rest=self.hammer_remaining)
+      except Exception:  # pragma: no cover
+        pass
     # Verhalten UNVERAENDERT: ein unerwarteter Tick-Fehler wird protokolliert
     # (mit Traceback fuer den Tester) und dann RE-RAISED -- das Logging darf den
     # Fehler nicht verschlucken (das waere eine Verhaltensaenderung).
@@ -890,11 +907,20 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
     except Exception:  # pragma: no cover
       pass
     if not ok or pt is None:
-      # Kein 'Laden oeffnen' sichtbar -> Dialog nicht offen / falsche Seite.
+      # 'Laden oeffnen' (noch) nicht da -> Dialog evtl. noch am Erscheinen:
+      # mit Renderpause erneut versuchen, bevor aufgegeben wird.
+      self._dialog_open_tries += 1
+      if self._dialog_open_tries < int(self.DIALOG_OPEN_MAX_TRIES):
+        log.event(self.state, "WAHRNEHMUNG: 'Laden oeffnen' noch nicht da -- warte + erneut",
+                  versuch=self._dialog_open_tries, von=self.DIALOG_OPEN_MAX_TRIES,
+                  ncc=round(float(ncc), 3))
+        self._settle(self.DIALOG_SETTLE_S)
+        return False   # bleibt in ST_OPEN_SHOP, naechster Tick sucht erneut
       self._snapshot('shop_not_open')
       log.event(self.state, t('energiesplitter.shop_not_open'))
       self._stop('shop_not_open')
       return False
+    self._dialog_open_tries = 0
     try:
       log.event(self.state, "ABSICHT: 'Laden oeffnen' anklicken", ziel=tuple(pt))
     except Exception:  # pragma: no cover
@@ -1000,6 +1026,9 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
     except Exception:  # pragma: no cover
       pass
     self._left_click(int(pt[0]), int(pt[1]))
+    # Dem NPC-Dialog ZEIT zum Erscheinen geben, BEVOR nach 'Laden oeffnen'
+    # gesucht wird (sonst lief die Suche ~30ms nach dem Klick ins Leere).
+    self._settle(self.DIALOG_SETTLE_S)
     return True
 
   def _open_dialog(self, pt):
