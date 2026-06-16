@@ -729,6 +729,49 @@ class TestDaggerVerifyByReRead(unittest.TestCase):
     self.assertEqual(out, 0)
 
 
+class TestWindowFocus(unittest.TestCase):
+  """Tasten brauchen FOKUS -- der Bot muss das Spiel-Fenster in den Vordergrund
+  holen (sonst landet z.B. die Vogelperspektive 'g' im Bot-Fenster). Genau das
+  fehlte -> NPC-Suche drehte sich endlos, weil 'g' nie im Spiel ankam."""
+
+  def test_press_key_focuses_game_first(self):
+    bot = _make_bot(mode=MODE_HAMMER)
+    _arm(bot)
+    bot.wincap.hwnd = 1234
+    calls = []
+    with mock.patch.object(esbot_mod, '_focus_window',
+                           lambda h: calls.append(h) or True):
+      ok = bot._press_key('g')
+    self.assertTrue(ok)
+    self.assertEqual(calls, [1234])      # vor dem Tastendruck fokussiert
+
+  def test_simulation_does_not_focus_or_press(self):
+    # Im Simulationsmodus (dry_run) ist _press_key ein No-op -> kein Fokus-Klau.
+    bot = _make_bot(mode=MODE_HAMMER)
+    bot.armed = True
+    bot.dry_run = True
+    bot.wincap.hwnd = 1234
+    calls = []
+    with mock.patch.object(esbot_mod, '_focus_window',
+                           lambda h: calls.append(h) or True):
+      ok = bot._press_key('g')
+    self.assertFalse(ok)
+    self.assertEqual(calls, [])
+
+  def test_run_focuses_game_once_at_start(self):
+    bot = _make_bot(mode=MODE_HAMMER)
+    _arm(bot)
+    bot.wincap.hwnd = 4321
+    bot.botting = True
+    bot.state = EnergiesplitterBot.ST_INIT
+    calls = []
+    with mock.patch.object(esbot_mod, '_focus_window',
+                           lambda h: calls.append(h) or True):
+      bot.runHack()                      # erster scharfer Tick (ST_INIT)
+    self.assertTrue(bot._did_focus)
+    self.assertEqual(calls, [4321])      # genau einmal in den Vordergrund
+
+
 class TestApproachNpcBirdseyeRetry(unittest.TestCase):
   """NPC nicht erkannt -> Vogelperspektive umschalten, Kamera Zeit geben und
   MEHRFACH erneut suchen, bevor sauber gestoppt wird. Inkl. Regression fuer den

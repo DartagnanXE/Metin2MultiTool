@@ -9,6 +9,16 @@ behaviour is fully preserved as the default.
 > violates the game's Terms of Service and may get your account banned. Use at
 > your own risk. See [`LICENSE.txt`](LICENSE.txt).
 
+## 🆕 What's new in 1.2.11
+
+- **Energiesplitter: the game window is now focused during a run.** Keystrokes
+  (like the bird's-eye `g`) only reach the **focused** window — without focus they
+  went to the bot window and did nothing in-game, so the camera never switched and
+  the NPC stayed "not recognisable" (`ncc=0.0`, endless retries). The bot now
+  brings the game to the foreground at run start and before every keystroke (plain
+  `SetForegroundWindow`, no process access). Applies to both NPCs (Alchemist +
+  weapon dealer).
+
 ## 🆕 What's new in 1.2.10
 
 - **Energiesplitter: first sharp run.** Fixed a crash when addressing the NPC

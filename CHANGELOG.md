@@ -3,6 +3,20 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.11] — 2026-06-16
+
+### Behoben (Energiesplitter: Spiel-Fenster wird beim Lauf fokussiert)
+
+- **Fenster-Fokus beim Start + vor Tastendrücken.** Tasten (z. B. die
+  Vogelperspektive `g`) gehen immer an das **fokussierte** Fenster — ohne Fokus
+  landeten sie im Bot-Fenster und bewirkten im Spiel nichts. Dadurch wurde die
+  Kamera nie umgeschaltet und der NPC blieb „nicht erkennbar" (NPC-Suche drehte
+  sich endlos mit `ncc=0.0`). Der Bot holt das Spiel-Fenster jetzt **beim
+  Lauf-Start einmal in den Vordergrund** und **vor jedem Tastendruck** erneut
+  (reiner `SetForegroundWindow`-Aufruf, kein Prozess-Zugriff). Maus-Klicks
+  aktivieren das Fenster ohnehin selbst. Gilt für **beide** NPCs (Alchemist +
+  Waffenhändler).
+
 ## [1.2.10] — 2026-06-16
 
 ### Behoben + verbessert (Energiesplitter: erster scharfer Lauf)

@@ -51,6 +51,11 @@ try:  # Fenster-Capture (Windows-only; in Tests gestubbt)
 except Exception:  # pragma: no cover
     _WindowCapture = None
 
+try:  # Fenster-Fokus (Vordergrund holen; Tasten brauchen Fokus). Soft.
+    from windowcapture import focus_window as _focus_window
+except Exception:  # pragma: no cover
+    _focus_window = None
+
 try:  # Vision/Asset-Pruefung (Agent A)
     from energiesplitter import detect as _detect
 except Exception:
@@ -177,6 +182,9 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
     self._buy_retries = 0
     self._npc_tries = 0
     self._birdseye_used = False
+    # Wurde das Spiel-Fenster fuer diesen Lauf schon EINMAL in den Vordergrund
+    # geholt? (Tasten brauchen Fokus -- sonst landet z.B. 'g' im Bot-Fenster.)
+    self._did_focus = False
     # Deadline (time.monotonic), bis zu der die Kamera nach einem
     # Vogelperspektive-Umschalten rendern darf -- bis dahin tut approach_npc
     # nichts (kein Screenshot/Klick), der naechste Tick prueft erneut. 0 = keine
@@ -431,6 +439,13 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
       self._stop('simulation_idle')
       return
 
+    # Scharfer Lauf: das Spiel-Fenster EINMAL pro Lauf in den Vordergrund holen,
+    # damit Tasten (Vogelperspektive) sicher ankommen und der Lauf das Fenster
+    # besitzt. Klicks aktivieren es ohnehin; Tasten NICHT (genau hier hakte es).
+    if not self._did_focus:
+      self._did_focus = True
+      self._focus_game()
+
     try:
       log.event(self.state, 'ZUSTAND: Tick', modus=self.mode,
                 actions_done=self.actions_done, gekauft=self.gekauft,
@@ -548,6 +563,30 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
     oy = getattr(self.wincap, 'offset_y', 0) or 0
     return int(x + ox), int(y + oy)
 
+  def _focus_game(self):
+    """Holt das Spiel-Fenster in den VORDERGRUND (Tastatur-Fokus).
+
+    NOETIG: ``pydirectinput``-TASTEN gehen ans fokussierte Fenster -- ohne Fokus
+    landet z.B. die Vogelperspektive 'g' im Bot-Fenster und bewirkt im Spiel
+    nichts. (Maus-Klicks aktivieren das Fenster ohnehin selbst.) Defensiv: ohne
+    Modul/HWND ein No-op. Wirft NIE. Liefert ``True`` bei Erfolg."""
+    if _focus_window is None:
+      return False
+    hwnd = getattr(self.wincap, 'hwnd', None)
+    if not hwnd:
+      return False
+    try:
+      ok = bool(_focus_window(hwnd))
+      try:
+        log.event(self.state,
+                  'AKTION: Spiel-Fenster in den Vordergrund geholt (Fokus)',
+                  erfolg=ok)
+      except Exception:  # pragma: no cover
+        pass
+      return ok
+    except Exception:  # pragma: no cover - defensiv
+      return False
+
   def _right_click(self, x, y):
     if self._guarded():
       return False
@@ -573,6 +612,9 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
   def _press_key(self, key):
     if self._guarded():
       return False
+    # Taste braucht FOKUS: erst das Spiel in den Vordergrund holen, sonst geht
+    # der Tastendruck (z.B. Vogelperspektive 'g') ins Bot-Fenster ins Leere.
+    self._focus_game()
     try:
       _input.PAUSE = self.keyboard_pause
       _input.keyDown(key)

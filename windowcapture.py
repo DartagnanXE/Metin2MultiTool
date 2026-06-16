@@ -157,6 +157,29 @@ def set_client_size(hwnd, client_w, client_h):
         return False
 
 
+def focus_window(hwnd):
+    """Holt das Spiel-Fenster in den VORDERGRUND + gibt ihm den Tastatur-Fokus.
+
+    NOETIG, weil ``pydirectinput``-TASTEN (z.B. Vogelperspektive 'g') immer an
+    das FOKUSSIERTE Fenster gehen -- ohne Fokus landen sie im Bot-Fenster und
+    bewirken im Spiel nichts. (Maus-Klicks aktivieren das Fenster ohnehin, Tasten
+    NICHT.) Minimiertes Fenster wird wiederhergestellt. Reiner user32-Aufruf
+    (kein Prozess-Zugriff, anti-cheat-neutral). Streng defensiv: liefert ``True``
+    bei Erfolg, ``False`` bei Fehler/headless -- wirft NIE.
+    """
+    if not hwnd:
+        return False
+    try:
+        if win32gui.IsIconic(hwnd):
+            win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
+        win32gui.SetForegroundWindow(hwnd)
+        return True
+    except Exception as exc:  # pragma: no cover - SetForegroundWindow kann je
+        # nach Fokus-Situation fehlschlagen; das ist kein fataler Fehler.
+        _log_error('focus_window failed', exc=exc)
+        return False
+
+
 def enumerate_game_windows(name):
     """Listet alle SICHTBAREN Fenster mit Titel == ``name`` (Item N).
 
