@@ -448,8 +448,6 @@ def _validate_energiesplitter(value):
         'jitter_pct': float(_clamp(
             src_s.get('jitter_pct'), ES_JITTER_MIN, ES_JITTER_MAX,
             d_s['jitter_pct'])),
-        'birdseye_on_miss': bool(
-            src_s.get('birdseye_on_miss', d_s['birdseye_on_miss'])),
         'dry_run': bool(src_s.get('dry_run', d_s['dry_run'])),
     }
     return {'hammer': hammer, 'dagger': dagger, 'shared': shared}

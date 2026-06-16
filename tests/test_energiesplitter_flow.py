@@ -664,14 +664,17 @@ class TestDaggerSequential(unittest.TestCase):
     self.assertFalse(bot.botting)
     self.assertEqual(bot._stop_reason, 'done')
 
-  def test_rescan_next_round_when_hammers_left(self):
+  def test_rescan_next_round_reopens_shop_via_npc(self):
+    # Nach einer Runde ist der Laden GESCHLOSSEN (fuer den Drag) -> die naechste
+    # Runde muss den NPC erneut ansprechen + Laden neu oeffnen, also zurueck zu
+    # ST_APPROACH_NPC (nicht direkt ST_LOCATE_DOLCH auf geschlossenem Laden).
     bot = _make_bot(mode=MODE_DAGGER)
     _arm(bot)
     bot.state = EnergiesplitterBot.ST_RESCAN
     bot.botting = True
     bot._count_hammers = lambda: 5
     bot.runHack()
-    self.assertEqual(bot.state, EnergiesplitterBot.ST_LOCATE_DOLCH)
+    self.assertEqual(bot.state, EnergiesplitterBot.ST_APPROACH_NPC)
 
   def test_inventory_base_no_hammers_stops(self):
     bot = _make_bot(mode=MODE_DAGGER)
@@ -901,13 +904,57 @@ class TestWindowFocus(unittest.TestCase):
     self.assertEqual(calls, [4321])      # genau einmal in den Vordergrund
 
 
-class TestApproachNpcBirdseyeRetry(unittest.TestCase):
-  """NPC nicht erkannt -> Vogelperspektive umschalten, Kamera Zeit geben und
-  MEHRFACH erneut suchen, bevor sauber gestoppt wird. Inkl. Regression fuer den
-  t()-Crash ('multiple values for argument key')."""
+class TestBuyConfirmAndCloseShop(unittest.TestCase):
+  """Kauf-Bestaetigung 'Ja' wird geklickt, wenn der Dialog erscheint; vor dem
+  Dolch-Drag wird der Laden geschlossen (ESC)."""
+
+  def test_confirm_buy_clicks_ja(self):
+    _reset_input()
+    bot = _make_bot(mode=MODE_HAMMER)
+    _arm(bot)
+    fake = types.SimpleNamespace(
+        buy_confirm_present=lambda bgr: (True, (360, 313)))
+    with mock.patch.object(esbot_mod, '_detect', fake):
+      handled = bot._confirm_buy_if_present()
+    self.assertTrue(handled)
+    self.assertEqual(_INPUT_CALLS['click'], 1)        # 'Ja' linksgeklickt
+
+  def test_confirm_buy_noop_when_absent(self):
+    _reset_input()
+    bot = _make_bot(mode=MODE_HAMMER)
+    _arm(bot)
+    fake = types.SimpleNamespace(
+        buy_confirm_present=lambda bgr: (False, None))
+    with mock.patch.object(esbot_mod, '_detect', fake):
+      self.assertFalse(bot._confirm_buy_if_present())
+    self.assertEqual(_INPUT_CALLS['click'], 0)
+
+  def test_close_shop_presses_esc(self):
+    _reset_input()
+    bot = _make_bot(mode=MODE_HAMMER)
+    _arm(bot)
+    bot._close_shop()
+    self.assertEqual(_INPUT_CALLS['keyDown'], 1)      # ESC gedrueckt
+    self.assertEqual(_INPUT_CALLS['keyUp'], 1)
+
+  def test_processing_queue_closes_shop_before_drag(self):
+    # _start_processing_queue MUSS vor dem ersten Drag den Laden schliessen.
+    _reset_input()
+    bot = _make_bot(mode=MODE_DAGGER)
+    _arm(bot)
+    bot.SHOP_OPEN_SETTLE_S = 0
+    bot._dagger_queue = [(5, 5), (6, 6)]
+    bot._start_processing_queue()
+    self.assertEqual(bot.state, EnergiesplitterBot.ST_PROCESS_DRAG)
+    self.assertEqual(_INPUT_CALLS['keyDown'], 1)      # ESC (Laden zu) vor Drag
+
+
+class TestApproachNpcBirdseyeDrag(unittest.TestCase):
+  """NPC ansprechen: ZUERST volle Vogelperspektive per RECHTSKLICK-DRAG (kein 'g'
+  mehr), dann Namens-Suche; bei Miss Kamera nachziehen (bounded), dann Stop.
+  Die Maustaste wird IMMER wieder geloest (mouseDown==mouseUp)."""
 
   def _miss_detect(self, hits_on=None, counter=None):
-    # find_npc_name: Treffer ab dem ``hits_on``-ten Aufruf (None = nie).
     def _find(bgr, tpl):
       counter['n'] += 1
       if hits_on is not None and counter['n'] >= hits_on:
@@ -915,24 +962,46 @@ class TestApproachNpcBirdseyeRetry(unittest.TestCase):
       return (False, None, 0.0)
     return types.SimpleNamespace(find_npc_name=_find)
 
-  def test_miss_toggles_birdseye_n_times_then_stops_cleanly(self):
+  def test_first_call_is_birdseye_drag_no_key(self):
     _reset_input()
     bot = _make_bot(mode=MODE_HAMMER)
     _arm(bot)
-    bot.NPC_SETTLE_S = 0          # keine Wartezeit im Test
+    bot.NPC_SETTLE_S = 0
     bot._template = lambda k: object()
     counter = {'n': 0}
     with mock.patch.object(esbot_mod, '_detect',
-                           self._miss_detect(hits_on=None, counter=counter)):
-      results = [bot.approach_npc('npc_alchemist')
-                 for _ in range(EnergiesplitterBot.NPC_MAX_TRIES + 2)]
-    # KEIN Treffer -> immer None; Vogelperspektive genau NPC_MAX_TRIES mal
-    # gedrueckt (keyDown), danach sauberer Stop -- und KEINE Exception (t-Bug).
-    self.assertTrue(all(r is None for r in results))
-    self.assertEqual(_INPUT_CALLS['keyDown'], EnergiesplitterBot.NPC_MAX_TRIES)
-    self.assertEqual(bot._stop_reason, 'npc_not_found')
+                           self._miss_detect(counter=counter)):
+      out = bot.approach_npc('alchemist')      # erster Tick = Vogelperspektive
+    self.assertIsNone(out)
+    self.assertTrue(bot._did_birdseye)
+    self.assertEqual(_INPUT_CALLS['mouseDown'], 1)   # Rechtsklick gedrueckt
+    self.assertEqual(_INPUT_CALLS['mouseUp'], 1)     # ... und wieder geloest
+    self.assertGreater(_INPUT_CALLS['moveTo'], 1)    # in einem Rutsch gezogen
+    self.assertEqual(_INPUT_CALLS['keyDown'], 0)     # KEIN 'g' mehr
+    self.assertEqual(counter['n'], 0)                # noch nicht gesucht
 
-  def test_found_after_retries_returns_point_no_stop(self):
+  def test_miss_drags_then_stops_cleanly(self):
+    _reset_input()
+    bot = _make_bot(mode=MODE_HAMMER)
+    _arm(bot)
+    bot.NPC_SETTLE_S = 0
+    bot.botting = True
+    bot._template = lambda k: object()
+    counter = {'n': 0}
+    with mock.patch.object(esbot_mod, '_detect',
+                           self._miss_detect(counter=counter)):
+      results = [bot.approach_npc('alchemist')
+                 for _ in range(EnergiesplitterBot.NPC_MAX_TRIES + 3)]
+    self.assertTrue(all(r is None for r in results))
+    self.assertEqual(bot._stop_reason, 'npc_not_found')
+    self.assertEqual(_INPUT_CALLS['keyDown'], 0)
+    # 1x initiale Vogelperspektive + je Miss ein Nachziehen (bis NPC_MAX_TRIES)
+    self.assertGreaterEqual(_INPUT_CALLS['mouseDown'],
+                            EnergiesplitterBot.NPC_MAX_TRIES + 1)
+    # Maustaste NIE haengen geblieben
+    self.assertEqual(_INPUT_CALLS['mouseDown'], _INPUT_CALLS['mouseUp'])
+
+  def test_found_after_birdseye_returns_point(self):
     _reset_input()
     bot = _make_bot(mode=MODE_HAMMER)
     _arm(bot)
@@ -942,29 +1011,15 @@ class TestApproachNpcBirdseyeRetry(unittest.TestCase):
     counter = {'n': 0}
     pt = None
     with mock.patch.object(esbot_mod, '_detect',
-                           self._miss_detect(hits_on=3, counter=counter)):
-      for _ in range(EnergiesplitterBot.NPC_MAX_TRIES + 1):
-        pt = bot.approach_npc('npc_alchemist')
+                           self._miss_detect(hits_on=2, counter=counter)):
+      for _ in range(EnergiesplitterBot.NPC_MAX_TRIES + 2):
+        pt = bot.approach_npc('alchemist')
         if pt is not None:
           break
     self.assertEqual(pt, (50, 60))
     self.assertNotEqual(bot._stop_reason, 'npc_not_found')
-    self.assertTrue(bot.botting)            # nicht gestoppt
-    self.assertEqual(bot._npc_tries, 0)     # nach Treffer zurueckgesetzt
-
-  def test_birdseye_disabled_stops_immediately(self):
-    _reset_input()
-    bot = _make_bot(mode=MODE_HAMMER)
-    _arm(bot)
-    bot.birdseye_on_miss = False
-    bot._template = lambda k: object()
-    counter = {'n': 0}
-    with mock.patch.object(esbot_mod, '_detect',
-                           self._miss_detect(hits_on=None, counter=counter)):
-      out = bot.approach_npc('npc_alchemist')
-    self.assertIsNone(out)
-    self.assertEqual(_INPUT_CALLS['keyDown'], 0)   # keine Vogelperspektive
-    self.assertEqual(bot._stop_reason, 'npc_not_found')
+    self.assertTrue(bot.botting)
+    self.assertEqual(bot._npc_tries, 0)
 
 
 if __name__ == '__main__':

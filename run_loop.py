@@ -415,7 +415,6 @@ class RunLoop:
             values['-ES_UNVERIF_STOP-'] = int(
                 shared['consecutive_unverified_stop'])
             values['-ES_JITTER-'] = float(shared['jitter_pct'])
-            values['-ES_BIRDSEYE-'] = bool(shared['birdseye_on_miss'])
             values['-ES_DRY_RUN-'] = bool(shared['dry_run'])
         except Exception as exc:
             log.error(t('run.crash_in_runhack'), exc=exc)

@@ -9,6 +9,18 @@ behaviour is fully preserved as the default.
 > violates the game's Terms of Service and may get your account banned. Use at
 > your own risk. See [`LICENSE.txt`](LICENSE.txt).
 
+## 🆕 What's new in 1.2.19
+
+- **Energiesplitter: buy confirmation, real bird's-eye (drag), dagger processing.**
+  Every shop purchase asks "do you want to buy…?" — the bot detects the dialog by
+  its "Ja" button (calibrated from your screenshot; threshold 0.85 + only checked
+  right after a buy click) and clicks **Ja** (hammer + dagger). Bird's-eye is now
+  done via your method — **right-click-hold + drag the mouse down 25% of the
+  height** for a true top-down view (once per run; the old "g" key maneuver and its
+  setting are fully removed). Daggers: a hammer can only be dragged onto a dagger
+  when the weapon-dealer shop is **closed**, so the bot now closes it (ESC) before
+  dragging and re-opens it for the next round.
+
 ## 🆕 What's new in 1.2.18
 
 - **Update helper hardened further (belt-and-suspenders to 1.2.17).** In addition

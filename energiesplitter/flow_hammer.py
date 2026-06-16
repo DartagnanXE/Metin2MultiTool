@@ -161,6 +161,10 @@ class HammerFlowMixin:
       pass
     self._right_click(*slot)
     self.actions_done += 1
+    # Kauf-Bestaetigung ('Moechtest du ... kaufen?') -> 'Ja' klicken.
+    self._settle(self.BUY_CONFIRM_SETTLE_S)
+    self._confirm_buy_if_present()
+    self._settle(self.BUY_CONFIRM_SETTLE_S)
 
     ok = self.verify_hammer_purchase(bag_before)
     if ok:

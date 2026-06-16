@@ -154,9 +154,6 @@ class EnergiesplitterViewMixin:
     r = self._es_row(ba, r, t('ui.es_jitter_label'),
                      self._es_entry('shared', 'jitter_pct',
                                     self._es_jitter_var, ba, is_float=True))
-    self._es_birdseye_var = ctk.BooleanVar(value=True)
-    r = self._es_switch(ba, r, t('ui.es_birdseye_label'), 'birdseye_on_miss',
-                        self._es_birdseye_var, 'shared')
 
     # -- Status-Zeile -------------------------------------------------------
     self._es_status = ctk.CTkLabel(
@@ -268,7 +265,6 @@ class EnergiesplitterViewMixin:
       self._es_mouse_pause_var.set(str(s.get('mouse_pause', 0.05)))
       self._es_kb_pause_var.set(str(s.get('keyboard_pause', 0.10)))
       self._es_jitter_var.set(str(s.get('jitter_pct', 0.15)))
-      self._es_birdseye_var.set(bool(s.get('birdseye_on_miss', True)))
       # Tempo-Profil: value -> deutsches Label.
       v2l = self._es_widgets.get('_v2l', {}).get('speed_profile', {})
       self._es_speed_var.set(v2l.get(str(s.get('speed_profile', 'fast')),

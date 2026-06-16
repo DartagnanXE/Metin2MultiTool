@@ -517,6 +517,29 @@ class TestDialogLadenOeffnen(unittest.TestCase):
         self.assertFalse(ok)
 
 
+class TestBuyConfirmDialog(unittest.TestCase):
+    """Der Kauf-Bestaetigungsdialog ('Moechtest du ... kaufen?') muss am 'Ja'-
+    Knopf erkannt werden (zum Bestaetigen jedes Shop-Kaufs) und NICHT im offenen
+    Shop / normaler Szene falsch ausloesen."""
+
+    def test_detected_with_ja_center(self):
+        present, center = d.buy_confirm_present(_load('.', 'buy_confirm.png'))
+        self.assertTrue(present)
+        self.assertIsNotNone(center)
+        self.assertTrue(330 <= center[0] <= 400, center)   # 'Ja' links-zentriert
+        self.assertTrue(300 <= center[1] <= 330, center)
+
+    def test_not_detected_in_open_shop(self):
+        present, _c = d.buy_confirm_present(
+            _load('Einkauf_Hammer', 'shop_alchemist.png'))
+        self.assertFalse(present)
+
+    def test_not_detected_in_overworld(self):
+        present, _c = d.buy_confirm_present(
+            _load('Alchemist', 'metin2client_BlRGzUUM3w.png'))
+        self.assertFalse(present)
+
+
 class TestAfkDialog(unittest.TestCase):
     """Der zentrierte 'Du bist im AFK-Modus'-Dialog muss am OK-Knopf erkannt
     werden (er blockiert alle Klicks/Tasten) -- und NICHT auf normalen Szenen

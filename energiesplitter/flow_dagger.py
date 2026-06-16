@@ -111,11 +111,14 @@ class DaggerFlowMixin:
       return
 
     if st == self.ST_RESCAN:
-      # Eine Runde ist abgearbeitet -> Hammer-Bestand neu lesen; sind noch
-      # Haemmer da, naechste Runde (zurueck zum Dolch-Lokalisieren), sonst fertig.
+      # Eine Runde ist abgearbeitet (Laden ist nach dem Drag GESCHLOSSEN) ->
+      # Hammer-Bestand neu lesen. Sind noch Haemmer da: NAECHSTE RUNDE -> NPC
+      # erneut ansprechen + Laden NEU oeffnen (ST_APPROACH_NPC; die
+      # Vogelperspektive bleibt, _did_birdseye verhindert ein erneutes Kippen),
+      # sonst fertig.
       self.hammer_remaining = self._count_hammers()
       if self.hammer_remaining > 0:
-        self.state = self.ST_LOCATE_DOLCH
+        self.state = self.ST_APPROACH_NPC
       else:
         self._stop('done')
       return
@@ -163,6 +166,10 @@ class DaggerFlowMixin:
       pass
     self._right_click(*slot)
     self.actions_done += 1
+    # Kauf-Bestaetigung ('Moechtest du ... kaufen?') -> 'Ja' klicken.
+    self._settle(self.BUY_CONFIRM_SETTLE_S)
+    self._confirm_buy_if_present()
+    self._settle(self.BUY_CONFIRM_SETTLE_S)
 
     after = self._inventory_signature()
     land = self._diff_landing_slot(before, after)
@@ -194,11 +201,17 @@ class DaggerFlowMixin:
     # sonst: noch im selben State, naechster Dolch wird im naechsten Tick gekauft.
 
   def _start_processing_queue(self):
-    """Beginnt die sequenzielle Verarbeitung der gekauften Dolche (EINZELN)."""
+    """Beginnt die sequenzielle Verarbeitung der gekauften Dolche (EINZELN).
+
+    WICHTIG (User-Grundwahrheit): ein Hammer laesst sich nur auf einen Dolch
+    ziehen, wenn der Waffenhaendler-LADEN GESCHLOSSEN ist -> vor dem ersten Drag
+    den Laden schliessen (ESC)."""
     if not self._dagger_queue:
       # Nichts gekauft -> Runde leer; Hammer-Bestand neu pruefen.
       self.state = self.ST_RESCAN
       return
+    self._close_shop()                       # Laden zu -> Drag erlaubt
+    self._settle(self.SHOP_OPEN_SETTLE_S)     # Schliessen rendern lassen
     self._dolch_inv_slot = self._dagger_queue.pop(0)
     self.state = self.ST_PROCESS_DRAG
 

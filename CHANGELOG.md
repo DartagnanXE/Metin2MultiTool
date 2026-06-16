@@ -3,6 +3,25 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.19] — 2026-06-16
+
+### Energiesplitter: Kauf-Bestätigung, echte Vogelperspektive (Drag), Dolch-Verarbeitung
+
+- **Kauf-Bestätigung „Ja".** Jeder Shop-Kauf fragt „Möchtest du … kaufen?" — der
+  Bot erkennt den Dialog am „Ja"-Knopf (aus deinem Bild kalibriert; self 1.00,
+  Shop/Szene ≤ 0.62 → Schwelle 0.85, zusätzlich nur direkt nach einem Kauf-Klick
+  geprüft) und klickt **Ja**. Gilt für Hammer- UND Dolch-Kauf.
+- **Vogelperspektive jetzt per RECHTSKLICK-DRAG** (deine Methode): Rechtsklick
+  gedrückt halten und die Maus in einem Rutsch **25 % der Höhe nach unten** ziehen
+  → volle Top-Down-Sicht; erst dann klappt der NPC-Klick zuverlässig. Wird einmal
+  pro Lauf gemacht (Kamera bleibt) — gilt für Alchemist + Waffenhändler. Das alte
+  „g"-Tasten-Manöver und der zugehörige Schalter sind **komplett raus** (Code +
+  Einstellungen).
+- **Dolch-Verarbeitung korrekt:** Hammer lässt sich nur bei **geschlossenem**
+  Waffenhändler-Laden auf einen Dolch ziehen → der Bot **schließt den Laden (ESC)
+  vor dem Ziehen**; für die nächste Runde wird der NPC erneut angesprochen und der
+  Laden neu geöffnet (Vogelperspektive bleibt, kein erneutes Kippen).
+
 ## [1.2.18] — 2026-06-16
 
 ### Update-Helfer bombenfest gemacht (zusätzliche Absicherung zu 1.2.17)

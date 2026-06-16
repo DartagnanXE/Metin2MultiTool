@@ -423,6 +423,35 @@ def find_dialog_line(bgr, word_template, roi=None, thresh=NCC_DIALOG):
     return (True, (rx + pt[0] + tw // 2, ry + pt[1] + th // 2), ncc)
 
 
+# Kauf-Bestaetigung ('Moechtest du ... kaufen?'): der 'Ja'-Knopf liegt zentriert
+# links (gemessen am echten Bild: client ~ (360,313)). ROI nur ueber 'Ja' (nicht
+# 'Nein' rechts). Knopf-NCC: self 1.00, Shop/Szene <= 0.62 -> 0.85 trennt sicher;
+# zusaetzlich KONTEXT-gegated (nur direkt nach einem Kauf-Klick geprueft).
+ROI_BUY_CONFIRM = (300, 296, 135, 40)
+NCC_CONFIRM = 0.85
+
+
+def buy_confirm_present(bgr):
+    """Erkennt den Kauf-Bestaetigungsdialog an seinem 'Ja'-Knopf. Liefert
+    ``(present, ja_center)`` (client-Koordinaten) oder ``(False, None)``. Reiner
+    NCC-Match des gebundelten ``templates/buy_confirm_ja.png``. Wirft NIE."""
+    if np is None or _cv is None or bgr is None:
+        return (False, None)
+    tpl = _imread(_item_path('buy_confirm_ja'))
+    if tpl is None:
+        return (False, None)
+    client = _geo.to_client(bgr)
+    region = _geo.crop(client, ROI_BUY_CONFIRM)
+    if region is None:
+        return (False, None)
+    ok, pt, ncc = match_word(region, tpl)
+    if not ok or pt is None or ncc < NCC_CONFIRM:
+        return (False, None)
+    rx, ry, _, _ = ROI_BUY_CONFIRM
+    th, tw = tpl.shape[:2]
+    return (True, (rx + pt[0] + tw // 2, ry + pt[1] + th // 2))
+
+
 # ROI fuer den zentrierten AFK-Dialog-OK-Knopf (client-Koordinaten). Grosszuegiges
 # Mittelband; der OK-Knopf liegt fix bei ~(360,320) (gemessen am echten Bild).
 ROI_AFK_OK = (300, 290, 220, 90)

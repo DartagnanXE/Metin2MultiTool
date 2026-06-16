@@ -195,7 +195,6 @@ DEFAULTS = {
             'max_actions': 0,             # 0 = auto
             'consecutive_unverified_stop': 3,
             'jitter_pct': 0.15,
-            'birdseye_on_miss': True,     # KEYPRESS-Manoever bei NPC-Miss
             'dry_run': True,              # arm-Flag, sicherer Erststart-Default
         },
     },

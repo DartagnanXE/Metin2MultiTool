@@ -143,14 +143,19 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
   # Fixe Mechanik-Konstante: ein Hammer-Kauf ist IMMER ein 200er-Stack.
   HAMMER_STACK_SIZE = 200
 
-  # NPC-Suche: wird der NPC nicht erkannt, schaltet der Bot die VOGELPERSPEKTIVE
-  # um (Taste 'g'), gibt der Kamera ZEIT zum Umschalten und sucht MEHRFACH
-  # erneut, bevor er aufgibt. NPC_MAX_TRIES = Anzahl Such-Versuche MIT Umschalten
-  # (jeder Versuch toggelt die Perspektive -> es wird abwechselnd in Normal- und
-  # Vogelperspektive gesucht). NPC_SETTLE_S = Wartezeit pro Umschalten (Tests
-  # setzen 0). Als Instanz-Attribute ueberschreibbar.
+  # NPC-Suche: der Bot faehrt EINMAL pro Lauf die volle VOGELPERSPEKTIVE per
+  # Rechtsklick-Drag (Maus 25% der Hoehe runterziehen -> Kamera top-down; erst so
+  # ist der NPC-Klick zuverlaessig). Danach Settle, dann Namens-Suche; bei Miss
+  # bounded Retries (Kamera nachziehen). NPC_MAX_TRIES = Such-Versuche,
+  # NPC_SETTLE_S = Kamera-Renderzeit (Tests setzen 0). Instanz-ueberschreibbar.
   NPC_MAX_TRIES = 4
   NPC_SETTLE_S = 0.8
+  # Volle Vogelperspektive = Rechtsklick gedrueckt halten + Maus diesen Anteil der
+  # Client-Hoehe (600) nach unten ziehen (User-Grundwahrheit: 25%).
+  BIRDSEYE_DRAG_FRACTION = 0.25
+  # Wartezeit, damit der Kauf-Bestaetigungsdialog ('Ja'/'Nein') erscheint bzw.
+  # der Kauf verarbeitet wird (Tests setzen 0).
+  BUY_CONFIRM_SETTLE_S = 0.4
   # Wartezeit, damit der Shop nach 'Laden oeffnen' rendert, bevor das Item
   # gesucht wird (Tests setzen 0).
   SHOP_OPEN_SETTLE_S = 0.5
@@ -177,8 +182,6 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
     self.keyboard_pause = 0.10
     self.speed_profile = 'fast'
     self.jitter_pct = 0.15
-    self.birdseye_on_miss = True
-    self.birds_eye_key = 'g'
     self.inventory_hotkey = 'i'   # Toggle-Taste Tasche (run_loop injiziert Config)
     self.max_actions = 2
     self.consecutive_unverified_stop = 3
@@ -195,9 +198,12 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
     self._dolche_gekauft = 0
     self._buy_retries = 0
     self._npc_tries = 0
-    self._birdseye_used = False
+    # Wurde fuer DIESEN Lauf schon die volle Vogelperspektive gefahren
+    # (Rechtsklick-Drag)? Einmal pro Lauf -- danach bleibt die Kamera top-down,
+    # der Bot kann den Shop beliebig oft neu oeffnen ohne erneut zu kippen.
+    self._did_birdseye = False
     # Wurde das Spiel-Fenster fuer diesen Lauf schon EINMAL in den Vordergrund
-    # geholt? (Tasten brauchen Fokus -- sonst landet z.B. 'g' im Bot-Fenster.)
+    # geholt? (Tasten brauchen Fokus -- sonst landet ein Tastendruck im Bot.)
     self._did_focus = False
     # Deadline (time.monotonic), bis zu der die Kamera nach einem
     # Vogelperspektive-Umschalten rendern darf -- bis dahin tut approach_npc
@@ -290,8 +296,6 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
     self.keyboard_pause = float(_get('-ES_KB_PAUSE-', 0.10))
     self.speed_profile = str(_get('-ES_SPEED-', 'fast'))
     self.jitter_pct = float(_get('-ES_JITTER-', 0.15))
-    self.birdseye_on_miss = bool(_get('-ES_BIRDSEYE-', True))
-    self.birds_eye_key = 'g'
     self.max_actions = int(_get('-ES_MAX_ACTIONS-', 0))
     self.consecutive_unverified_stop = int(_get('-ES_UNVERIF_STOP-', 3))
     self.dry_run = bool(_get('-ES_DRY_RUN-', True))
@@ -675,6 +679,39 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
     except Exception:  # pragma: no cover
       pass
 
+  def _confirm_buy_if_present(self):
+    """Klickt 'Ja' im Kauf-Bestaetigungsdialog ('Moechtest du ... kaufen?'),
+    falls er erscheint (jeder Shop-Kauf in Metin2 fragt nach). Liefert ``True``,
+    wenn bestaetigt wurde. KONTEXT-gegated: nur direkt nach einem Kauf-Klick
+    aufgerufen. Wirft NIE."""
+    if _detect is None or not hasattr(_detect, 'buy_confirm_present'):
+      return False
+    bgr = self._shot()
+    if bgr is None:
+      return False
+    try:
+      present, ja = _detect.buy_confirm_present(bgr)
+    except Exception:  # pragma: no cover - defensiv
+      return False
+    if not present or ja is None:
+      return False
+    try:
+      log.event(self.state, "AKTION: Kauf-Bestaetigung -> 'Ja' klicken", ziel=tuple(ja))
+    except Exception:  # pragma: no cover
+      pass
+    self._left_click(int(ja[0]), int(ja[1]))
+    return True
+
+  def _close_shop(self):
+    """Schliesst ein offenes Shop-/Dialogfenster (Taste ESC). NOETIG vor dem
+    Dolch-Verarbeiten: nur bei GESCHLOSSENEM Waffenhaendler-Laden laesst sich ein
+    Hammer auf einen Dolch ziehen (User-Grundwahrheit). Wirft NIE."""
+    try:
+      log.event(self.state, 'AKTION: Laden schliessen (ESC) vor Drag')
+    except Exception:  # pragma: no cover
+      pass
+    self._press_key('esc')
+
   def _right_click(self, x, y):
     if self._guarded():
       return False
@@ -726,24 +763,58 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
       return False
 
   # -- gemeinsame Flow-Helfer (Detection von A) ---------------------------
-  def approach_npc(self, npc_template_key):
-    """Sucht den NPC-Namen (Gruen+NCC, Agent A). Trifft -> Punkt.
+  def _birdseye_drag(self):
+    """Volle VOGELPERSPEKTIVE: Rechtsklick gedrueckt halten und die Maus IN EINEM
+    RUTSCH ~25% der Client-Hoehe nach unten ziehen -> die Kamera kippt top-down.
+    Erst dann ist der NPC-Klick zuverlaessig (User-Grundwahrheit). Garantiert
+    ``mouseUp(right)`` im finally (nie Maustaste haengen lassen). Wirft NIE.
 
-    Bei Fehlversuch wird die VOGELPERSPEKTIVE umgeschaltet (Taste 'g'), der
-    Kamera ZEIT zum Umschalten gegeben (``NPC_SETTLE_S``) und MEHRFACH
-    (``NPC_MAX_TRIES``) erneut gesucht -- abwechselnd Normal-/Vogelperspektive --
-    bevor der Bot sauber stoppt. Wird ueber mehrere Ticks im Zustand
-    ST_APPROACH_NPC getrieben (Rueckgabe ``None`` haelt den Zustand; F6 bleibt
-    responsiv, da runHack das Abbruch-Signal an seinem Kopf prueft).
-
-    Liefert ``pt`` (gefunden) oder ``None`` (warten/erneut versuchen/gestoppt).
+    Reine Mausgeste (kein Tastendruck mehr) -- ersetzt das fruehere 'g'-Toggle.
     """
-    # (1) Settle-Phase nach einem Umschalten: bis die Kamera gerendert hat NICHTS
-    #     tun (kein Screenshot, kein Log-Spam). Der naechste Tick prueft erneut.
+    if self._guarded() or _input is None:
+      return False
+    self._focus_game()
+    cx, cy = 400, 250                              # Bildmitte (links vom HUD ~625)
+    dy = max(1, int(self.BIRDSEYE_DRAG_FRACTION * 600))   # 25% von 600 = 150 px
+    sx, sy = self._to_screen(cx, cy)
+    try:
+      _input.PAUSE = self.mouse_pause
+      _input.moveTo(sx, sy)
+      _input.mouseDown(button='right')
+      steps = 10                                   # sanft in einem Rutsch ziehen
+      for i in range(1, steps + 1):
+        _input.moveTo(sx, sy + (dy * i) // steps)
+      return True
+    except Exception:  # pragma: no cover - defensiv
+      return False
+    finally:
+      try:
+        _input.mouseUp(button='right')             # Maustaste IMMER loesen
+      except Exception:  # pragma: no cover
+        pass
+
+  def approach_npc(self, npc_template_key):
+    """Faehrt EINMAL pro Lauf die volle VOGELPERSPEKTIVE (Rechtsklick-Drag 25%
+    runter) und sucht dann den gruenen NPC-Namen. Treffer -> Namens-Mitte (der
+    Caller LINKSklickt sie -- erst top-down klappt das). Kein Treffer -> bounded
+    Retries (Kamera nachziehen), dann sauberer Stop. Tick-getrieben (Rueckgabe
+    ``None`` haelt ST_APPROACH_NPC; F6 am runHack-Kopf bleibt responsiv).
+    """
     now = time.monotonic()
     if self._npc_wait_until and now < self._npc_wait_until:
       return None
     self._npc_wait_until = 0.0
+
+    # (1) Vogelperspektive ZUERST (einmal pro Lauf), dann Kamera-Settle.
+    if not self._did_birdseye:
+      self._did_birdseye = True
+      try:
+        log.event(self.state, 'ABSICHT: Vogelperspektive -- Rechtsklick-Drag 25% nach unten')
+      except Exception:  # pragma: no cover
+        pass
+      self._birdseye_drag()
+      self._npc_wait_until = time.monotonic() + max(0.0, float(self.NPC_SETTLE_S))
+      return None
 
     try:
       log.event(self.state, 'ABSICHT: NPC ansprechen', npc=npc_template_key,
@@ -768,29 +839,20 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
     except Exception:  # pragma: no cover
       pass
     if ok and pt is not None:
-      # Treffer -> Zaehler/Wartephase fuer einen evtl. spaeteren Approach zuruecksetzen.
       self._npc_tries = 0
       self._npc_wait_until = 0.0
       return pt
-    # Fehlversuch: solange Versuche uebrig sind, Vogelperspektive UMSCHALTEN und
-    # der Kamera Zeit geben -- dann (naechste Ticks) erneut suchen.
-    if self.birdseye_on_miss and self._npc_tries < int(self.NPC_MAX_TRIES):
+    # Miss: Kamera nochmal nachziehen + erneut suchen (bounded).
+    if self._npc_tries < int(self.NPC_MAX_TRIES):
       self._npc_tries += 1
-      self._birdseye_used = True
-      # WICHTIG: t() hat einen positionellen Parameter ``key`` -> das Format-Feld
-      # MUSS ``taste`` heissen (sonst 't() got multiple values for argument key').
       try:
-        log.event(self.state, t('energiesplitter.toggled_birdseye',
-                                taste=self.birds_eye_key),
+        log.event(self.state, 'WAHRNEHMUNG: NPC nicht gesehen -- Vogelperspektive nachziehen',
                   versuch=self._npc_tries, von=self.NPC_MAX_TRIES)
       except Exception:  # pragma: no cover
         pass
-      self._press_key(self.birds_eye_key)
-      # Kamera-Settle-Zeit: bis dahin haelt approach_npc (Rueckgabe None) den
-      # Zustand; danach naechster Such-Versuch.
+      self._birdseye_drag()
       self._npc_wait_until = time.monotonic() + max(0.0, float(self.NPC_SETTLE_S))
-      return None  # naechste Ticks: warten, dann erneut suchen
-    # Versuche erschoepft (oder Vogelperspektive aus) -> sauberer Stop mit Klartext.
+      return None
     log.event(self.state, t('energiesplitter.npc_not_found', npc=npc_template_key))
     self._stop('npc_not_found')
     return None
