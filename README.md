@@ -9,6 +9,14 @@ behaviour is fully preserved as the default.
 > violates the game's Terms of Service and may get your account banned. Use at
 > your own risk. See [`LICENSE.txt`](LICENSE.txt).
 
+## 🆕 What's new in 1.2.21
+
+- **Energiesplitter: shop-item search now retries while the shop renders.** The
+  whole buy chain runs to the shop (bird's-eye → NPC → open shop). A tester saw
+  "hammer not in shop" (NCC 0.547) because the shop was still fading in on the
+  first look. The item search (hammer + dagger) now retries with a short render
+  pause (up to 6×) before reporting "not in shop".
+
 ## 🆕 What's new in 1.2.20
 
 - **Energiesplitter now defaults to Sharp/Live** (fresh installs) so testers can

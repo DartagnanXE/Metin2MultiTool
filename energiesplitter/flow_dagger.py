@@ -88,9 +88,17 @@ class DaggerFlowMixin:
     if st == self.ST_LOCATE_DOLCH:
       slot = self._locate_shop_item('dolch')
       if slot is None:
+        # Shop blendet evtl. noch ein -> mit Renderpause erneut versuchen.
+        self._shop_locate_tries += 1
+        if self._shop_locate_tries < int(self.SHOP_LOCATE_MAX_TRIES):
+          log.event(st, 'WAHRNEHMUNG: Dolch noch nicht im Shop -- warte (Render) + erneut',
+                    versuch=self._shop_locate_tries, von=self.SHOP_LOCATE_MAX_TRIES)
+          self._settle(self.SHOP_OPEN_SETTLE_S)
+          return
         log.event(st, t('energiesplitter.item_not_in_shop', item='dolch'))
         self._stop('item_not_in_shop')
         return
+      self._shop_locate_tries = 0
       self._dolch_shop_slot = slot
       # Neue Runde: Dolch-Kauf-Zaehler dieser Runde + Warteschlange ruecksetzen.
       self._round_to_buy = max(1, int(self.daggers_per_round))

@@ -904,6 +904,49 @@ class TestWindowFocus(unittest.TestCase):
     self.assertEqual(calls, [4321])      # genau einmal in den Vordergrund
 
 
+class TestShopLocateRenderRetry(unittest.TestCase):
+  """Shop blendet nach 'Laden oeffnen' ein -> das Item-Suchen wird mehrfach mit
+  Renderpause wiederholt, bevor 'nicht im Shop' gemeldet wird (fing den realen
+  Tester-Fall ncc=0.547 = Shop noch nicht fertig gerendert)."""
+
+  def test_locate_hammer_retries_then_stops(self):
+    bot = _make_bot(mode=MODE_HAMMER)
+    _arm(bot)
+    bot.SHOP_OPEN_SETTLE_S = 0
+    bot.state = EnergiesplitterBot.ST_LOCATE_HAMMER
+    bot.botting = True
+    bot._locate_shop_item = lambda item: None      # nie gefunden
+    with mock.patch.object(esbot_mod, '_detect', types.SimpleNamespace()):
+      for _ in range(EnergiesplitterBot.SHOP_LOCATE_MAX_TRIES + 2):
+        if not bot.botting:
+          break
+        bot.runHack()
+    self.assertFalse(bot.botting)
+    self.assertEqual(bot._stop_reason, 'item_not_in_shop')
+    self.assertEqual(bot._shop_locate_tries,
+                     EnergiesplitterBot.SHOP_LOCATE_MAX_TRIES)
+
+  def test_locate_hammer_found_after_render(self):
+    bot = _make_bot(mode=MODE_HAMMER)
+    _arm(bot)
+    bot.SHOP_OPEN_SETTLE_S = 0
+    bot.state = EnergiesplitterBot.ST_LOCATE_HAMMER
+    bot.botting = True
+    calls = {'n': 0}
+    def _loc(item):
+      calls['n'] += 1
+      return (425, 121) if calls['n'] >= 3 else None   # erst nach Render da
+    bot._locate_shop_item = _loc
+    with mock.patch.object(esbot_mod, '_detect', types.SimpleNamespace()):
+      for _ in range(5):
+        bot.runHack()
+        if bot.state == EnergiesplitterBot.ST_BUY_LOOP:
+          break
+    self.assertEqual(bot.state, EnergiesplitterBot.ST_BUY_LOOP)
+    self.assertEqual(bot._hammer_slot, (425, 121))
+    self.assertEqual(bot._shop_locate_tries, 0)        # nach Treffer zurueckgesetzt
+
+
 class TestBuyConfirmAndCloseShop(unittest.TestCase):
   """Kauf-Bestaetigung 'Ja' wird geklickt, wenn der Dialog erscheint; vor dem
   Dolch-Drag wird der Laden geschlossen (ESC)."""

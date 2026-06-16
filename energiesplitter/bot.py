@@ -156,6 +156,10 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
   # Wartezeit, damit der Kauf-Bestaetigungsdialog ('Ja'/'Nein') erscheint bzw.
   # der Kauf verarbeitet wird (Tests setzen 0).
   BUY_CONFIRM_SETTLE_S = 0.4
+  # Der Shop blendet nach 'Laden oeffnen' ein -> das Item-Suchen mehrfach mit
+  # Renderpause wiederholen, bevor 'nicht im Shop' gemeldet wird (fing den Fall
+  # ab: ein Tester sah ncc=0.547, weil der Shop noch nicht fertig gerendert war).
+  SHOP_LOCATE_MAX_TRIES = 6
   # Wartezeit, damit der Shop nach 'Laden oeffnen' rendert, bevor das Item
   # gesucht wird (Tests setzen 0).
   SHOP_OPEN_SETTLE_S = 0.5
@@ -198,6 +202,8 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
     self._dolche_gekauft = 0
     self._buy_retries = 0
     self._npc_tries = 0
+    # Render-Retry-Zaehler fuers Shop-Item-Suchen (Shop blendet ein).
+    self._shop_locate_tries = 0
     # Wurde fuer DIESEN Lauf schon die volle Vogelperspektive gefahren
     # (Rechtsklick-Drag)? Einmal pro Lauf -- danach bleibt die Kamera top-down,
     # der Bot kann den Shop beliebig oft neu oeffnen ohne erneut zu kippen.

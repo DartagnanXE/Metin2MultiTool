@@ -3,6 +3,18 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.21] — 2026-06-16
+
+### Energiesplitter: Shop-Item-Suche mit Render-Retry (Kauf scheiterte „knapp")
+
+- Die ganze Kauf-Kette läuft jetzt durch bis zum Shop (Vogelperspektive → NPC →
+  „Laden öffnen" → Shop). Ein Tester sah am Schluss „Hammer nicht im Shop"
+  (NCC 0.547), weil der **Shop nach dem Öffnen noch einblendete** und beim ersten
+  Blick noch nicht fertig gerendert war.
+- **Fix:** Die Item-Suche im Shop (Hammer **und** Dolch) wird jetzt **mehrfach mit
+  kurzer Renderpause wiederholt** (bis zu 6×), bevor „nicht im Shop" gemeldet wird
+  — fängt das Einblenden zuverlässig ab.
+
 ## [1.2.20] — 2026-06-16
 
 ### Energiesplitter: Standard ist jetzt SCHARF/Live (direkt testbar)

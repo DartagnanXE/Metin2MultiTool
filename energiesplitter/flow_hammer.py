@@ -89,9 +89,17 @@ class HammerFlowMixin:
     if st == self.ST_LOCATE_HAMMER:
       slot = self._locate_shop_item('hammer')
       if slot is None:
+        # Shop blendet evtl. noch ein -> mit Renderpause erneut versuchen.
+        self._shop_locate_tries += 1
+        if self._shop_locate_tries < int(self.SHOP_LOCATE_MAX_TRIES):
+          log.event(st, 'WAHRNEHMUNG: Hammer noch nicht im Shop -- warte (Render) + erneut',
+                    versuch=self._shop_locate_tries, von=self.SHOP_LOCATE_MAX_TRIES)
+          self._settle(self.SHOP_OPEN_SETTLE_S)
+          return  # bleibt ST_LOCATE_HAMMER
         log.event(st, t('energiesplitter.item_not_in_shop', item='hammer'))
         self._stop('item_not_in_shop')
         return
+      self._shop_locate_tries = 0
       self._hammer_slot = slot
       self.state = self.ST_BUY_LOOP
       return
