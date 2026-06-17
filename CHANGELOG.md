@@ -3,6 +3,27 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.30] — 2026-06-17
+
+### Puzzle-Solver: durchgehend optimal bis zum Schluss (Finish-Modus entfernt)
+
+- **Echter Logik-Fehler gefunden & behoben (vom Nutzer gemeldet).** Wenn unten nur
+  noch ein **1-Zug-Loch** offen war (z. B. ein L mit 3 Feldern), legte der Bot nach
+  langem Warten einen _fragmentierenden_ Stein (z. B. ein Einzelfeld) und erzeugte
+  damit **2 Einzelfelder → 1 Zug/Stein mehr** als nötig. Ursache: ein „Finish-
+  Modus", der nach vielen Verwerfen einen suboptimalen Stein **erzwang**.
+- **Fix: Finish-Modus komplett entfernt.** Der Bot spielt jetzt **durchgehend die
+  beweisbar optimale Strategie** — er legt einen Stein **nur**, wenn das die
+  erwartete Steinzahl bis zum Sieg **strikt senkt**, sonst wartet er auf den
+  richtigen Stein. **Minimale Steine zu jeder Zeit, keine künstlichen Grenzen.**
+- **Per Monte-Carlo bewiesen (50.000 Spiele):** die Policy erreicht **exakt** das
+  vorhergesagte Optimum (15,58 ≈ V[leer]=15,57 Steine), **0 Steckenbleiber**. Der
+  alte Finish-/Immer-legen-Ansatz verbrauchte **22 % mehr Steine**.
+- Sicherheits-Backstop gegen ein echtes Hängen (Stein wird dauerhaft fehl-erkannt)
+  auf **120** Verwerfen-in-Folge kalibriert — greift laut Monte-Carlo **nie** ins
+  legitime optimale Warten ein (max. ~62 in 1/100.000 Spielen). Neuer
+  Optimalitäts-Regressionstest verhindert künftige Verschlechterungen.
+
 ## [1.2.29] — 2026-06-17
 
 ### Deluxe-Box: reaktive Erkennung statt Zahl-Lesen — wird jetzt zuverlässig genutzt

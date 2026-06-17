@@ -65,16 +65,17 @@ PUZZLE_STEP_DELAY = 0.1
 PIECE_COLOR_RETRY_S = 2.0
 
 # -- Haertung (Sicherheits-Schicht, puzzle_safety) ------------------------
-# Finish-Modus: jenseits dieser Verwerf-in-Folge wird auch dann platziert, wenn
-# das ein 1-Zug-Loch fragmentiert (Schutz gegen pathologisches Endlos-Warten).
-# Bis dahin laesst der Schutz (one_piece_completable) den Loeser geduldig auf den
-# komplettierenden Stein warten, statt ein fertig-fuellbares Loch zu zerstoeren.
-# Wert 10: ein komplettierender Steintyp kommt mit p=1/6 (Erwartung ~6 Zuege);
-# 10 gibt komfortables Polster, ohne im Pechfall zu viele Boxen zu verbrennen.
+# (FINISH_HARD_CAP / FINISH_AFTER_DISCARDS [oben]: der Finish-Modus wurde
+# 2026-06-17 ENTFERNT -- siehe play_game. Der Bot spielt jetzt durchgehend die
+# beweisbar optimale Policy [nur legen wenn V strikt sinkt]; Monte-Carlo-belegt.)
 FINISH_HARD_CAP = 10
 # Safe-Fail: so viele Verwerfen IN FOLGE ohne jede Platzierung -> sauberer Stop
-# (statt Boxen endlos zu verbrennen, z.B. bei dauerhaft fehl-erkanntem Stein).
-DISCARD_STOP_LIMIT = 60
+# (gegen ein echtes HAENGEN, z.B. ein Stein wird DAUERHAFT fehl-erkannt). Wert
+# 120 per Monte-Carlo kalibriert: das OPTIMALE Spiel braucht hoechstens ~62
+# Verwerfen in Folge (1/100k Spiele) und NIE >= 120 (0/100k) -> dieser Backstop
+# stoppt also NIE legitimes optimales Warten ("keine Grenzen", Nutzer-Vorgabe),
+# faengt aber eine echte Dauer-Fehlerkennung in endlicher Zeit ab.
+DISCARD_STOP_LIMIT = 120
 # Konfidenz-Gate (Toleranz-Fallback der Stein-Erkennung): Mindest-Farbabstand
 # (euklidisch) zum zweitnaechsten Zentroid, sonst lieber verwerfen als raten.
 PIECE_MIN_MARGIN = 30.0
@@ -937,28 +938,24 @@ class PuzzleBot(PuzzleDetectMixin):
         # gesamte Greedy-Pfad unten bleibt ausschliesslich dem 'standard'-Modus
         # vorbehalten und unveraendert.
         if self.solver_mode == 'trained':
-            # Nach FINISH_AFTER_DISCARDS Verwerfen in Folge OHNE Fortschritt
-            # haengt der box-optimale Loeser fest (er wartet auf einen perfekten
-            # Stein, der evtl. nie kommt, und verwirft Boxen endlos). Dann auf
-            # FINISH-Modus schalten: den am wenigsten schlechten Stein platzieren
-            # -> Brett wird voll -> Truhe, statt Endlos-Verwerfen.
+            # PERFEKTES Spiel BIS ZUM SCHLUSS, OHNE GRENZEN (Nutzer-Vorgabe
+            # 2026-06-17): immer die BEWEISBAR optimale Policy -> platziere NUR,
+            # wenn es die erwarteten Rest-Steine (Wertfunktion V) STRIKT senkt,
+            # sonst verwerfen und auf den optimalen Stein warten. Das minimiert
+            # die Steine bis zum Sieg ZU JEDER ZEIT.
+            #
+            # KEIN Finish-Modus mehr (frueher: ab FINISH_AFTER_DISCARDS Verwerfen
+            # den "am wenigsten schlechten" Stein erzwingen). Der legte absichtlich
+            # SUBOPTIMALE, FRAGMENTIERENDE Steine (V STEIGT) und machte das Spiel
+            # nachweislich schlechter -- der gemeldete Fall: 1-Zug-L-Loch V=6 ->
+            # nach Monomino V=12 = ein Stein/Zug MEHR. Die optimale Policy beendet
+            # das Brett mit Wahrscheinlichkeit 1 von allein (der komplettierende
+            # Stein kommt; p>=1/6 pro Stein). Gegen ein echtes HAENGEN (ein Stein
+            # wird DAUERHAFT FEHL-ERKANNT) bleibt der harte DISCARD_STOP_LIMIT-
+            # Backstop -- er zaehlt nur Verwerfen-IN-FOLGE und wird bei jeder
+            # Platzierung genullt, greift also NICHT in normales Warten ein.
             streak = getattr(self, '_discard_streak', 0)
-            finish = streak >= FINISH_AFTER_DISCARDS
-            # Finish-Fix (⑥): ist das Brett in EINEM Zug komplettierbar und der
-            # aktuelle Stein kann das NICHT, dann NICHT in den Finish-Modus
-            # zwingen -- der wuerde das 1-Zug-Loch durch einen fragmentierenden
-            # Stein zerstoeren (exakt der im Log nachgewiesene Fehlentscheid:
-            # ein Single zerlegte ein per L-Stein in einem Zug fuellbares Loch).
-            # Stattdessen geduldig weiter verwerfen, bis der komplettierende
-            # Stein kommt -- gedeckelt durch FINISH_HARD_CAP gegen Endlos-Warten.
-            if (finish and streak < FINISH_HARD_CAP
-                    and puzzle_safety.one_piece_completable(self.tetris.board)
-                    and not puzzle_safety.piece_can_complete(
-                        self.tetris.board, piece.piece_type)):
-                finish = False
-                log.event(self.state, 'Finish ausgesetzt: Brett in 1 Zug '
-                          'komplettierbar -> 1-Zug-Loch nicht fragmentieren',
-                          piece_type=piece.piece_type, streak=streak)
+            finish = False
             # KEIN festes Reservat mehr: die Deluxe-Nutzung ist jetzt
             # OPPORTUNISTISCH (State 0 oeffnet die Deluxe-Box, sobald irgendwo ein
             # freies 2x3-Loch liegt UND eine Box da ist) statt ein fixes Feld zu

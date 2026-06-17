@@ -32,6 +32,7 @@ _install_stubs()
 import puzzle          # noqa: E402
 import trained_solver  # noqa: E402
 from tetris import Tetris  # noqa: E402
+from piece import Piece  # noqa: E402
 
 
 def _bare_bot():
@@ -62,9 +63,12 @@ def _l_hole_board():
 
 
 class TestFinishFix(unittest.TestCase):
-    """⑥ Der Finish-Modus darf ein 1-Zug-Loch nicht fragmentieren."""
+    """Finish-Modus ENTFERNT (2026-06-17, Nutzer-Vorgabe "perfekt, keine Grenzen,
+    minimale Steine"): immer die beweisbar optimale Policy (per Monte-Carlo
+    bestaetigt: erreicht V[leer]=15.57, 0 Steckenbleiber/50k). Der Finish-Modus
+    legte fragmentierende Steine (V steigt) und verbrauchte ~22% MEHR Steine."""
 
-    def _run_capture_finish(self, board, new_piece, streak):
+    def _finish_flag(self, board, new_piece, streak):
         bot = _bare_bot()
         bot.tetris.board = board
         bot.new_piece = new_piece
@@ -73,32 +77,31 @@ class TestFinishFix(unittest.TestCase):
 
         def fake_choose(board_arg, piece, finish=False, reservat=None):
             captured['finish'] = finish
-            return None  # Verwerfen -> kein Klick-Pfad noetig
+            return None
 
         with mock.patch.object(trained_solver, 'choose_placement', fake_choose):
             bot.play_game()
         return captured['finish']
 
-    def test_finish_suppressed_for_fragmenting_single(self):
-        # Streak ueber Schwelle (3), Brett in 1 Zug per L komplettierbar, aber
-        # der aktuelle Stein ist ein Single (kann NICHT komplettieren)
-        # -> Finish wird ausgesetzt (geduldig weiter verwerfen).
-        self.assertFalse(self._run_capture_finish(_l_hole_board(), 1, streak=5))
+    def test_finish_always_off_regardless_of_streak_and_piece(self):
+        # Egal welcher Stein / wie hoch der Streak: play_game ruft den Solver IMMER
+        # mit finish=False (kein erzwungenes Legen suboptimaler Steine mehr).
+        for streak in (0, 1, 3, 5, 10, 30, 59):
+            for piece in (1, 5):
+                self.assertFalse(
+                    self._finish_flag(_l_hole_board(), piece, streak),
+                    'Stein %d, Streak %d: finish muss aus sein' % (piece, streak))
 
-    def test_finish_active_for_completing_piece(self):
-        # Gleiche Lage, aber der aktuelle Stein IST der L (Typ 5) -> nicht
-        # aussetzen (Normalpfad platziert ihn ohnehin).
-        self.assertTrue(self._run_capture_finish(_l_hole_board(), 5, streak=5))
+    def test_optimal_policy_discards_fragmenting_single(self):
+        # ECHTER Solver: ein Monomino auf das 1-Zug-L-Loch wird VERWORFEN (None),
+        # statt es zu fragmentieren (V 6 -> 12 waere schlechter).
+        self.assertIsNone(
+            trained_solver.choose_placement(_l_hole_board(), Piece(1), finish=False))
 
-    def test_hard_cap_overrides_suppression(self):
-        # Jenseits FINISH_HARD_CAP wird auch ein fragmentierender Stein
-        # platziert (Schutz gegen pathologisches Endlos-Warten).
-        streak = puzzle.FINISH_HARD_CAP + 1
-        self.assertTrue(self._run_capture_finish(_l_hole_board(), 1, streak))
-
-    def test_below_threshold_not_finish(self):
-        # Unter der Verwerf-Schwelle ist Finish ohnehin aus.
-        self.assertFalse(self._run_capture_finish(_l_hole_board(), 1, streak=1))
+    def test_optimal_policy_places_completing_piece(self):
+        # ECHTER Solver: der komplettierende L-Stein (Typ 5) wird platziert.
+        self.assertIsNotNone(
+            trained_solver.choose_placement(_l_hole_board(), Piece(5), finish=False))
 
 
 class TestSafeFail(unittest.TestCase):

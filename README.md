@@ -9,6 +9,20 @@ behaviour is fully preserved as the default.
 > violates the game's Terms of Service and may get your account banned. Use at
 > your own risk. See [`LICENSE.txt`](LICENSE.txt).
 
+## 🆕 What's new in 1.2.30
+
+- **Puzzle solver: optimal all the way to the end (finish mode removed).** A real
+  logic bug (reported by a user): when only a single 1-move hole was left (e.g. an
+  L of 3 cells), the bot would eventually place a fragmenting piece (e.g. a single
+  cell), creating 2 single cells → one move/piece more than needed. Cause: a "finish
+  mode" that forced a suboptimal placement after many discards. It's now removed —
+  the bot always plays the provably optimal policy (place only if it strictly lowers
+  the expected pieces-to-win, otherwise wait). **Minimal pieces at all times, no
+  artificial limits.** Verified by Monte-Carlo (50,000 games): the policy hits the
+  predicted optimum (15.58 ≈ V[empty]=15.57), 0 stuck games; the old approach used
+  22% more pieces. The anti-hang backstop is calibrated to 120 consecutive discards
+  so it never interferes with legitimate optimal waiting.
+
 ## 🆕 What's new in 1.2.29
 
 - **Deluxe box: reactive detection instead of count-reading — now used reliably.**
