@@ -164,6 +164,7 @@ TRANSLATIONS = {
     'puzzle.force_deluxe_fill_reservat': {'en': 'Force Deluxe: 18 cells full, reservat empty -> opening the Deluxe box to fill the 2x3 reservat', 'de': 'Force Deluxe: 18 Zellen voll, Reservat leer -> öffne die Deluxe-Box, um das 2x3-Reservat zu füllen'},
     'puzzle.force_deluxe_open_box': {'en': 'Force Deluxe: clicking the Deluxe box at {pos}', 'de': 'Force Deluxe: klicke die Deluxe-Box bei {pos}'},
     'puzzle.force_deluxe_open_failed': {'en': 'Force Deluxe: opening the Deluxe box failed ({exc}) -> skipping this cycle', 'de': 'Force Deluxe: Öffnen der Deluxe-Box fehlgeschlagen ({exc}) -> Zyklus übersprungen'},
+    'puzzle.box_refill_probe': {'en': 'Empty piece #{streak}/{threshold} (auto-refill enabled={enabled}, engine={engine}) -> refill triggers at the threshold', 'de': 'Leerer Stein #{streak}/{threshold} (Auto-Nachlegen an={enabled}, Engine={engine}) -> Nachlegen löst an der Schwelle aus'},
     'puzzle.box_refill_started': {'en': 'Box empty ({kind}) -> refilling from inventory (opening bag, scanning pages, dragging first box found)', 'de': 'Box leer ({kind}) -> lege aus dem Inventar nach (Tasche öffnen, Seiten scannen, ersten Boxfund ziehen)'},
     'puzzle.box_refill_done': {'en': 'Box refilled ({kind}, #{n}) -> requesting a new piece', 'de': 'Box nachgelegt ({kind}, #{n}) -> fordere neuen Stein an'},
     'puzzle.box_refill_none_left': {'en': 'No {kind} box left in the inventory -> stopping (out of boxes)', 'de': 'Keine {kind}-Box mehr im Inventar -> Stopp (Boxen aufgebraucht)'},

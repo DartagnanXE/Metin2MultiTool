@@ -33,6 +33,15 @@ try:
     from inventory import open_probe as _open_probe
 except Exception:  # pragma: no cover
     _open_probe = None
+# Fenster-Fokus fuer das Inventar-Oeffnen: pydirectinput-TASTEN gehen ans
+# fokussierte Fenster. Das Puzzle spielt nur mit KLICKS (positionsbasiert,
+# fokus-frei) -> das Spiel hat beim Puzzle i.d.R. KEINEN Tastatur-Fokus, der
+# Inventar-Hotkey ginge sonst ins Leere (Ursache "Inventar nicht als offen
+# verifizierbar"). Soft importiert -> headless ein No-op.
+try:
+    from windowcapture import focus_window as _focus_window
+except Exception:  # pragma: no cover
+    _focus_window = None
 
 # Nach so vielen Verwerfen IN FOLGE (ohne Platzierung dazwischen) gilt der
 # box-optimale Loeser als "festgefahren" (wartet auf einen perfekten Stein) und
@@ -79,9 +88,12 @@ BOARD_READ_RETRY_S = 0.6
 
 # -- Box-Nachlegen (opt-in) -----------------------------------------------
 # So viele leere getpiece IN FOLGE (kein Stein erschienen) gelten als "Box im
-# Puzzle-Slot leer" -> aus dem Inventar nachlegen. >1 deckt einen einzelnen
-# Render-/Lese-Aussetzer ab, ohne bei echter Leere lange zu zoegern.
-BOX_EMPTY_STREAK = 3
+# Puzzle-Slot leer" -> aus dem Inventar nachlegen. 2 deckt einen EINZELNEN
+# Render-/Lese-Aussetzer ab (ein echter Stein liest sich beim naechsten Frame),
+# laesst den Bot bei echter Leere aber schnell (~1 Zyklus Polster) nachlegen
+# statt sekundenlang ins Leere zu klicken. (War 3 -> mit dem 2s-Farb-Retro je
+# Zyklus brauchte das ~6s, was im Test wie "legt nichts nach" aussah.)
+BOX_EMPTY_STREAK = 2
 # Sicherheits-Obergrenze fuer Nachlegen pro Lauf (gegen Endlos-Drag bei
 # Dauer-Fehlerkennung). 20 Boxen sind weit mehr als eine reale Sitzung braucht.
 BOX_REFILL_MAX = 20
@@ -657,23 +669,51 @@ class PuzzleBot(PuzzleDetectMixin):
         except Exception:
             return False
 
+    def _focus_game(self):
+        """Holt das Spiel-Fenster in den VORDERGRUND (Tastatur-Fokus).
+
+        NOETIG fuers Inventar-Oeffnen: ``pydirectinput``-TASTEN gehen ans
+        fokussierte Fenster. Das Puzzle spielt sonst nur mit KLICKS (positions-
+        basiert, fokus-frei) -> das Spiel hat beim Puzzle i.d.R. KEINEN Fokus und
+        der Inventar-Hotkey ginge ins Leere. Defensiv: ohne Modul/HWND ein No-op,
+        wirft NIE. Liefert ``True`` bei Erfolg."""
+        if _focus_window is None:
+            return False
+        hwnd = getattr(self.wincap, 'hwnd', None)
+        if not hwnd:
+            return False
+        try:
+            return bool(_focus_window(hwnd))
+        except Exception:
+            return False
+
     def _ensure_inventory_open_for_refill(self):
         """Stellt sicher, dass das Inventar OFFEN ist (sonst Hotkey-Toggle), bevor
         nachgelegt wird -- exakt die Spec ("waehrend des Puzzles muss das Inventar
         offen sein, sonst aufmachen"). Nutzt die getestete open_probe (probe-then-
-        toggle, verifiziert offen). Gibt ``True`` nur bei VERIFIZIERT offenem
-        Inventar zurueck; bei unklarer/fehlgeschlagener Probe ``False`` -> es wird
-        NICHT blind gedraggt. Wirft nie."""
+        toggle). WICHTIG: Vor JEDEM Hotkey-Druck wird das Spiel fokussiert (sonst
+        oeffnet das Inventar nie, s. ``_focus_game``). Lenient wie der erprobte
+        Energiesplitter: nur eine VERIFIZIERT GESCHLOSSENE Tasche (``res is False``)
+        blockt; ``True``/``None`` (offen bzw. nicht eindeutig probebar) -> weiter.
+        Wirft nie."""
         if _open_probe is None or self.wincap is None:
             return False
         try:
             from inventory.constants import DEFAULT_CALIBRATION as _DC
             calib = self.box_refill_calib or _DC
+
+            def _press_inventory():
+                # Fokus DIREKT vor dem Tastendruck (jeder Toggle-Versuch der
+                # Probe): ohne Fokus landet 'i' im Bot-/Vordergrundfenster und
+                # das Inventar oeffnet nie -> Probe meldet zu -> kein Nachlegen.
+                self._focus_game()
+                pydirectinput.press(self.inventory_hotkey)
+
             res = _open_probe.ensure_inventory_open(
                 capture_fn=self.wincap.get_screenshot,
-                press_fn=lambda: pydirectinput.press(self.inventory_hotkey),
+                press_fn=_press_inventory,
                 calib=calib)
-            return res is True
+            return res is not False
         except Exception:
             return False
 
@@ -1096,6 +1136,17 @@ class PuzzleBot(PuzzleDetectMixin):
                 else:
                     self._empty_getpiece_streak = (
                         getattr(self, '_empty_getpiece_streak', 0) + 1)
+                    # Diagnose: macht im Log SICHTBAR, ob das Nachlegen scharf ist
+                    # (Schalter an?) und ob die Engine geladen wurde, plus wie nah
+                    # der Streak an der Schwelle liegt. Ohne diese Zeile war aus dem
+                    # Log nicht zu unterscheiden "Schalter aus" vs "zu frueh
+                    # gestoppt" vs "Engine-Import fehlt".
+                    log.event(self.state, t('puzzle.box_refill_probe'),
+                              enabled=bool(getattr(self, 'box_refill_enabled',
+                                                   False)),
+                              engine=(_refill is not None),
+                              streak=self._empty_getpiece_streak,
+                              threshold=BOX_EMPTY_STREAK)
                     if self._maybe_refill_standard_box():
                         # Box nachgelegt -> Streak zuruecksetzen und neu anfordern
                         # (State 0 klickt getpiece an der frisch gefuellten Box).

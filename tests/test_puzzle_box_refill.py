@@ -78,14 +78,15 @@ class BoxRefillActiveTest(unittest.TestCase):
 
 class StandardTriggerTest(unittest.TestCase):
     def test_no_refill_below_streak(self):
-        b = _bare(_empty_getpiece_streak=2)
+        # Streak unter der Schwelle (BOX_EMPTY_STREAK) -> kein Nachlegen.
+        b = _bare(_empty_getpiece_streak=puzzle.BOX_EMPTY_STREAK - 1)
         with mock.patch.object(puzzle.PuzzleBot, '_refill_box',
                                return_value=True) as rb:
             self.assertFalse(b._maybe_refill_standard_box())
         rb.assert_not_called()
 
     def test_refill_at_streak_uses_standard_names_and_slot(self):
-        b = _bare(_empty_getpiece_streak=3)
+        b = _bare(_empty_getpiece_streak=puzzle.BOX_EMPTY_STREAK)
         with mock.patch.object(puzzle.PuzzleBot, 'standard_box_screen_point',
                                return_value=(503, 328)), \
              mock.patch.object(puzzle.PuzzleBot, '_refill_box',
@@ -184,6 +185,43 @@ class RefillBoxOrchestrationTest(unittest.TestCase):
             ok = b._refill_box(refill.BOX_STD_NAMES, (503, 328), 'standard')
         self.assertFalse(ok)
         rfi.assert_not_called()
+
+
+class EnsureInventoryOpenTest(unittest.TestCase):
+    """Der Fokus-Fix: das Inventar-Oeffnen MUSS vor dem Hotkey das Spiel
+    fokussieren (sonst geht 'i' ins Leere -> Inventar oeffnet nie), und nur eine
+    VERIFIZIERT geschlossene Tasche (res is False) darf das Nachlegen blocken."""
+
+    def _run_with_probe(self, probe_return):
+        b = _bare()
+        focus = mock.Mock()
+        # ensure_inventory_open ruft press_fn EINMAL (simuliert Toggle) und gibt
+        # probe_return zurueck -> so pruefen wir, dass der Druck fokussiert wird.
+        def fake_ensure(capture_fn, press_fn, calib):
+            press_fn()
+            return probe_return
+        with mock.patch.object(puzzle.PuzzleBot, '_focus_game', focus), \
+             mock.patch.object(puzzle, '_open_probe') as op, \
+             mock.patch.object(puzzle.pydirectinput, 'press', mock.Mock()) as press:
+            op.ensure_inventory_open.side_effect = fake_ensure
+            result = b._ensure_inventory_open_for_refill()
+        return result, focus, press
+
+    def test_focuses_game_before_pressing_hotkey(self):
+        result, focus, press = self._run_with_probe(True)
+        self.assertTrue(result)
+        focus.assert_called()          # Spiel wurde fokussiert ...
+        press.assert_called()          # ... und der Hotkey gedrueckt
+
+    def test_none_probe_proceeds(self):
+        # Probe nicht eindeutig (None) -> weiter (lenient wie Energiesplitter).
+        result, _focus, _press = self._run_with_probe(None)
+        self.assertTrue(result)
+
+    def test_verified_closed_blocks(self):
+        # Nur eine verifiziert GESCHLOSSENE Tasche (False) blockt das Nachlegen.
+        result, _focus, _press = self._run_with_probe(False)
+        self.assertFalse(result)
 
 
 if __name__ == '__main__':

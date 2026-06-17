@@ -9,6 +9,16 @@ behaviour is fully preserved as the default.
 > violates the game's Terms of Service and may get your account banned. Use at
 > your own risk. See [`LICENSE.txt`](LICENSE.txt).
 
+## 🆕 What's new in 1.2.26
+
+- **Fix: puzzle box auto-refill now actually opens the inventory.** In 1.2.25 the
+  refill logged _"inventory not verifiably open"_ and refilled nothing — the
+  puzzle plays with mouse clicks only, so the game window had no keyboard focus
+  and the inventory hotkey went nowhere. The bot now **focuses the game window
+  before pressing the hotkey** (like the Energiesplitter), so the inventory opens
+  reliably. Also triggers faster (after 2 empty draws instead of 3) and logs a
+  clear diagnostic line (`auto-refill enabled=…, engine=…, streak=N/2`).
+
 ## 🆕 What's new in 1.2.25
 
 - **Fish puzzle: auto-refill empty boxes from the inventory (opt-in).** New

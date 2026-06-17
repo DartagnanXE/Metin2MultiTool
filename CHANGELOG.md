@@ -3,6 +3,22 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.26] — 2026-06-17
+
+### Fix: Puzzle-Box-Nachlegen öffnet das Inventar jetzt wirklich
+
+- **Bugfix zum Box-Nachlegen (v1.2.25):** Beim Versuch nachzulegen meldete der Bot
+  „Inventar nicht als offen verifizierbar" und legte **nichts** nach. Ursache: Das
+  Puzzle spielt nur mit **Mausklicks** — das Spielfenster hatte daher **keinen
+  Tastatur-Fokus**, und der Inventar-Hotkey (`i`) ging ins Leere → das Inventar
+  öffnete nie. Jetzt wird das Spielfenster **vor jedem Hotkey-Druck fokussiert**
+  (wie beim Energiesplitter), sodass das Inventar zuverlässig aufgeht.
+- **Schnelleres Auslösen:** Das Nachlegen greift jetzt schon nach **2** leeren
+  „Stein holen" in Folge (statt 3) — mit dem 2-Sekunden-Farb-Lesefenster pro
+  Zyklus wirkte 3 zuvor wie „legt gar nichts nach".
+- **Klare Diagnose-Zeile** im Log bei jedem leeren Stein: `Auto-Nachlegen an=…,
+Engine=…, Streak=N/2` — macht sofort sichtbar, ob der Schalter aktiv ist.
+
 ## [1.2.25] — 2026-06-17
 
 ### Fisch-Puzzle: leere Boxen automatisch aus dem Inventar nachlegen (opt-in)
