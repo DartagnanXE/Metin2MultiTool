@@ -9,6 +9,17 @@ behaviour is fully preserved as the default.
 > violates the game's Terms of Service and may get your account banned. Use at
 > your own risk. See [`LICENSE.txt`](LICENSE.txt).
 
+## 🆕 What's new in 1.2.29
+
+- **Deluxe box: reactive detection instead of count-reading — now used reliably.**
+  The old logic read a stack number printed on the box slot, which doesn't exist for
+  an empty/normal box, so it always read 0 and never opened the Deluxe box. The bot
+  no longer reads any count: when a free 2×3 hole exists it simply opens the Deluxe
+  box (it's almost always loaded) and places the magenta 2×3 piece. Only if nothing
+  comes (no magenta) does it treat the slot as empty and react — refill from the
+  inventory (if enabled), or just disable Deluxe and keep playing normally (no stop).
+  No per-move check = no speed penalty.
+
 ## 🆕 What's new in 1.2.28
 
 - **Fix: "AI optimized" no longer freezes for ~19 s on first start.** The AI value

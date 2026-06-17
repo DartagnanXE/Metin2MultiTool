@@ -77,8 +77,50 @@ class DeluxeGuardTest(unittest.TestCase):
     def test_normal_piece_also_counts_as_miss(self):
         # Ein normaler 1-6 nach Deluxe-Open ist KEIN Magenta -> Fehlversuch.
         b = _bare(_awaiting_deluxe=True)
-        b._register_deluxe_result(3)
+        with mock.patch.object(puzzle.PuzzleBot, '_box_refill_active',
+                               return_value=False):
+            b._register_deluxe_result(3)
         self.assertEqual(b._deluxe_miss_streak, 1)
+
+
+class DeluxeReactiveRefillTest(unittest.TestCase):
+    """Neue reaktive Regel: leerer Deluxe-Slot -> nachlegen (falls aktiv) statt
+    OCR; kein Bot-Stopp; nach Erschoepfung Deluxe abschalten."""
+
+    def test_empty_with_refill_active_refills_and_resets(self):
+        b = _bare(_awaiting_deluxe=True, _deluxe_refill_tries=0)
+        with mock.patch.object(puzzle.PuzzleBot, '_box_refill_active',
+                               return_value=True), \
+             mock.patch.object(puzzle.PuzzleBot, '_maybe_refill_deluxe_box',
+                               return_value=True) as rf:
+            result = b._register_deluxe_result(None)
+        self.assertTrue(result)
+        rf.assert_called_once()
+        self.assertEqual(b._deluxe_refill_tries, 1)
+        self.assertEqual(b._deluxe_miss_streak, 0)   # frische Box -> reset
+        self.assertFalse(b._deluxe_disabled)
+
+    def test_refill_capped_then_disables(self):
+        b = _bare(_awaiting_deluxe=True,
+                  _deluxe_refill_tries=puzzle.DELUXE_REFILL_MAX,
+                  _deluxe_miss_streak=puzzle.DELUXE_MISS_LIMIT - 1)
+        with mock.patch.object(puzzle.PuzzleBot, '_box_refill_active',
+                               return_value=True), \
+             mock.patch.object(puzzle.PuzzleBot, '_maybe_refill_deluxe_box',
+                               return_value=True) as rf:
+            b._register_deluxe_result(None)
+        rf.assert_not_called()              # Cap erreicht -> kein Nachlegen mehr
+        self.assertTrue(b._deluxe_disabled)  # stattdessen abgeschaltet
+
+    def test_refill_returns_false_disables_after_limit(self):
+        b = _bare(_awaiting_deluxe=True,
+                  _deluxe_miss_streak=puzzle.DELUXE_MISS_LIMIT - 1)
+        with mock.patch.object(puzzle.PuzzleBot, '_box_refill_active',
+                               return_value=True), \
+             mock.patch.object(puzzle.PuzzleBot, '_maybe_refill_deluxe_box',
+                               return_value=False):
+            b._register_deluxe_result(None)
+        self.assertTrue(b._deluxe_disabled)
 
 
 if __name__ == '__main__':

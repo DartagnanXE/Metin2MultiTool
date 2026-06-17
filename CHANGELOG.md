@@ -3,6 +3,26 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.29] — 2026-06-17
+
+### Deluxe-Box: reaktive Erkennung statt Zahl-Lesen — wird jetzt zuverlässig genutzt
+
+- **Ursache gefunden (aus deinem Screenshot + Log):** Die alte Logik las pro Zug
+  eine **Stückzahl direkt auf dem Box-Slot** — die es bei leerer/normaler Box
+  **gar nicht gibt** (die „Anzahl" steht in einem separaten Feld unten). Ergebnis:
+  Erkennung las immer **0** → Deluxe-Box wurde **nie geöffnet**. (Die Klick-
+  Koordinaten `(503,271)`/`(503,328)` waren laut Screenshot korrekt — nur die
+  Zahl-Lesung war falsch.)
+- **Neue, reaktive Strategie (wie gewünscht, ohne Speed-Nachteil):** Der Bot liest
+  **keine** Box-Zahl mehr pro Zug. Stattdessen: liegt ein freies 2×3-Loch, **öffnet
+  er einfach die Deluxe-Box** (sie ist „fast immer" voll) und legt den Magenta-
+  2×3-Stein. **Erst wenn nichts kommt** (kein Magenta), erkennt er den Slot als
+  **leer** und reagiert: **Box aus dem Inventar nachlegen** (falls aktiviert) — und
+  wenn keine mehr da ist, **schaltet er Deluxe einfach ab und spielt normal
+  weiter** (kein Stopp). Keine ständige Prüfung = kein Geschwindigkeitsverlust.
+- Debug-Log entsprechend aktualisiert (`Deluxe-Box öffnen …`, `Slot ist LEER …`,
+  `aus Inventar nachgelegt …`, `Deluxe abgeschaltet …`).
+
 ## [1.2.28] — 2026-06-17
 
 ### Fix: „KI optimiert" friert beim ersten Start nicht mehr ~19 s ein

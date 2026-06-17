@@ -109,7 +109,8 @@ class DeluxeTriggerTest(unittest.TestCase):
              mock.patch.object(puzzle.PuzzleBot, '_refill_box',
                                return_value=True) as rb:
             self.assertTrue(b._maybe_refill_deluxe_box())
-        rb.assert_called_once_with(refill.BOX_DELUXE_NAMES, (503, 271), 'deluxe')
+        rb.assert_called_once_with(refill.BOX_DELUXE_NAMES, (503, 271), 'deluxe',
+                                   stop_on_empty=False)
 
     def test_deluxe_respects_cap(self):
         b = _bare(_box_refill_count=puzzle.BOX_REFILL_MAX)
@@ -146,6 +147,20 @@ class RefillBoxOrchestrationTest(unittest.TestCase):
         self.assertFalse(ok)
         self.assertFalse(b.botting)
         self.assertEqual(b._box_refill_count, 0)
+
+    def test_empty_with_stop_on_empty_false_keeps_botting(self):
+        # Deluxe-Variante: keine Box im Inventar -> Bot laeuft WEITER (nur Deluxe
+        # wird vom Aufrufer abgeschaltet), botting bleibt True.
+        b = _bare()
+        with mock.patch.object(puzzle.PuzzleBot,
+                               '_ensure_inventory_open_for_refill',
+                               return_value=True), \
+             mock.patch.object(refill, 'refill_from_inventory',
+                               return_value='empty'):
+            ok = b._refill_box(refill.BOX_DELUXE_NAMES, (503, 271), 'deluxe',
+                               stop_on_empty=False)
+        self.assertFalse(ok)
+        self.assertTrue(b.botting)   # NICHT gestoppt
 
     def test_error_continues_without_stop(self):
         b = _bare()
