@@ -9,6 +9,18 @@ behaviour is fully preserved as the default.
 > violates the game's Terms of Service and may get your account banned. Use at
 > your own risk. See [`LICENSE.txt`](LICENSE.txt).
 
+## 🆕 What's new in 1.2.27
+
+- **Force Deluxe now actually uses the Deluxe box (opportunistic).** The old
+  strategy reserved a fixed 2×3 field and waited — it stalled whenever the box-count
+  read 0, so the Deluxe box was never opened and the solver just filled the whole
+  board and discarded forever. Now the bot works opportunistically: as soon as a
+  **free 2×3 hole** exists on the board **and a Deluxe box is available**, it opens
+  the Deluxe box and fills that hole with the magenta 2×3 piece (a deterministic
+  6-cell fit). The log now shows `Deluxe check: free 2x3 hole at …, deluxe boxes
+read=N` so it's finally visible whether a box is detected. A safety cap disables
+  Deluxe for the run after 2 empty opens (no infinite clicking).
+
 ## 🆕 What's new in 1.2.26
 
 - **Fix: puzzle box auto-refill now actually opens the inventory.** In 1.2.25 the

@@ -98,6 +98,14 @@ BOX_EMPTY_STREAK = 2
 # Dauer-Fehlerkennung). 20 Boxen sind weit mehr als eine reale Sitzung braucht.
 BOX_REFILL_MAX = 20
 
+# -- Opportunistische Deluxe-Nutzung --------------------------------------
+# So oft darf das Oeffnen der Deluxe-Box KEINEN Magenta-Stein liefern, bevor die
+# Deluxe-Nutzung fuer den Rest des Laufs abgeschaltet wird. Schuetzt vor einer
+# Endlosschleife, falls die Box-Zahl faelschlich "Box vorhanden" liest (leerer
+# Slot) -> Oeffnen liefert nichts -> ohne Deckel wuerde jeder Zyklus erneut
+# vergeblich die Box klicken. 2 = ein einzelner Render-/Lese-Aussetzer ist ok.
+DELUXE_MISS_LIMIT = 2
+
 
 fish_jigsaw_chest = cv.imread(resource_path("images/fish_jigsaw_chest.png"))
 
@@ -226,6 +234,11 @@ class PuzzleBot(PuzzleDetectMixin):
     _empty_getpiece_streak = 0        # leere getpiece IN FOLGE (Box-leer-Signal)
     _box_refill_count = 0             # bereits nachgelegte Boxen (Cap-Zaehler)
 
+    # -- Opportunistische Deluxe-Nutzung (Laufzeit-Zustand) ----------------
+    _awaiting_deluxe = False          # gerade die Deluxe-Box geoeffnet? (Magenta erwartet)
+    _deluxe_miss_streak = 0           # Deluxe geoeffnet, aber KEIN Magenta -> Zaehler
+    _deluxe_disabled = False          # nach zu vielen Fehlversuchen fuer den Lauf aus
+
     state = 0
 
     end = False
@@ -250,6 +263,10 @@ class PuzzleBot(PuzzleDetectMixin):
         # alter Lauf weiter -> verfruehtes Nachlegen / fruehes Cap-Limit).
         self._empty_getpiece_streak = 0
         self._box_refill_count = 0
+        # Opportunistische Deluxe-Nutzung pro Lauf zuruecksetzen.
+        self._awaiting_deluxe = False
+        self._deluxe_miss_streak = 0
+        self._deluxe_disabled = False
         # Offset auf den Klassen-Default zuruecksetzen; die Integration setzt
         # danach den aus dem Detection-Modus aufgeloesten Offset (falls
         # abweichend). Garantiert einen wohldefinierten Startwert pro Lauf.
@@ -545,18 +562,47 @@ class PuzzleBot(PuzzleDetectMixin):
 
     # -- Force Deluxe (V3-Reservat) ---------------------------------------
 
-    def _read_deluxe_available(self):
-        """``True``, wenn >= 1 Deluxe-Box im Inventar liegt (per OCR der Box-Zahl).
+    def _deluxe_count(self):
+        """Rohe Anzahl der Deluxe-Boxen im Slot ``PUZZLE_DELUXE_BOX`` (>=0).
 
-        Liest einen frischen Screenshot und gibt ihn an
-        ``deluxe.read_deluxe_count`` (32x32-Slot auf ``PUZZLE_DELUXE_BOX``,
-        font-unabhaengiges OCR). STRIKT defensiv -- jeder Fehler (kein wincap,
-        Screenshot-/OCR-Fehler) -> ``False`` (kein Force-Deluxe statt Crash)."""
+        Liest einen frischen Screenshot und gibt ihn an ``deluxe.read_deluxe_count``
+        (32x32-Slot auf ``(503,271)``, font-unabhaengiges OCR). STRIKT defensiv --
+        jeder Fehler -> ``0``. DIES ist der einzige Verfuegbarkeits-Sensor; sein
+        Rohwert wird bewusst geloggt (``puzzle.deluxe_decision``), weil eine
+        stille 0 bisher die einzige Ursache war, dass Deluxe NIE genutzt wurde."""
         try:
             shot = self.wincap.get_screenshot()
-            return deluxe.read_deluxe_count(shot, self.PUZZLE_DELUXE_BOX) >= 1
+            return int(deluxe.read_deluxe_count(shot, self.PUZZLE_DELUXE_BOX))
         except Exception:
+            return 0
+
+    def _read_deluxe_available(self):
+        """``True``, wenn >= 1 Deluxe-Box im Slot liegt (Wrapper um ``_deluxe_count``)."""
+        return self._deluxe_count() >= 1
+
+    def _register_deluxe_result(self, piece):
+        """Verarbeitet das Ergebnis eines Deluxe-Box-Oeffnens (Magenta erwartet).
+
+        Nur aktiv, wenn gerade die Deluxe-Box geoeffnet wurde (``_awaiting_deluxe``).
+        Kommt der Magenta-Stein (Typ 7) -> Fehlversuch-Zaehler zuruecksetzen. Kommt
+        KEINER (None oder ein normaler 1-6) -> der Deluxe-Slot war trotz gemeldeter
+        Box-Zahl wohl leer: Fehlversuch zaehlen und nach ``DELUXE_MISS_LIMIT`` die
+        Deluxe-Nutzung fuer den Lauf abschalten (verhindert Endlos-Klicken auf einen
+        leeren Slot bei falsch-positiver OCR). Rueckgabe ``True``, wenn es ein
+        Deluxe-Versuch war (Aufrufer ueberspringt dann den Standard-Box-Streak)."""
+        if not getattr(self, '_awaiting_deluxe', False):
             return False
+        self._awaiting_deluxe = False
+        if piece == deluxe.DELUXE_PIECE_TYPE:
+            self._deluxe_miss_streak = 0
+        else:
+            self._deluxe_miss_streak = getattr(self, '_deluxe_miss_streak', 0) + 1
+            log.event(self.state, t('puzzle.deluxe_no_magenta'), got=piece,
+                      misses=self._deluxe_miss_streak, limit=DELUXE_MISS_LIMIT)
+            if self._deluxe_miss_streak >= DELUXE_MISS_LIMIT:
+                self._deluxe_disabled = True
+                log.event(self.state, t('puzzle.deluxe_disabled'))
+        return True
 
     def _force_deluxe_active(self):
         """``True``, wenn die V3-Force-Deluxe-Strategie GERADE greifen soll.
@@ -868,15 +914,14 @@ class PuzzleBot(PuzzleDetectMixin):
                 log.event(self.state, 'Finish ausgesetzt: Brett in 1 Zug '
                           'komplettierbar -> 1-Zug-Loch nicht fragmentieren',
                           piece_type=piece.piece_type, streak=streak)
-            # Force Deluxe (V3): ist die Strategie aktiv (force_deluxe + trained
-            # + Deluxe-Box vorhanden), das feste 2x3-Reservat an den Solver
-            # reichen -> er fuellt nur die 18 anderen Zellen und legt NIE ins
-            # Reservat (das fuellt spaeter der Deluxe-Stein). Sonst kein Reservat
-            # (None) -> exakt der bisherige trained-Pfad.
-            reservat = (deluxe.reservat_2x3()
-                        if self._force_deluxe_active() else None)
+            # KEIN festes Reservat mehr: die Deluxe-Nutzung ist jetzt
+            # OPPORTUNISTISCH (State 0 oeffnet die Deluxe-Box, sobald irgendwo ein
+            # freies 2x3-Loch liegt UND eine Box da ist) statt ein fixes Feld zu
+            # reservieren. Die alte Reservat-Strategie blieb haengen, sobald die
+            # Box-Zahl-OCR 0 las (Reservat nie befuellt) -> der Solver fuellt jetzt
+            # immer normal, Deluxe schnappt sich Loecher proaktiv davor.
             a = trained_solver.choose_placement(self.tetris.board, piece,
-                                                finish=finish, reservat=reservat)
+                                                finish=finish, reservat=None)
             if a is None:
                 self._discard_streak = streak + 1
                 log.event(self.state,
@@ -1028,38 +1073,39 @@ class PuzzleBot(PuzzleDetectMixin):
 
             if time() - self.timer_action > timep:
 
-                # Deluxe-Box NACHLEGEN (opt-in): will Force-Deluxe gerade das
-                # Reservat fuellen (18 Zellen voll, Reservat leer), liegt aber
-                # KEINE Deluxe-Box mehr im Inventar-Slot, dann zuerst aus dem
-                # Inventar nachlegen -> naechster Tick sieht die Box (frischer
-                # Cache) und oeffnet sie ueber den bestehenden Pfad. Nur bei
-                # aktivem Box-Nachlegen + konfiguriertem Force-Deluxe (trained).
-                if (self._box_refill_active()
-                        and getattr(self, 'force_deluxe', False)
+                # OPPORTUNISTISCHE Deluxe-Nutzung (der vom Nutzer beschriebene
+                # "beste Weg"): liegt JETZT irgendwo ein freies 2x3-Loch UND ist
+                # eine Deluxe-Box verfuegbar, dann NICHT einen Zufallsstein
+                # anfordern, sondern die Deluxe-Box oeffnen -> der Magenta-2x3-
+                # Stein fuellt das Loch DETERMINISTISCH (6 Zellen, garantierter
+                # Fit). Loest die starre Reservat-Strategie ab, die haengen blieb,
+                # sobald die Box-Zahl-OCR 0 las. Die Diagnose-Zeile macht den
+                # Box-Zahl-Rohwert SICHTBAR (bisher voellig unprotokolliert) +
+                # ein Deckel (DELUXE_MISS_LIMIT) verhindert eine Endlosschleife,
+                # falls die OCR faelschlich "Box da" meldet.
+                if (getattr(self, 'force_deluxe', False)
                         and self.solver_mode == 'trained'
-                        and self._non_reservat_full()
-                        and deluxe.reservat_is_empty(self.tetris.board)
-                        and not self._read_deluxe_available()):
-                    if self._maybe_refill_deluxe_box():
-                        self._reset_force_deluxe_cache()
-                        self.timer_action = time()
-                        return None
-
-                # Force Deluxe (V3): sind die 18 Nicht-Reservat-Zellen voll und
-                # das Reservat noch leer, NICHT einen normalen Stein anfordern,
-                # sondern die DELUXE-Box oeffnen -> der Magenta-Stein erscheint
-                # und wird ueber den normalen Pfad (Farbe Typ 7 -> _place_deluxe)
-                # ins Reservat gesetzt. Danach in State 1 (bestaetigen) weiter,
-                # exakt wie beim normalen Stein-Anfordern. Nur aktiv bei aktiver
-                # Strategie (force_deluxe + trained + Deluxe-Box vorhanden).
-                if (self._force_deluxe_active()
-                        and self._non_reservat_full()
-                        and deluxe.reservat_is_empty(self.tetris.board)):
-                    log.event(self.state, t('puzzle.force_deluxe_fill_reservat'))
-                    self._open_deluxe_box_and_place()
-                    self.state = 1
-                    self.timer_action = time()
-                    return None
+                        and not getattr(self, '_deluxe_disabled', False)):
+                    hole = deluxe.find_free_2x3(self.tetris.board)
+                    if hole is not None:
+                        boxes = self._deluxe_count()
+                        log.event(self.state, t('puzzle.deluxe_decision'),
+                                  hole=hole, boxes=boxes,
+                                  misses=getattr(self, '_deluxe_miss_streak', 0))
+                        if boxes >= 1:
+                            log.event(self.state,
+                                      t('puzzle.deluxe_open_for_hole'), hole=hole)
+                            self._awaiting_deluxe = True
+                            self._open_deluxe_box_and_place()
+                            self.state = 1
+                            self.timer_action = time()
+                            return None
+                        # Loch da, aber kein Deluxe-Vorrat -> ggf. aus dem
+                        # Inventar nachlegen (naechster Zyklus sieht die Box).
+                        if (self._box_refill_active()
+                                and self._maybe_refill_deluxe_box()):
+                            self.timer_action = time()
+                            return None
 
                 if self.detect_end_game(crop_image):
                     if not self.try_to_put_chest():
@@ -1126,13 +1172,21 @@ class PuzzleBot(PuzzleDetectMixin):
                     # Deadline geht ein echter Miss (voll geloggt) in den
                     # bestehenden Verwerfen-Pfad.
                     return None
+                # Deluxe-Guard ZUERST: haben wir gerade die DELUXE-Box geoeffnet?
+                # (getrennte Methode -> testbar). True = es war ein Deluxe-Versuch
+                # (anderer Slot als getpiece) -> zaehlt NICHT als Standard-Box-Miss.
+                deluxe_attempt = self._register_deluxe_result(piece)
+
                 # Box-Nachlegen: ein ECHTER Miss (kein Stein nach Ablauf des
                 # Retry-Fensters) bedeutet, der getpiece-Klick lieferte nichts ->
                 # moeglicher Hinweis auf eine LEERE Box im Slot. Streak zaehlen;
                 # ein erfolgreicher Read setzt sie zurueck (nur AUFEINANDER
-                # folgende Leerschuesse gelten als "Box leer").
+                # folgende Leerschuesse gelten als "Box leer"). Deluxe-Versuche
+                # zaehlen hier NICHT mit (oben separat behandelt).
                 if piece is not None:
                     self._empty_getpiece_streak = 0
+                elif deluxe_attempt:
+                    pass  # Deluxe-Fehlversuch -> kein Standard-Box-Streak
                 else:
                     self._empty_getpiece_streak = (
                         getattr(self, '_empty_getpiece_streak', 0) + 1)

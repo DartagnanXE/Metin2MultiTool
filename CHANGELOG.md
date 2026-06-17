@@ -3,6 +3,29 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.27] — 2026-06-17
+
+### Force Deluxe: Deluxe-Box wird endlich genutzt (opportunistisch + Diagnose)
+
+- **Grundlegender Umbau der Deluxe-Logik.** Bisher reservierte „Force Deluxe" ein
+  festes 2×3-Feld und wartete — das blieb im Log **hängen**, sobald die Box-Zahl-
+  Erkennung 0 las: die Deluxe-Box wurde **nie geöffnet**, der Solver füllte
+  stattdessen das ganze Brett und verwarf endlos. Jetzt arbeitet der Bot
+  **opportunistisch, genau wie gewünscht**: Sobald **irgendwo ein freies 2×3-Loch**
+  auf dem Brett liegt **und eine Deluxe-Box verfügbar** ist, öffnet er die
+  Deluxe-Box und füllt das Loch mit dem **Magenta-2×3-Stein** (deterministischer
+  6-Zellen-Fit = der beste Zug). Kein starres Reservat mehr.
+- **Endlich Diagnose im Log.** Bei jeder Prüfung steht jetzt: `Deluxe-Prüfung:
+freies 2x3-Loch bei …, Deluxe-Boxen gelesen=N` — damit ist **sofort sichtbar**,
+  ob der Bot eine Deluxe-Box erkennt (das war bisher völlig unprotokolliert und der
+  eigentliche Grund, warum „nichts passierte").
+- **Schleifen-Sicherung.** Liefert das Öffnen der Deluxe-Box **keinen** Magenta-
+  Stein (Slot war doch leer), zählt der Bot das, und nach 2 Fehlversuchen schaltet
+  er die Deluxe-Nutzung für den Lauf ab und spielt normal weiter — keine Endlos-
+  Klicks mehr auf einen leeren Slot.
+- Fehlt eine Deluxe-Box im Slot, aber „Boxen automatisch nachlegen" ist an, wird
+  eine aus dem Inventar nachgezogen (wie bei den Standard-Boxen).
+
 ## [1.2.26] — 2026-06-17
 
 ### Fix: Puzzle-Box-Nachlegen öffnet das Inventar jetzt wirklich
