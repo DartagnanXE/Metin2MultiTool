@@ -277,6 +277,17 @@ class PuzzleBot(PuzzleDetectMixin):
         self.key_points = {}
         with open(resource_path('pieces_second.json')) as handle:
             self.dictdump = json.loads(handle.read())
+        # KI-Wertfunktion EINMALIG vorab laden, BEVOR der erste Zug sie braucht.
+        # Sonst blockiert der erste 'KI optimiert'-Zug ~19s mit der Berechnung
+        # (sah aus wie "haengt beim ersten Start"). Die gebuendelte trained_V.npz
+        # laedt in ~0.2s; nur fuer den trained-Modus relevant. Wirft nie.
+        if getattr(self, 'solver_mode', '') == 'trained':
+            try:
+                log.event(self.state, t('puzzle.loading_ai_model'))
+                trained_solver.load_V()
+                log.event(self.state, t('puzzle.ai_model_ready'))
+            except Exception:
+                pass
 
     # Die reinen Vision-Bausteine _sample_cell_bgr / _classify_piece /
     # _is_valid_piece_color / _diagnose_board / detect_end_game liefert der

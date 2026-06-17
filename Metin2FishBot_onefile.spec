@@ -82,6 +82,7 @@ a = Analysis(
         ('seher/templates', 'seher/templates'),  # Seherwettstreit-Anker+Kreuz (seher.detect)
         ('energiesplitter/templates', 'energiesplitter/templates'),  # Hammer/Dolch/NPC-Templates (energiesplitter.detect) -- OHNE diese ist der Phase-0-GATE in der EXE IMMER rot (item/npc 'nicht gefunden')
         ('pieces_second.json', '.'),
+        ('trained_V.npz', '.'),  # vorberechnete KI-Wertfunktion (trained_solver.load_V) -- OHNE diese rechnet der erste 'KI optimiert'-Zug ~19s und der Bot wirkt EINGEFROREN
     ] + ctk_datas + tz_datas + ([(APP_ICON, '.')] if APP_ICON else []),
     hiddenimports=[
         'win32gui', 'win32ui', 'win32con',

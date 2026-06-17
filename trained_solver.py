@@ -107,17 +107,35 @@ def _cache_path():
 
 
 def load_V():
-    """Liefert die Wertfunktion (aus Cache oder einmalig berechnet). Wirft nie."""
+    """Liefert die Wertfunktion. Reihenfolge: (1) schneller schreibbarer .npy-
+    Cache, (2) GEBUENDELTE, vorberechnete ``trained_V.npz`` (komprimiert ~13 MB,
+    laedt in ~0.2s) -> entfernt den ~19s-Hang beim ersten 'KI optimiert'-Zug,
+    (3) Fallback: einmalig berechnen. Wirft nie."""
     global _V
     if _V is not None:
         return _V
     path = _cache_path()
+    # (1) schreibbarer .npy-Cache neben EXE/Modul (einmal berechnet/gespiegelt).
     try:
         if os.path.exists(path):
             _V = np.load(path)
             return _V
     except Exception:
         pass
+    # (2) gebuendelte, vorberechnete komprimierte Wertfunktion -> KEIN 19s-Hang.
+    try:
+        from respath import resource_path
+        npz = resource_path('trained_V.npz')
+        if os.path.exists(npz):
+            _V = np.load(npz)['V']
+            try:
+                np.save(path, _V)  # in den schnellen .npy-Cache spiegeln (optional)
+            except Exception:
+                pass
+            return _V
+    except Exception:
+        pass
+    # (3) Fallback: einmalig berechnen (Bundle fehlt / read-only FS).
     _V = _compute_V()
     try:
         np.save(path, _V)

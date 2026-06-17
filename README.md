@@ -9,6 +9,15 @@ behaviour is fully preserved as the default.
 > violates the game's Terms of Service and may get your account banned. Use at
 > your own risk. See [`LICENSE.txt`](LICENSE.txt).
 
+## 🆕 What's new in 1.2.28
+
+- **Fix: "AI optimized" no longer freezes for ~19 s on first start.** The AI value
+  function (over all 16.7M board states) used to be computed live on the very first
+  "AI optimized" move (~19 s), during which the bot looked frozen — and the portable
+  EXE didn't ship the precomputed file, so it happened on every fresh start. It's now
+  precomputed and bundled compressed in the EXE (`trained_V.npz`, ~13 MB), loading in
+  ~0.2 s, and preloaded at puzzle start. No more freeze.
+
 ## 🆕 What's new in 1.2.27
 
 - **Force Deluxe now actually uses the Deluxe box (opportunistic).** The old

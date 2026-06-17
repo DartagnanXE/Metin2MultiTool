@@ -113,6 +113,7 @@ a = Analysis(
         ('seher/templates', 'seher/templates'),  # Seherwettstreit-Anker+Kreuz (seher.detect)
         ('energiesplitter/templates', 'energiesplitter/templates'),  # Hammer/Dolch/NPC-Templates (energiesplitter.detect) -- ohne diese ist der Phase-0-GATE in der EXE IMMER rot
         ('pieces_second.json', '.'),        # Eroeffnungsbuch
+        ('trained_V.npz', '.'),             # vorberechnete KI-Wertfunktion (trained_solver) -- ohne diese ~19s-Hang beim ersten 'KI optimiert'-Zug
     ] + ctk_datas + tz_datas + ([(APP_ICON, '.')] if APP_ICON else []),  # Icon als Laufzeit-Datei (Fenster-Icon)
     hiddenimports=[
         'win32gui', 'win32ui', 'win32con',  # pywin32 (windowcapture)

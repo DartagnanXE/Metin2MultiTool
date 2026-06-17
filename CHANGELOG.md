@@ -3,6 +3,20 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.28] — 2026-06-17
+
+### Fix: „KI optimiert" friert beim ersten Start nicht mehr ~19 s ein
+
+- **Ursache des „Hängens beim ersten Start" gefunden.** Die KI-Wertfunktion
+  (über alle 16,7 Mio Brettzustände) wurde beim **allerersten** „KI optimiert"-Zug
+  **live berechnet** (~19 Sekunden) — solange wirkte der Bot **eingefroren**. In
+  der portablen EXE war die vorberechnete Datei nicht enthalten, also passierte das
+  bei jedem frischen Start (bzw. dauerhaft, wenn der Ordner nicht beschreibbar ist).
+- **Fix:** Die Wertfunktion ist jetzt **vorberechnet und komprimiert in der EXE
+  gebündelt** (`trained_V.npz`, ~13 MB) und lädt in **~0,2 s** statt 19 s zu
+  rechnen. Zusätzlich wird sie **beim Puzzle-Start einmalig vorgeladen** (mit
+  Log-Meldung), sodass der erste Zug sofort kommt. Kein Einfrieren mehr.
+
 ## [1.2.27] — 2026-06-17
 
 ### Force Deluxe: Deluxe-Box wird endlich genutzt (opportunistisch + Diagnose)

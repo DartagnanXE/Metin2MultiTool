@@ -168,6 +168,8 @@ TRANSLATIONS = {
     'puzzle.deluxe_open_for_hole': {'en': 'Opening the Deluxe box to fill the 2x3 hole at {hole} (deterministic 6-cell fit)', 'de': 'Öffne die Deluxe-Box, um das 2x3-Loch bei {hole} zu füllen (deterministischer 6-Zellen-Fit)'},
     'puzzle.deluxe_no_magenta': {'en': 'Opened the Deluxe box but no magenta piece appeared (got={got}); miss {misses}/{limit} -> the slot was likely empty', 'de': 'Deluxe-Box geöffnet, aber kein Magenta-Stein erschienen (erhalten={got}); Fehlversuch {misses}/{limit} -> der Slot war wohl leer'},
     'puzzle.deluxe_disabled': {'en': 'Deluxe use disabled for this run (too many empty opens) -> playing normally from here', 'de': 'Deluxe-Nutzung für diesen Lauf abgeschaltet (zu viele leere Öffnungen) -> ab hier normales Spiel'},
+    'puzzle.loading_ai_model': {'en': 'Loading the AI value function (one-time, bundled) ...', 'de': 'Lade die KI-Wertfunktion (einmalig, gebündelt) ...'},
+    'puzzle.ai_model_ready': {'en': 'AI value function ready', 'de': 'KI-Wertfunktion bereit'},
     'puzzle.box_refill_probe': {'en': 'Empty piece #{streak}/{threshold} (auto-refill enabled={enabled}, engine={engine}) -> refill triggers at the threshold', 'de': 'Leerer Stein #{streak}/{threshold} (Auto-Nachlegen an={enabled}, Engine={engine}) -> Nachlegen löst an der Schwelle aus'},
     'puzzle.box_refill_started': {'en': 'Box empty ({kind}) -> refilling from inventory (opening bag, scanning pages, dragging first box found)', 'de': 'Box leer ({kind}) -> lege aus dem Inventar nach (Tasche öffnen, Seiten scannen, ersten Boxfund ziehen)'},
     'puzzle.box_refill_done': {'en': 'Box refilled ({kind}, #{n}) -> requesting a new piece', 'de': 'Box nachgelegt ({kind}, #{n}) -> fordere neuen Stein an'},
