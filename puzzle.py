@@ -817,19 +817,29 @@ class PuzzleBot(PuzzleDetectMixin):
         if getattr(self, '_box_refill_count', 0) >= BOX_REFILL_MAX:
             log.event(self.state, t('puzzle.box_refill_cap', n=BOX_REFILL_MAX))
             return False
-        if not self._ensure_inventory_open_for_refill():
-            log.event(self.state, t('puzzle.box_refill_inv_not_open', kind=kind))
-            return False
         log.event(self.state, t('puzzle.box_refill_started', kind=kind))
         calib = self.box_refill_calib or _refill.DEFAULT_CALIBRATION
+
+        def _open_toggle():
+            # Fokus (Tasten brauchen ihn) + Inventar-Hotkey -> Toggle. Die
+            # Verifikation, ob das Inventar danach OFFEN ist, macht
+            # box_refill_from_inventory template-frei selbst (kein kaputter
+            # Tab-Template-Probe mehr).
+            self._focus_game()
+            try:
+                pydirectinput.press(self.inventory_hotkey)
+            except Exception:
+                pass
+
         try:
-            # Dedizierter, client-robuster Box-Finder (fester Grid + obere-
-            # Haelfte-Match) statt itemdb-Scan -- der erkannte auf dem echten
-            # Client NICHTS (Auto-Align ~10px daneben + grosse Stueckzahl
-            # ueberdeckt die untere Icon-Haelfte). Bild-validiert.
+            # Robuster Box-Finder: template-freie Offen-Erkennung (+ Toggle) +
+            # fester Kalibrier-Grid + obere-Haelfte-Match. Ersetzt den itemdb-Scan
+            # UND die Tab-Template-Probe, die auf dem echten Client beide nichts
+            # erkannten (Auto-Align ~10px daneben; grosse Stueckzahl ueberdeckt die
+            # untere Icon-Haelfte). Bild-validiert.
             result = _refill.box_refill_from_inventory(
                 names, target_xy, inp=pydirectinput, wincap=self.wincap,
-                calib=calib,
+                open_toggle_fn=_open_toggle, calib=calib,
                 sleep=self._refill_sleep, should_stop=self._refill_should_stop)
         except Exception:
             result = 'error'

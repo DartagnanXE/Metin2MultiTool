@@ -9,6 +9,17 @@ behaviour is fully preserved as the default.
 > violates the game's Terms of Service and may get your account banned. Use at
 > your own risk. See [`LICENSE.txt`](LICENSE.txt).
 
+## 🆕 What's new in 1.2.32
+
+- **Box refill: the blocking "is the inventory open?" check is now template-free.**
+  After 1.2.31 the bot recognized the box but never got that far — the old tab-template
+  open-check failed on the client ("inventory not verifiably open → no refill"). It now
+  detects open-ness from the inventory's periodic slot structure (slot borders are ~32 px
+  apart and clearly darker than slot centers): measured open ≈ 38 vs game world ≈ 3.5.
+  If the bag is closed it presses the inventory key (with focus) and re-checks instead of
+  blindly clicking tabs into the game world. Proven end-to-end on the real screenshot:
+  open-check → box found (slot 23) → drag executed.
+
 ## 🆕 What's new in 1.2.31
 
 - **Box refill: puzzle boxes are now reliably recognized in the inventory.** The

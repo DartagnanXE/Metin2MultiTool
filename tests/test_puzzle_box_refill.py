@@ -173,15 +173,17 @@ class RefillBoxOrchestrationTest(unittest.TestCase):
         self.assertFalse(ok)
         self.assertTrue(b.botting)   # Fehler stoppt den Bot NICHT
 
-    def test_inventory_not_open_skips_scan(self):
+    def test_passes_open_toggle_fn_to_engine(self):
+        # Das Inventar-Oeffnen liegt jetzt IN der Engine (template-freie Offen-
+        # Erkennung + Toggle). _refill_box reicht dafuer ein open_toggle_fn durch.
         b = _bare()
-        with mock.patch.object(puzzle.PuzzleBot,
-                               '_ensure_inventory_open_for_refill',
-                               return_value=False), \
-             mock.patch.object(refill, 'box_refill_from_inventory') as rfi:
+        with mock.patch.object(refill, 'box_refill_from_inventory',
+                               return_value='dragged') as rfi:
             ok = b._refill_box(refill.BOX_STD_NAMES, (503, 328), 'standard')
-        self.assertFalse(ok)
-        rfi.assert_not_called()      # kein Blind-Drag ohne offenes Inventar
+        self.assertTrue(ok)
+        _args, kwargs = rfi.call_args
+        self.assertIn('open_toggle_fn', kwargs)
+        self.assertTrue(callable(kwargs['open_toggle_fn']))
 
     def test_cap_blocks_scan(self):
         b = _bare(_box_refill_count=puzzle.BOX_REFILL_MAX)

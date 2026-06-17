@@ -485,14 +485,64 @@ def find_box_slot(capture_fn, switch_page_fn, box_names, calib=DEFAULT_CALIBRATI
     return None
 
 
+INVENTORY_OPEN_MIN_DIFF = 15.0   # Slot-Zentren minus -Raender; offen gemessen ~38
+
+
+def inventory_looks_open(frame, calib=DEFAULT_CALIBRATION):
+    """TEMPLATE-FREI pruefen, ob das Inventar offen ist (ersetzt die auf manchen
+    Clients unzuverlaessige Tab-Template-Probe).
+
+    Die offene Tasche zeigt das 5x9-Slot-Raster: die Slot-RAND-Spalten (alle
+    ``pitch`` px) sind deutlich DUNKLER als die Slot-ZENTRUM-Spalten (am echten
+    Client gemessen: Differenz ~38). Die Spielwelt hat keine solche Periodik.
+    Rueckgabe ``(is_open: bool, diff: float)`` -- ``diff`` fuers Debug/Kalibrieren.
+    Streng defensiv: bei jedem Fehler ``(False, 0.0)``."""
+    if _np is None or frame is None or getattr(frame, 'ndim', 0) != 3:
+        return (False, 0.0)
+    try:
+        grid = (calib or {}).get('grid', {}) or {}
+        cols = int(grid.get('cols', 5))
+        rows = int(grid.get('rows', 9))
+        lat = lattice_from_calibration(calib)
+        ox0, oy0 = lat.origin
+        px, py = lat.pitch
+        gray = _np.asarray(frame)[:, :, :3].astype(_np.float32).mean(axis=2)
+        h, w = gray.shape
+        y0 = int(oy0)
+        y1 = min(h, int(oy0 + rows * py))
+        if y1 - y0 < py:
+            return (False, 0.0)
+
+        def _col_mean(x):
+            x = int(x)
+            if x < 0 or x >= w:
+                return None
+            return float(gray[y0:y1, x].mean())
+
+        borders = [_col_mean(ox0 + c * px) for c in range(cols + 1)]
+        centers = [_col_mean(ox0 + c * px + px // 2) for c in range(cols)]
+        borders = [v for v in borders if v is not None]
+        centers = [v for v in centers if v is not None]
+        if not borders or not centers:
+            return (False, 0.0)
+        diff = float(_np.mean(centers) - _np.mean(borders))
+        return (diff >= INVENTORY_OPEN_MIN_DIFF, diff)
+    except Exception:
+        return (False, 0.0)
+
+
 def box_refill_from_inventory(box_names, target_xy, *, inp, wincap,
-                              calib=DEFAULT_CALIBRATION, sleep=None,
-                              should_stop=None):
-    """Wie ``refill_from_inventory``, aber mit dem dedizierten, client-robusten
-    ``find_box_slot`` (fester Grid + obere-Haelfte-Match) statt dem itemdb-Scan,
-    der auf dem echten Client nichts erkennt. Findet die erste Box, wechselt auf
-    deren Seite, zieht sie an ``target_xy``. Rueckgabe
-    ``'dragged'|'empty'|'error'|'stopped'``. Wirft nie."""
+                              open_toggle_fn=None, calib=DEFAULT_CALIBRATION,
+                              sleep=None, should_stop=None, max_open_tries=3):
+    """ROBUSTES Box-Nachlegen ohne die kaputte Tab-Template-Probe.
+
+    Ablauf: (1) template-frei pruefen ob das Inventar offen ist
+    (``inventory_looks_open``); (2) ist es ZU, ``open_toggle_fn`` aufrufen
+    (Fokus + Inventar-Hotkey -> Toggle) und erneut pruefen -- so wird das Inventar
+    waehrend des Puzzles zuverlaessig geoeffnet, OHNE bei geschlossener Tasche
+    blind Tabs ins Spiel zu klicken; (3) am festen Kalibrier-Grid + obere-Haelfte-
+    Match die ERSTE Box finden (``find_box_slot``) und an ``target_xy`` ziehen.
+    Rueckgabe ``'dragged'|'empty'|'error'|'stopped'``. Wirft nie."""
     if sleep is None:
         import time
         sleep = time.sleep
@@ -504,11 +554,49 @@ def box_refill_from_inventory(box_names, target_xy, *, inp, wincap,
             return False
         return not stop()
 
+    def _dbg(msg):
+        try:
+            from debuglog import log as _l
+            _l.event('refill', msg)
+        except Exception:
+            pass
+
     try:
         if stop():
             return 'stopped'
         ox = int(getattr(wincap, 'offset_x', 0) or 0)
         oy = int(getattr(wincap, 'offset_y', 0) or 0)
+
+        # (1)+(2) Inventar verifiziert oeffnen -- template-frei, mit Toggle-Retry.
+        opened = False
+        for attempt in range(max(1, int(max_open_tries))):
+            if stop():
+                return 'stopped'
+            frame = None
+            try:
+                frame = wincap.get_screenshot()
+            except Exception:
+                frame = None
+            is_open, diff = inventory_looks_open(frame, calib)
+            _dbg('Inventar-Offen-Check: offen={} (Differenz={:.0f}, Schwelle={:.0f}), '
+                 'Versuch {}'.format(is_open, diff, INVENTORY_OPEN_MIN_DIFF, attempt + 1))
+            if is_open:
+                opened = True
+                break
+            # zu -> Toggle (Fokus + Hotkey) und settle, dann erneut pruefen
+            if open_toggle_fn is None:
+                break
+            try:
+                open_toggle_fn()
+            except Exception:
+                pass
+            if not _napped(0.5):
+                return 'stopped'
+        if not opened:
+            _dbg('Inventar liess sich nicht verifiziert oeffnen -> kein Nachlegen')
+            return 'empty'
+
+        # (3) Box am festen Grid suchen (Inventar ist jetzt offen -> Tab-Klicks sicher).
         aborted = {'stop': False}
 
         def _switch_page(page):
@@ -517,24 +605,16 @@ def box_refill_from_inventory(box_names, target_xy, *, inp, wincap,
                 aborted['stop'] = True
 
         loc = find_box_slot(wincap.get_screenshot, _switch_page, box_names,
-                            calib=calib, should_stop=lambda: aborted['stop'] or stop())
+                            calib=calib,
+                            should_stop=lambda: aborted['stop'] or stop())
         if aborted['stop'] or stop():
             return 'stopped'
         if loc is None:
-            try:
-                from debuglog import log as _dbg
-                _dbg.event('refill', 'Box-Scan (obere-Haelfte-Match): gesucht={} '
-                           '-> keine Box gefunden'.format(list(box_names)))
-            except Exception:
-                pass
+            _dbg('Box-Scan (obere-Haelfte-Match) gesucht={} -> keine Box gefunden'
+                 .format(list(box_names)))
             return 'empty'
         page, row, col, name = loc
-        try:
-            from debuglog import log as _dbg
-            _dbg.event('refill', 'Box gefunden: {} auf Seite {} Slot (r{},c{})'.format(
-                name, page, row, col))
-        except Exception:
-            pass
+        _dbg('Box gefunden: {} auf Seite {} Slot (r{},c{})'.format(name, page, row, col))
         tab_click(inp, calib, ox, oy, page)
         if not _napped(0.25):
             return 'stopped'

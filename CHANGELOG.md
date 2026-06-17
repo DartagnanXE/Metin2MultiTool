@@ -3,6 +3,25 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.32] — 2026-06-17
+
+### Box-Nachlegen: blockierende „Inventar offen?"-Prüfung ersetzt (jetzt template-frei)
+
+- **Nächster Blocker behoben.** Nach v1.2.31 erkannte der Bot die Box zwar, kam
+  aber **gar nicht so weit**: die alte „Inventar offen?"-Prüfung (über Tab-
+  Vorlagen) scheiterte auf dem Client und meldete „Inventar nicht als offen
+  verifizierbar → kein Nachlegen" — der Box-Finder lief nie an.
+- **Fix: template-freie Offen-Erkennung.** Statt der Tab-Vorlagen prüft der Bot
+  jetzt die **periodische Slot-Struktur** des Inventars (Slot-Ränder sind alle
+  32 px deutlich dunkler als die Slot-Mitten). Am echten Bild gemessen:
+  **offen Differenz ≈ 38, Spielwelt ≈ 3,5** → glasklare Trennung (Schwelle 15).
+- **Robustes Öffnen mit Toggle.** Ist die Tasche zu, drückt der Bot (mit Fokus)
+  die Inventar-Taste und prüft erneut — er klickt **nicht mehr blind** in
+  geschlossene Tabs/in die Spielwelt. End-to-end am echten Screenshot bewiesen:
+  Offen-Check → Box (Slot 23) gefunden → Drag ausgeführt.
+- 6 neue Tests (Offen-Erkennung + Öffnen-dann-Ziehen + „bleibt zu → keine
+  Blind-Klicks").
+
 ## [1.2.31] — 2026-06-17
 
 ### Box-Nachlegen: Puzzle-Boxen werden im Inventar jetzt zuverlässig erkannt

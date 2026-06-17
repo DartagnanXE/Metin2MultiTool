@@ -85,5 +85,99 @@ class BoxFinderTest(unittest.TestCase):
         self.assertEqual(loc[1:], (1, 0, 'Fischpuzzlebox'))
 
 
+def _open_grid_frame():
+    """Frame mit periodischer Slot-Struktur: helle Slot-Innenflaechen, dunkle
+    Raender -> ``inventory_looks_open`` muss True liefern."""
+    frame = np.zeros((600, 800, 3), np.uint8)
+    lat = lattice_from_calibration(DEFAULT_CALIBRATION)
+    ox, oy = lat.origin
+    px, py = lat.pitch
+    for row in range(9):
+        for col in range(5):
+            y = int(oy + row * py)
+            x = int(ox + col * px)
+            frame[y + 2:y + px - 2, x + 2:x + px - 2] = 110   # helle Slot-Innenflaeche
+    return frame
+
+
+@unittest.skipIf(cv2 is None, 'cv2 nicht verfuegbar')
+class InventoryOpenCheckTest(unittest.TestCase):
+    def test_detects_open_grid(self):
+        is_open, diff = refill.inventory_looks_open(_open_grid_frame())
+        self.assertTrue(is_open)
+        self.assertGreater(diff, refill.INVENTORY_OPEN_MIN_DIFF)
+
+    def test_uniform_frame_not_open(self):
+        frame = np.full((600, 800, 3), 90, np.uint8)   # gleichmaessig (Spielwelt-aehnlich)
+        is_open, _diff = refill.inventory_looks_open(frame)
+        self.assertFalse(is_open)
+
+
+@unittest.skipIf(cv2 is None, 'cv2 nicht verfuegbar')
+class BoxRefillToggleTest(unittest.TestCase):
+    class _Inp:
+        PAUSE = 0
+
+        def __init__(self):
+            self.events = []
+
+        def moveTo(self, x, y):
+            self.events.append(('move', x, y))
+
+        def mouseDown(self, **k):
+            self.events.append(('down',))
+
+        def mouseUp(self, **k):
+            self.events.append(('up',))
+
+        def click(self, **k):
+            self.events.append(('click',))
+
+    def test_opens_when_closed_then_drags(self):
+        # Erst geschlossen (gleichmaessig), nach open_toggle_fn offen (Grid+Box).
+        closed = np.full((600, 800, 3), 90, np.uint8)
+        open_box = _open_grid_frame()
+        # echte Box ins offene Frame an Slot (4,2) setzen
+        tpl = cv2.imread(resource_path(os.path.join('inventory_icons',
+                         'Fischpuzzlebox.png')), cv2.IMREAD_UNCHANGED)
+        bgr, alpha = tpl[:, :, :3], tpl[:, :, 3]
+        cx, cy = _slot_center(4, 2)
+        reg = open_box[cy - 16:cy + 16, cx - 16:cx + 16]
+        reg[alpha > 32] = bgr[alpha > 32]
+        state = {'open': False}
+
+        def capture():
+            return open_box if state['open'] else closed
+
+        toggles = {'n': 0}
+
+        def toggle():
+            toggles['n'] += 1
+            state['open'] = True   # Hotkey oeffnet die (geschlossene) Tasche
+
+        wc = type('W', (), {'offset_x': 0, 'offset_y': 0,
+                            'get_screenshot': staticmethod(capture)})()
+        inp = self._Inp()
+        res = refill.box_refill_from_inventory(
+            ('Fischpuzzlebox',), (503, 328), inp=inp, wincap=wc,
+            open_toggle_fn=toggle, sleep=lambda s: None)
+        self.assertEqual(res, 'dragged')
+        self.assertGreaterEqual(toggles['n'], 1)   # Tasche wurde geoeffnet
+        self.assertIn(('down',), inp.events)        # Drag ausgefuehrt
+        self.assertIn(('up',), inp.events)
+
+    def test_never_opens_returns_empty_without_blind_clicks(self):
+        closed = np.full((600, 800, 3), 90, np.uint8)
+        wc = type('W', (), {'offset_x': 0, 'offset_y': 0,
+                            'get_screenshot': staticmethod(lambda: closed)})()
+        inp = self._Inp()
+        res = refill.box_refill_from_inventory(
+            ('Fischpuzzlebox',), (503, 328), inp=inp, wincap=wc,
+            open_toggle_fn=lambda: None, sleep=lambda s: None)
+        self.assertEqual(res, 'empty')
+        # Bleibt das Inventar zu, wird NICHT blind in die Tabs/Welt geklickt.
+        self.assertNotIn(('click',), inp.events)
+
+
 if __name__ == '__main__':
     unittest.main()
