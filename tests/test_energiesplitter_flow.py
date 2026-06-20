@@ -99,6 +99,10 @@ def _make_bot(mode=MODE_HAMMER, values=None, with_window=True):
   cap = _FakeWincap if with_window else None
   with mock.patch.object(esbot_mod, '_WindowCapture', cap):
     bot.set_to_begin(values if values is not None else _values())
+  # Headless: Chat-Verifikation NICHT real pollen (kein echtes Capture) -> Timeout
+  # + Intervall auf 0, damit Tests schnell bleiben.
+  bot.BUY_CHAT_TIMEOUT_S = 0.0
+  bot.DETECT_POLL_INTERVAL_S = 0.0
   return bot
 
 
@@ -548,64 +552,65 @@ class TestScharfSwitch(unittest.TestCase):
 class TestDaggerSequential(unittest.TestCase):
   """Aktion 2: Dolche werden EINZELN NACHEINANDER verarbeitet (1 Drag je Dolch)."""
 
-  def test_buy_one_queues_landing_slot(self):
+  def test_buy_one_click_mode_then_processes(self):
+    # Klick-Modus (keine Verifikation): 1 Dolch kaufen -> Runde fertig ->
+    # Verarbeitung holt die Dolch-Slots per SCAN (kein Lande-Slot mehr).
     _reset_input()
-    bot = _make_bot(mode=MODE_DAGGER,
-                    values=_values(**{'-ES_DAGGERS_PER_ROUND-': 1}))
+    bot = _make_bot(mode=MODE_DAGGER, values=_values(
+        **{'-ES_DAGGERS_PER_ROUND-': 1, '-ES_BUY_MODE-': 'click'}))
     _arm(bot)
+    bot.SHOP_OPEN_SETTLE_S = 0
+    bot.buy_delay_s = 0
     bot.state = EnergiesplitterBot.ST_BUY_ONE_DOLCH
     bot.botting = True
     bot.hammer_remaining = 5
     bot._round_to_buy = 1
-    bot._dagger_queue = []
     bot._has_free_slot = lambda: True
     bot._locate_shop_item = lambda item: (300, 200)
-    bot._inventory_signature = lambda: object()
-    bot._diff_landing_slot = lambda a, b: (7, 7)
+    bot._all_dolch_slots = lambda: [(7, 7)]   # Scan = Wahrheit
     bot.runHack()
     self.assertEqual(bot._dolche_gekauft, 1)
-    # Nach dem (einzigen) Kauf der Runde -> Verarbeitung begonnen (erster Dolch).
     self.assertEqual(bot.state, EnergiesplitterBot.ST_PROCESS_DRAG)
     self.assertEqual(bot._dolch_inv_slot, (7, 7))
     self.assertEqual(_INPUT_CALLS['right'], 1)
 
-  def test_two_per_round_buys_two_before_processing(self):
+  def test_two_per_round_click_mode_buys_two_before_processing(self):
     _reset_input()
-    bot = _make_bot(mode=MODE_DAGGER,
-                    values=_values(**{'-ES_DAGGERS_PER_ROUND-': 2}))
+    bot = _make_bot(mode=MODE_DAGGER, values=_values(
+        **{'-ES_DAGGERS_PER_ROUND-': 2, '-ES_BUY_MODE-': 'click'}))
     _arm(bot)
+    bot.SHOP_OPEN_SETTLE_S = 0
+    bot.buy_delay_s = 0
     bot.state = EnergiesplitterBot.ST_BUY_ONE_DOLCH
     bot.botting = True
     bot.hammer_remaining = 5
     bot._round_to_buy = 2
-    bot._dagger_queue = []
     bot._has_free_slot = lambda: True
-    slots = [(7, 7), (8, 8)]
     bot._locate_shop_item = lambda item: (300, 200)
-    bot._inventory_signature = lambda: object()
-    bot._diff_landing_slot = lambda a, b: slots.pop(0)
+    bot._all_dolch_slots = lambda: [(7, 7), (8, 8)]
     bot.runHack()   # kauft Dolch 1 (round_to_buy 2->1), bleibt im BUY-State
     self.assertEqual(bot.state, EnergiesplitterBot.ST_BUY_ONE_DOLCH)
     self.assertEqual(bot._round_to_buy, 1)
     bot.runHack()   # kauft Dolch 2 (round_to_buy 1->0) -> Verarbeitung beginnt
     self.assertEqual(bot.state, EnergiesplitterBot.ST_PROCESS_DRAG)
     self.assertEqual(bot._dolche_gekauft, 2)
-    self.assertEqual(len(bot._dagger_queue), 1)  # 1 verarbeitet, 1 wartet
+    self.assertEqual(len(bot._dagger_queue), 1)  # 2 gescannt, 1 gepoppt, 1 wartet
     self.assertEqual(_INPUT_CALLS['right'], 2)
 
-  def test_full_bag_processes_queued_daggers_instead_of_stopping(self):
-    # Regression (User-Log 2026-06-20): Tasche voll bei 11/20 -> frueher
-    # 'buy_unverified'-Stop. Jetzt: schon gekaufte Dolche werden verarbeitet
-    # (Zerlegen schafft Platz), KEIN Stop, KEIN weiterer Kauf-Rechtsklick.
+  def test_full_bag_processes_bought_daggers_instead_of_stopping(self):
+    # Regression: Tasche voll, aber DIESE Runde schon gekauft -> schon Gekauftes
+    # verarbeiten (Scan), KEIN Stop, KEIN weiterer Kauf-Rechtsklick.
     _reset_input()
-    bot = _make_bot(mode=MODE_DAGGER,
-                    values=_values(**{'-ES_DAGGERS_PER_ROUND-': 20}))
+    bot = _make_bot(mode=MODE_DAGGER, values=_values(
+        **{'-ES_DAGGERS_PER_ROUND-': 20, '-ES_BUY_MODE-': 'click'}))
     _arm(bot)
+    bot.SHOP_OPEN_SETTLE_S = 0
     bot.state = EnergiesplitterBot.ST_BUY_ONE_DOLCH
     bot.botting = True
     bot.hammer_remaining = 6
-    bot._round_to_buy = 9                 # wollte noch 9 kaufen ...
-    bot._dagger_queue = [(7, 7), (8, 8)]  # ... hat aber schon 2 gekauft
+    bot._round_to_buy = 9      # wollte noch 9 kaufen ...
+    bot._round_bought = 2      # ... hat aber schon 2 gekauft
+    bot._all_dolch_slots = lambda: [(7, 7), (8, 8)]
     bot._has_free_slot = lambda: False    # Tasche voll
     bot.runHack()
     self.assertTrue(bot.botting)          # NICHT gestoppt
@@ -1332,6 +1337,100 @@ class TestInventoryOpenCheck(unittest.TestCase):
     self.assertFalse(ok)
     self.assertFalse(bot.botting)
     self.assertEqual(bot._stop_reason, 'inventory_not_open')
+
+
+class TestBuyVerifyModes(unittest.TestCase):
+  """Dolch-Kauf-Verifikation: Chat-Modus (Quittung) vs. Klick-Modus (rein Klick).
+  Rate-Limit ist transient -> Backoff + erneut, KEIN harter Stop."""
+
+  def _dagger_bot(self, mode):
+    bot = _make_bot(mode=MODE_DAGGER, values=_values(
+        **{'-ES_DAGGERS_PER_ROUND-': 1, '-ES_BUY_MODE-': mode}))
+    _arm(bot)
+    bot.SHOP_OPEN_SETTLE_S = 0
+    bot.BUY_CONFIRM_SETTLE_S = 0
+    bot.buy_delay_s = 0
+    bot.state = EnergiesplitterBot.ST_BUY_ONE_DOLCH
+    bot.botting = True
+    bot.hammer_remaining = 5
+    bot._round_to_buy = 1
+    bot._has_free_slot = lambda: True
+    bot._locate_shop_item = lambda item: (300, 200)
+    bot._all_dolch_slots = lambda: [(7, 7)]
+    return bot
+
+  def _detect(self, result):
+    return types.SimpleNamespace(
+        chat_signature=lambda b: 's',
+        chat_changed=lambda a, b: True,
+        chat_buy_result=lambda b: result)
+
+  def test_chat_ok_counts_buy(self):
+    _reset_input()
+    bot = self._dagger_bot('chat')
+    with mock.patch.object(esbot_mod, '_detect', self._detect('ok')):
+      bot.runHack()
+    self.assertEqual(bot._dolche_gekauft, 1)
+    self.assertEqual(bot.state, EnergiesplitterBot.ST_PROCESS_DRAG)
+
+  def test_chat_rate_limited_backoff_no_count_no_stop(self):
+    _reset_input()
+    bot = self._dagger_bot('chat')
+    with mock.patch.object(esbot_mod, '_detect', self._detect('rate_limited')):
+      bot.runHack()
+    self.assertEqual(bot._dolche_gekauft, 0)          # NICHT gezaehlt
+    self.assertEqual(bot.state, EnergiesplitterBot.ST_BUY_ONE_DOLCH)  # erneut
+    self.assertEqual(bot._buy_rl_streak, 1)
+    self.assertTrue(bot.botting)                      # KEIN harter Stop
+
+  def test_chat_unknown_streak_processes_not_stops(self):
+    _reset_input()
+    bot = self._dagger_bot('chat')
+    bot.BUY_RATELIMIT_MAX = 2
+    bot._buy_rl_streak = 1     # dieser Versuch erreicht die Schwelle (2)
+    with mock.patch.object(esbot_mod, '_detect', self._detect(None)):
+      bot.runHack()
+    self.assertTrue(bot.botting)                      # NICHT hart gestoppt
+    self.assertEqual(bot.state, EnergiesplitterBot.ST_PROCESS_DRAG)
+
+  def test_click_mode_needs_no_detect(self):
+    _reset_input()
+    bot = self._dagger_bot('click')
+    bot.runHack()                                     # kein _detect noetig
+    self.assertEqual(bot._dolche_gekauft, 1)
+    self.assertEqual(bot.state, EnergiesplitterBot.ST_PROCESS_DRAG)
+
+
+class TestNoProgressGuard(unittest.TestCase):
+  """Runden ohne jede Verarbeitung (evtl. kein Geld) -> sauberer Stop statt
+  Endlosschleife; Fortschritt setzt den Zaehler zurueck."""
+
+  def _rescan_bot(self):
+    bot = _make_bot(mode=MODE_DAGGER)
+    _arm(bot)
+    bot.state = EnergiesplitterBot.ST_RESCAN
+    bot.botting = True
+    bot._count_hammers = lambda: 5
+    return bot
+
+  def test_no_progress_rounds_stop(self):
+    bot = self._rescan_bot()
+    bot.splitter_summe = 0
+    bot._splitter_round_start = 0       # kein Fortschritt diese Runde
+    bot.NO_PROGRESS_ROUNDS_MAX = 2
+    bot._no_progress_rounds = 1         # dieser Tick erreicht 2 -> Stop
+    bot.runHack()
+    self.assertFalse(bot.botting)
+    self.assertEqual(bot._stop_reason, 'no_progress')
+
+  def test_progress_resets_counter(self):
+    bot = self._rescan_bot()
+    bot.splitter_summe = 5
+    bot._splitter_round_start = 0       # 5 verarbeitet -> Fortschritt
+    bot._no_progress_rounds = 2
+    bot.runHack()
+    self.assertEqual(bot._no_progress_rounds, 0)
+    self.assertEqual(bot.state, EnergiesplitterBot.ST_APPROACH_NPC)
 
 
 if __name__ == '__main__':

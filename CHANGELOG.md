@@ -3,6 +3,30 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.4.0] — 2026-06-20
+
+### Energiesplitter: Dolch-Kauf gegen das Rate-Limit (zwei umschaltbare Modi)
+
+Kauft man Dolche zu schnell, blockt das Spiel den Kauf (Chat: „Bitte versuche es
+später erneut", kein Item) — vorher führte das nach 3 Fehlkäufen zum falschen Stop.
+
+- **Zwei Kauf-Modi, in der UI umschaltbar (Default „Chat"):**
+  - **Chat-Quittung:** liest die neueste Chat-Zeile (Vorher/Nachher-Diff → löst
+    „alt vs. neu"). „X Yang ausgegeben" = Erfolg; „Bitte später erneut" = Rate-Limit
+    → kurz warten + denselben Kauf wiederholen. Templates aus echten Screenshots
+    (Self-NCC 1.0, über 4 Screenshots validiert; klassifiziert die **unterste/
+    neueste** Treffer-Zeile).
+  - **Nur Klick + Delay:** rein klickbasiert mit einstellbarem **Kauf-Tempo**,
+    keine Erkennung — robust bei mehreren Inventarseiten (wo ein Inventar-Diff
+    unzuverlässig wäre).
+- **Rate-Limit ist kein Stop mehr:** ein blockierter Kauf ist ein harmloser
+  No-Op → Backoff + erneut statt harter Abbruch.
+- **Fortschritts-Wache:** mehrere Runden ohne jede Verarbeitung (evtl. kein
+  Yang/Geld mehr oder nichts kaufbar) → sauberer Stop statt Endlosschleife.
+- **Verarbeitung jetzt scan-getrieben:** die zu verarbeitenden Dolche kommen aus
+  dem Live-Inventar-Scan (Ground-Truth), nicht mehr aus per-Kauf-Lande-Slots.
+- Neue UI-Felder unter „Dolch": **Kauf-Modus** + **Kauf-Tempo (Sek.)**.
+
 ## [1.3.3] — 2026-06-20
 
 ### Energiesplitter: unbegrenzter Lauf (`max_actions=0`) + „Geld leer"-Hinweis

@@ -99,9 +99,12 @@ class DaggerFlowMixin:
         return
       self._shop_locate_tries = 0
       self._dolch_shop_slot = slot
-      # Neue Runde: Dolch-Kauf-Zaehler dieser Runde + Warteschlange ruecksetzen.
+      # Neue Runde: Kauf-Zaehler + Warteschlange + Runden-Marker ruecksetzen.
       self._round_to_buy = max(1, int(self.daggers_per_round))
       self._dagger_queue = []
+      self._round_bought = 0
+      self._buy_rl_streak = 0
+      self._splitter_round_start = self.splitter_summe
       self.state = self.ST_BUY_ONE_DOLCH
       return
 
@@ -123,6 +126,20 @@ class DaggerFlowMixin:
       # erneut ansprechen + Laden NEU oeffnen (ST_APPROACH_NPC; die
       # Vogelperspektive bleibt, _did_birdseye verhindert ein erneutes Kippen),
       # sonst fertig.
+      # Fortschritts-Wache: hat diese Runde ueberhaupt etwas verarbeitet
+      # (splitter_summe gewachsen)? N Runden IN FOLGE ohne Fortschritt -> sauberer
+      # Stop (evtl. kein Geld/Yang mehr ODER nichts mehr kaufbar) statt Endlos-
+      # schleife "kaufen scheitert -> nichts verarbeitet -> erneut".
+      if self.splitter_summe > self._splitter_round_start:
+        self._no_progress_rounds = 0
+      else:
+        self._no_progress_rounds += 1
+      if self._no_progress_rounds >= int(self.NO_PROGRESS_ROUNDS_MAX):
+        log.event(self.state, 'WAHRNEHMUNG: mehrere Runden ohne Verarbeitung '
+                  '-> Stop (evtl. kein Geld/Yang mehr oder nichts kaufbar)',
+                  runden=self._no_progress_rounds)
+        self._stop('no_progress')
+        return
       self.hammer_remaining = self._count_hammers()
       if self.hammer_remaining > 0:
         self.state = self.ST_APPROACH_NPC
@@ -133,26 +150,29 @@ class DaggerFlowMixin:
     self._stop('unknown_state')
 
   def _dagger_buy_one(self):
-    """Kauft GENAU 1 Dolch (Rechtsklick), bestimmt den realen Lande-Slot per Diff
-    und legt ihn in die Verarbeitungs-Warteschlange. Sind ``daggers_per_round``
-    Dolche gekauft, geht es in die sequenzielle Verarbeitung."""
+    """Kauft GENAU 1 Dolch (Rechtsklick) und verifiziert ihn je nach ``buy_mode``:
+
+      * ``'chat'``  (Default): die Chat-Quittung lesen (Vorher/Nachher -> neueste
+        Zeile). 'X Yang ausgegeben' = Erfolg; 'Bitte spaeter erneut' = Rate-Limit.
+      * ``'click'``          : rein klickbasiert mit Tempo-Delay, KEINE Erkennung
+        (robust bei mehreren Inventarseiten -- ein Inventar-Diff waere dort unzu-
+        verlaessig).
+
+    Ein rate-limitierter Kauf ist KEIN Fehler-Stop mehr: Backoff (``buy_delay_s``)
+    + denselben Dolch erneut (das Limit ist transient). Die Verarbeitung holt sich
+    die realen Dolch-Slots per SCAN -> kein per-Kauf-Lande-Slot noetig."""
     if self._action_cap_hit():
       return
     if self._round_to_buy <= 0:
-      # Runde fertig gekauft -> sequenziell verarbeiten (erster Dolch aus der Queue).
       self._start_processing_queue()
       return
 
-    # TASCHE-VOLL-SCHUTZ (2026-06-20): ohne freien Slot hat der gekaufte Dolch
-    # KEINEN Lande-Slot -> _diff_landing_slot=None -> frueher faelschlich
-    # 'buy_unverified'-Stop (User-Log: stoppte bei 11/20). Stattdessen die bereits
-    # gekauften Dolche JETZT verarbeiten (Zerlegen schafft Platz) und in den
-    # naechsten Runden weiterkaufen. Ist noch NICHTS gekauft -> ehrlicher
-    # no_space-Stop (Tasche von Anfang an voll).
+    # Tasche-voll-Schutz: kein freier Slot -> schon Gekauftes JETZT verarbeiten
+    # (Zerlegen schafft Platz). Noch nichts gekauft -> ehrlicher no_space-Stop.
     if not self._has_free_slot():
-      if self._dagger_queue:
+      if self._round_bought > 0:
         log.event(self.state, 'ZUSTAND: Tasche voll -> Runde vorzeitig verarbeiten',
-                  gekauft_runde=len(self._dagger_queue), rest_runde=self._round_to_buy)
+                  gekauft_runde=self._round_bought, rest_runde=self._round_to_buy)
         self._round_to_buy = 0
         self._start_processing_queue()
       else:
@@ -163,16 +183,12 @@ class DaggerFlowMixin:
     try:
       verb = ('[SIM] wuerde' if not self.scharf else 'SCHARF:')
       log.event(self.state, verb + ' GENAU 1 Dolch kaufen',
-                rest_runde=self._round_to_buy,
-                hammer_rest=self.hammer_remaining,
-                dolche_gekauft=self._dolche_gekauft)
+                rest_runde=self._round_to_buy, hammer_rest=self.hammer_remaining,
+                dolche_gekauft=self._dolche_gekauft, modus=self.buy_mode)
     except Exception:  # pragma: no cover
       pass
 
-    # ERKENNUNG VOR AKTION (pro Kauf): den Shop-Dolch JEDESMAL per TEMPLATE neu
-    # lokalisieren -- nie eine stale Koordinate rechtsklicken. Re-Lokalisierung
-    # fehlgeschlagen -> Rueckfall auf den verifizierten Slot; auch der unbekannt
-    # -> sauberer Stop (kein Blind-Kauf eines Fremd-Items).
+    # ERKENNUNG VOR AKTION (pro Kauf): Shop-Dolch JEDESMAL neu lokalisieren.
     slot = self._locate_shop_item('dolch')
     if slot is None:
       slot = getattr(self, '_dolch_shop_slot', None)
@@ -182,7 +198,8 @@ class DaggerFlowMixin:
       return
     self._dolch_shop_slot = slot
 
-    before = self._inventory_signature()
+    # Chat-Modus: Vorher-Signatur des Chats merken (fuer "neue Zeile?"-Diff).
+    chat_sig = self._chat_sig()
     try:
       verb = ('[SIM] wuerde' if self._guarded() else 'SCHARF:')
       log.event(self.state, verb + ' Dolch rechtsklicken (Kauf)', ziel=tuple(slot))
@@ -193,67 +210,60 @@ class DaggerFlowMixin:
     # Kauf-Bestaetigung ('Moechtest du ... kaufen?') -> 'Ja' klicken.
     self._settle(self.BUY_CONFIRM_SETTLE_S)
     self._confirm_buy_if_present()
-    self._settle(self.BUY_CONFIRM_SETTLE_S)
 
-    after = self._inventory_signature()
-    land = self._diff_landing_slot(before, after)
-    if land is None:
-      # Kein neues Item gelandet, obwohl der Tasche-voll-Schutz oben einen freien
-      # Slot bestaetigt + der Shop-Dolch lokalisiert wurde -> der Rechtsklick blieb
-      # WIRKUNGSLOS. Haeufigste Ursache auf langen Laeufen: KEIN Yang/Geld mehr
-      # (Kauf nicht moeglich). Ehrlicher Hinweis (User-Vorgabe "bis Geld weg");
-      # der Stop laeuft weiter ueber den OCR-unabhaengigen buy_unverified-Backstop
-      # -- eine sichere "kein Yang"-Erkennung braeuchte ein kalibriertes
-      # Fehlermeldungs-Template, das es (noch) nicht gibt.
+    result = self._verify_buy(chat_sig)
+    if result in ('rate_limited', 'unknown'):
+      # Zu schnell / keine Quittung -> Backoff, NICHT zaehlen, denselben Dolch
+      # erneut (Rate-Limit ist transient -> KEIN harter Stop).
+      self._buy_rl_streak += 1
       try:
-        log.event(self.state, 'HINWEIS: Kauf ohne Wirkung trotz freiem Slot '
-                  '-> evtl. kein Yang/Geld mehr (sonst Render-Aussetzer)')
+        log.event(self.state, 'WAHRNEHMUNG: Kauf nicht bestaetigt -> Backoff + erneut',
+                  grund=result, streak=self._buy_rl_streak, modus=self.buy_mode)
       except Exception:  # pragma: no cover
         pass
-      # Lande-Slot des gekauften Dolchs unklar -> nicht verifiziert.
-      self._buy_retries += 1
-      if self._buy_retries > 2 or self._note_unverified():
-        if self.botting:
-          self._snapshot('dolch_slot_unknown')
-          log.event(self.state, t('energiesplitter.buy_unverified',
-                                  retries=self._buy_retries))
-          self._stop('buy_unverified')
+      self._settle(self.buy_delay_s)
+      if self._buy_rl_streak >= int(self.BUY_RATELIMIT_MAX):
+        # Dauer-Fehlschlag -> nicht ewig denselben Dolch klicken: das bisher
+        # Gekaufte verarbeiten (die Fortschritts-Wache in ST_RESCAN stoppt sauber,
+        # falls auch ueber Runden NICHTS verarbeitet wird = evtl. kein Geld).
+        log.event(self.state, 'WAHRNEHMUNG: Kauf wiederholt nicht bestaetigt '
+                  '-> verarbeite bisher Gekauftes', streak=self._buy_rl_streak)
+        self._buy_rl_streak = 0
+        self._round_to_buy = 0
+        self._start_processing_queue()
       return
 
-    self._dagger_queue.append(land)
+    # 'ok' (Chat-Quittung) ODER klick-Modus -> als gekauft zaehlen.
+    self._buy_rl_streak = 0
+    self.consecutive_unverified = 0
+    self._round_bought += 1
     self._dolche_gekauft += 1
     self._round_to_buy -= 1
-    self.consecutive_unverified = 0
-    self._buy_retries = 0
+    if self.buy_mode != 'chat':
+      self._settle(self.buy_delay_s)   # Tempo zwischen Kaufklicks (klick-Modus)
     try:
-      log.event(self.state, 'ZUSTAND: Dolch gekauft + Lande-Slot bestimmt',
-                lande_slot=(tuple(land) if isinstance(land, (tuple, list)) else land),
-                rest_runde=self._round_to_buy,
-                dolche_gekauft=self._dolche_gekauft)
+      log.event(self.state, 'ZUSTAND: Dolch gekauft', rest_runde=self._round_to_buy,
+                dolche_gekauft=self._dolche_gekauft, modus=self.buy_mode)
     except Exception:  # pragma: no cover
       pass
     if self._round_to_buy <= 0:
       self._start_processing_queue()
-    # sonst: noch im selben State, naechster Dolch wird im naechsten Tick gekauft.
+    # sonst: naechster Dolch wird im naechsten Tick gekauft.
 
   def _start_processing_queue(self):
-    """Beginnt die sequenzielle Verarbeitung der gekauften Dolche (EINZELN).
-
-    WICHTIG (User-Grundwahrheit): ein Hammer laesst sich nur auf einen Dolch
-    ziehen, wenn der Waffenhaendler-LADEN GESCHLOSSEN ist -> vor dem ersten Drag
-    den Laden schliessen (ESC)."""
-    if not self._dagger_queue:
-      # Nichts gekauft -> Runde leer; Hammer-Bestand neu pruefen.
-      self.state = self.ST_RESCAN
-      return
+    """Beginnt die Verarbeitung: schliesst den Laden (ein Hammer laesst sich nur
+    bei GESCHLOSSENEM Laden auf einen Dolch ziehen) und holt die real vorhandenen
+    Dolch-Slots per SCAN (Ground-Truth -- unabhaengig vom Kauf-Zaehler/Inventar-
+    seite). Nichts zu verarbeiten -> Hammer-Recheck (ST_RESCAN)."""
     self._close_shop()                       # Laden zu -> Drag erlaubt
     self._settle(self.SHOP_OPEN_SETTLE_S)     # Schliessen rendern lassen
-    # ALLE Dolche im Inventar verarbeiten (gerade gekaufte + bereits vorhandene)
-    # -- NUR sicher als Dolch erkannte Slots (User-Vorgabe: nie ein Fremd-Item).
-    # Faellt der Scan aus, bleiben die gekauften Lande-Slots als Fallback.
+    # NUR sicher als Dolch erkannte Slots (nie ein Fremd-Item). Scan = Wahrheit.
     all_dolch = self._all_dolch_slots()
     if all_dolch:
       self._dagger_queue = list(all_dolch)
+    if not self._dagger_queue:
+      self.state = self.ST_RESCAN
+      return
     self._dolch_inv_slot = self._dagger_queue.pop(0)
     self.state = self.ST_PROCESS_DRAG
 

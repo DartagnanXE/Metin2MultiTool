@@ -189,6 +189,10 @@ DEFAULTS = {
         },
         'dagger': {
             'daggers_per_round': 20,      # Aktion 2: Dolche pro Runde (Default 20)
+            # Kauf-Verifikation: 'chat' = Chat-Quittung lesen (Default), 'click' =
+            # rein klickbasiert mit Delay (kein OCR; robust bei mehreren Seiten).
+            'buy_mode': 'chat',
+            'buy_delay_s': 0.35,          # Pause zw. Kaufklicks / Backoff bei Retry
         },
         'shared': {
             'speed_profile': 'fast',

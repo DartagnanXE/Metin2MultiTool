@@ -151,6 +151,20 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
   # Wartezeit, damit der Kauf-Bestaetigungsdialog ('Ja'/'Nein') erscheint bzw.
   # der Kauf verarbeitet wird (Tests setzen 0).
   BUY_CONFIRM_SETTLE_S = 0.4
+  # Chat-Verifikations-Modus: max. Wartezeit auf die Chat-Quittung nach einem
+  # Kaufklick, bevor der Versuch als 'unklar' (-> Backoff/Retry) gilt. Pro Frame
+  # wird ein FRISCHES Capture gegen die Vorher-Signatur geprueft (Tests setzen 0).
+  BUY_CHAT_TIMEOUT_S = 1.5
+  # Poll-Intervall fuer die Chat-Verifikation (Frame-Takt). Tests setzen 0.
+  DETECT_POLL_INTERVAL_S = 0.03
+  # Max. aufeinanderfolgende rate-limitierte/unklare Kaeufe DESSELBEN Dolchs, bevor
+  # der Kauf-Loop (defensiv) aufgibt -> der Lauf stoppt NICHT hart, sondern geht in
+  # die Verarbeitung des bisher Gekauften (Rate-Limit ist transient).
+  BUY_RATELIMIT_MAX = 12
+  # So viele Runden IN FOLGE ohne jede Verarbeitung (splitter_summe waechst nicht)
+  # -> sauberer Stop (evtl. kein Geld/Yang mehr ODER nichts mehr kaufbar). Faengt
+  # die Endlosschleife "kaufen scheitert -> nichts verarbeitet -> erneut" ab.
+  NO_PROGRESS_ROUNDS_MAX = 3
   # Pause zwischen den beiden Klicks der Zwei-Klick-Verarbeitung (Hammer aufnehmen
   # -> auf Dolch setzen). User-Grundwahrheit: Hammer ist KEIN Drag, sondern
   # Linksklick (aufnehmen) + Linksklick (setzen). Kurze Pause, damit der erste
@@ -193,6 +207,13 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
     self.keyboard_pause = 0.10
     self.speed_profile = 'fast'
     self.jitter_pct = 0.15
+    # Dolch-Kauf-Verifikation (umschaltbar): 'chat' = Chat-Quittung lesen
+    # (Vorher/Nachher, Erfolg vs. 'Bitte spaeter erneut'); 'click' = rein
+    # klickbasiert mit fixem Delay, KEINE Erkennung (robust bei mehreren
+    # Inventarseiten). buy_delay_s = Pause zwischen Kaufklicks bzw. Backoff vor
+    # Wiederholung im Chat-Modus.
+    self.buy_mode = 'chat'
+    self.buy_delay_s = 0.35
     self.inventory_hotkey = 'i'   # Toggle-Taste Tasche (run_loop injiziert Config)
     self.max_actions = 2
     self.consecutive_unverified_stop = 3
@@ -229,6 +250,14 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
     # Dolch-Slots der aktuellen Runde (EINZELN nacheinander abgearbeitet).
     self._dagger_queue = []
     self._round_to_buy = 0
+    # In DIESER Runde bestaetigt gekaufte Dolche (Modus-unabhaengig).
+    self._round_bought = 0
+    # Aufeinanderfolgende rate-limitierte/unklare Kaeufe DESSELBEN Dolchs.
+    self._buy_rl_streak = 0
+    # Fortschritts-Wache: splitter_summe zu Rundenbeginn + Zaehler der Runden ohne
+    # jede Verarbeitung (-> evtl. kein Geld / leer) bis zum sauberen Stop.
+    self._splitter_round_start = 0
+    self._no_progress_rounds = 0
 
   # -- 'scharf'-Schalter (bewusste Tester-Aktion, CONTRACT §2/§7) ----------
   # KANONISCHER Name fuer den bewussten Live-/scharf-Schalter. Default NICHT
@@ -316,6 +345,9 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
     self.keyboard_pause = float(_get('-ES_KB_PAUSE-', 0.10))
     self.speed_profile = str(_get('-ES_SPEED-', 'fast'))
     self.jitter_pct = float(_get('-ES_JITTER-', 0.15))
+    mode = str(_get('-ES_BUY_MODE-', 'chat')).lower()
+    self.buy_mode = mode if mode in ('chat', 'click') else 'chat'
+    self.buy_delay_s = max(0.0, float(_get('-ES_BUY_DELAY_S-', 0.35)))
     self.max_actions = int(_get('-ES_MAX_ACTIONS-', 0))
     self.consecutive_unverified_stop = int(_get('-ES_UNVERIF_STOP-', 3))
     self.dry_run = bool(_get('-ES_DRY_RUN-', True))
@@ -769,6 +801,48 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
       pass
     self._left_click(int(ja[0]), int(ja[1]))
     return True
+
+  def _chat_sig(self):
+    """Vorher-Signatur des Chat-ROI (fuer die Chat-Verifikation: ist NACH dem Kauf
+    eine NEUE Zeile dazugekommen?). ``None`` ausserhalb des Chat-Modus / ohne
+    Detektor. Wirft NIE."""
+    if self.buy_mode != 'chat' or _detect is None \
+        or not hasattr(_detect, 'chat_signature'):
+      return None
+    try:
+      return _detect.chat_signature(self._shot())
+    except Exception:  # pragma: no cover - defensiv
+      return None
+
+  def _verify_buy(self, chat_sig):
+    """Verifiziert EINEN Dolch-Kauf je nach Modus. Liefert:
+      * ``'ok'``           -- Kauf erfolgreich (zaehlen, naechster Dolch),
+      * ``'rate_limited'`` -- zu schnell gekauft (Backoff + denselben Dolch erneut),
+      * ``'unknown'``      -- keine Quittung erkannt (wie rate_limited behandeln).
+
+    ``click``-Modus: KEINE Erkennung -> immer ``'ok'`` (rein klickbasiert, der
+    Tempo-Delay haelt unter dem Limit; robust bei mehreren Inventarseiten).
+    ``chat``-Modus: pollt bis sich der Chat ggue. ``chat_sig`` AENDERT (neue Zeile)
+    und klassifiziert dann die NEUESTE Quittung (Vorher/Nachher -> loest alt/neu).
+    Wirft NIE."""
+    if self.buy_mode != 'chat':
+      return 'ok'
+    if _detect is None or not hasattr(_detect, 'chat_buy_result'):
+      return 'ok'  # ohne Detektor nicht blockieren (klick-aequivalent)
+    deadline = time.monotonic() + max(0.0, float(self.BUY_CHAT_TIMEOUT_S))
+    while True:
+      shot = self._shot()
+      try:
+        changed = (chat_sig is None) or _detect.chat_changed(
+            chat_sig, _detect.chat_signature(shot))
+        res = _detect.chat_buy_result(shot) if changed else None
+      except Exception:  # pragma: no cover - defensiv
+        res = None
+      if res in ('ok', 'rate_limited'):
+        return res
+      if time.monotonic() >= deadline:
+        return 'unknown'
+      time.sleep(max(0.0, float(self.DETECT_POLL_INTERVAL_S)))
 
   def _close_shop(self):
     """Schliesst ein offenes Shop-/Dialogfenster (Taste ESC). NOETIG vor dem

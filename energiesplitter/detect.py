@@ -500,6 +500,90 @@ def dismantle_confirm_present(bgr):
     return _yes_button_present(bgr, ROI_DISMANTLE_CONFIRM)
 
 
+# ---------------------------------------------------------------------------
+# Chat-Quittung beim Dolch-Kauf (V2-Verifikation, optional umschaltbar).
+# Erfolg ('X Yang wurden ausgegeben') / Rate-Limit ('Bitte versuche es spaeter
+# erneut') erscheinen unten links im Chat. ROI in CLIENT-Koordinaten (nach
+# to_client), deckt die untersten ~5 Chatzeilen ab. Wir klassifizieren die
+# NEUESTE (= unterste auf dem Schirm) Treffer-Zeile -> das loest das "alt vs.
+# neu"-Problem im fortlaufenden Chat (aeltere Eintraege liegen weiter oben).
+# Templates aus echten Client-Screenshots: Self-NCC 1.0, Fremd <= 0.27.
+# ---------------------------------------------------------------------------
+ROI_CHAT = (44, 488, 336, 98)
+NCC_CHAT = 0.78
+
+
+def _chat_region(bgr):
+    """Chat-ROI (client) aus einem Vollframe. ``None`` bei Fehler. Wirft NIE."""
+    if np is None or _cv is None or bgr is None:
+        return None
+    try:
+        return _geo.crop(_geo.to_client(bgr), ROI_CHAT)
+    except Exception:
+        return None
+
+
+def _lowest_match_y(region, tpl):
+    """Zeilen-y des UNTERSTEN NCC-Treffers >= NCC_CHAT (= neueste Chatzeile),
+    sonst ``None``. Wirft NIE."""
+    if region is None or tpl is None:
+        return None
+    try:
+        if region.shape[0] < tpl.shape[0] or region.shape[1] < tpl.shape[1]:
+            return None
+        res = _cv.matchTemplate(region, tpl, _cv.TM_CCOEFF_NORMED)
+        ys, _xs = np.where(res >= NCC_CHAT)
+        return int(ys.max()) if len(ys) else None
+    except Exception:
+        return None
+
+
+def chat_buy_result(bgr):
+    """Klassifiziert die NEUESTE Kauf-Quittung im Chat: ``'ok'`` (X Yang
+    ausgegeben), ``'rate_limited'`` (Bitte versuche es spaeter erneut) oder
+    ``None`` (keine Quittung erkannt). Es zaehlt die UNTERSTE Treffer-Zeile
+    (neueste) -> aeltere Eintraege weiter oben stoeren nicht. Wirft NIE."""
+    region = _chat_region(bgr)
+    if region is None:
+        return None
+    ok_y = _lowest_match_y(region, _imread(_item_path('chat_kauf_ok')))
+    rl_y = _lowest_match_y(region, _imread(_item_path('chat_rate_limit')))
+    if ok_y is None and rl_y is None:
+        return None
+    if rl_y is None:
+        return 'ok'
+    if ok_y is None:
+        return 'rate_limited'
+    return 'ok' if ok_y > rl_y else 'rate_limited'  # tiefer = neuer
+
+
+def chat_signature(bgr):
+    """Grober Graustufen-Fingerabdruck des Chat-ROI (kleines uint8-Array) fuer die
+    Vorher/Nachher-Aenderungserkennung (ist eine NEUE Zeile dazugekommen?).
+    ``None`` bei Fehler. Wirft NIE."""
+    region = _chat_region(bgr)
+    if region is None:
+        return None
+    try:
+        g = _cv.cvtColor(region, _cv.COLOR_BGR2GRAY)
+        return _cv.resize(g, (42, 12), interpolation=_cv.INTER_AREA)
+    except Exception:
+        return None
+
+
+def chat_changed(sig_a, sig_b, tol=6.0):
+    """``True``, wenn sich der Chat zwischen zwei Signaturen messbar geaendert hat
+    (mittlere abs. Differenz > ``tol``) = eine neue Zeile ist erschienen. Defensiv
+    ``False`` bei fehlenden Signaturen. Wirft NIE."""
+    if sig_a is None or sig_b is None:
+        return False
+    try:
+        d = np.abs(sig_a.astype('int16') - sig_b.astype('int16'))
+        return float(d.mean()) > float(tol)
+    except Exception:
+        return False
+
+
 # ROI fuer den zentrierten AFK-Dialog-OK-Knopf (client-Koordinaten). Grosszuegiges
 # Mittelband; der OK-Knopf liegt fix bei ~(360,320) (gemessen am echten Bild).
 ROI_AFK_OK = (300, 290, 220, 90)

@@ -425,6 +425,10 @@ def _validate_energiesplitter(value):
         'daggers_per_round': int(_clamp(
             _coerce_int(src_d.get('daggers_per_round'), d_d['daggers_per_round']),
             ES_DAGGERS_MIN, ES_DAGGERS_MAX, d_d['daggers_per_round'])),
+        'buy_mode': _enum(
+            src_d.get('buy_mode'), ('chat', 'click'), d_d['buy_mode']),
+        'buy_delay_s': float(_clamp(
+            src_d.get('buy_delay_s'), 0.0, 3.0, d_d['buy_delay_s'])),
     }
     shared = {
         'speed_profile': _enum(

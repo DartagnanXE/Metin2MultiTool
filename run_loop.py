@@ -407,6 +407,9 @@ class RunLoop:
             # dagger-spezifisch.
             values['-ES_DAGGERS_PER_ROUND-'] = int(
                 es['dagger']['daggers_per_round'])
+            values['-ES_BUY_MODE-'] = str(es['dagger'].get('buy_mode', 'chat'))
+            values['-ES_BUY_DELAY_S-'] = float(
+                es['dagger'].get('buy_delay_s', 0.35))
             # shared.
             values['-ES_SPEED-'] = str(shared['speed_profile'])
             values['-ES_MOUSE_PAUSE-'] = float(shared['mouse_pause'])

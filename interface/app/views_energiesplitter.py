@@ -96,6 +96,18 @@ class EnergiesplitterViewMixin:
     r = self._es_row(bd, r, t('ui.es_daggers_per_round_label'),
                      self._es_entry('dagger', 'daggers_per_round',
                                     self._es_daggers_var, bd))
+    # Kauf-Modus: Chat-Quittung lesen vs. rein klickbasiert (Delay).
+    self._es_buy_mode_var = ctk.StringVar(value=t('ui.es_buy_mode_chat'))
+    r = self._es_row(bd, r, t('ui.es_buy_mode_label'),
+                     self._es_optionmenu(
+                         'dagger', 'buy_mode', self._es_buy_mode_var,
+                         [('chat', t('ui.es_buy_mode_chat')),
+                          ('click', t('ui.es_buy_mode_click'))], bd))
+    # Kauf-Tempo (Sek. zwischen Kaufklicks / Backoff bei Rate-Limit-Retry).
+    self._es_buy_delay_var = ctk.StringVar(value='0.35')
+    r = self._es_row(bd, r, t('ui.es_buy_delay_label'),
+                     self._es_entry('dagger', 'buy_delay_s',
+                                    self._es_buy_delay_var, bd))
 
     # -- Section: Sicherheit ------------------------------------------------
     sec_s = Section(scroll, t('ui.es_group_safety'))
@@ -261,6 +273,11 @@ class EnergiesplitterViewMixin:
       self._es_stack_count_var.set(str(h.get('stack_count', 1)))
       self._es_freischalten_var.set(bool(h.get('energie_freischalten', True)))
       self._es_daggers_var.set(str(d.get('daggers_per_round', 20)))
+      self._es_buy_delay_var.set(str(d.get('buy_delay_s', 0.35)))
+      # Kauf-Modus: value -> Label.
+      bm2l = self._es_widgets.get('_v2l', {}).get('buy_mode', {})
+      self._es_buy_mode_var.set(bm2l.get(str(d.get('buy_mode', 'chat')),
+                                         t('ui.es_buy_mode_chat')))
       self._es_max_actions_var.set(str(s.get('max_actions', 0)))
       self._es_unverif_var.set(str(s.get('consecutive_unverified_stop', 3)))
       self._es_mouse_pause_var.set(str(s.get('mouse_pause', 0.05)))
