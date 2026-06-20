@@ -3,6 +3,30 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.33] — 2026-06-20
+
+### Energiesplitter (Dolch-Modus): Zerlege-Bestätigung + „hört bei vollem Beutel auf zu kaufen"
+
+- **Zerlege-Bestätigungsfenster wird jetzt bejaht.** Beim Hammer→Dolch-Drag
+  öffnet Metin2 den Dialog „Möchtest du das wirklich zerlegen?" (Ja/Nein) —
+  bisher fälschlich als „KEIN Bestätigungsfenster" angenommen. Ohne Klick auf
+  **Ja** blieb der Dolch unverarbeitet → Stopp `process_unverified`. Der Bot
+  erkennt den Dialog jetzt robust an seinem **Ja-Knopf** (gleiches Asset wie die
+  Kauf-Bestätigung, nur ~41 px tiefer wegen 4 statt 2 Textzeilen; NCC 0,99,
+  ROI deckt beide Höhen ab) und klickt **immer sofort Ja** — wie bei den anderen
+  Bestätigungsfenstern dieser Art. Kontext-gegated (nur direkt nach dem Drag),
+  kein Fehlauslösen in Shop/Spielwelt (am echten Screenshot belegt).
+- **Kein falscher Abbruch mehr bei vollem Beutel.** Im Live-Log stoppte der Bot
+  bei 11/20 Dolchen mit `buy_unverified`: war der Beutel voll, hatte der nächste
+  gekaufte Dolch **keinen Lande-Slot** → Inventar-Diff `None` → Hard-Stop.
+  Jetzt erkennt der Bot „Beutel voll" **vor** dem Kauf und **verarbeitet die
+  bereits gekauften Dolche** (Zerlegen schafft Platz), statt abzubrechen — und
+  kauft in den Folgerunden weiter, bis die Hämmer aufgebraucht sind. Nur wenn von
+  Anfang an **nichts** gekauft wurde und der Beutel voll ist, gibt es einen
+  ehrlichen `no_space`-Stop.
+- 7 neue Tests (Zerlege-Dialog-Erkennung + Ja-Klick + voller-Beutel-verarbeitet-
+  statt-Stopp + Process-Drag-klickt-Ja). Gesamt grün.
+
 ## [1.2.32] — 2026-06-17
 
 ### Box-Nachlegen: blockierende „Inventar offen?"-Prüfung ersetzt (jetzt template-frei)

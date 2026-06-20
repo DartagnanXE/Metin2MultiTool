@@ -9,9 +9,10 @@ Dolch verbraucht 1 Hammer + 1 Dolch (NICHT den ganzen Stack). Ablauf:
        Rechtsklick je Dolch) -> Lande-Slots sammeln.
     2. Die gekauften Dolche EINZELN NACHEINANDER verarbeiten: fuer JEDEN Dolch den
        Hammer-STACK-Slot (Template=Hammer) auf den Dolch-Slot (Template=Dolch)
-       ziehen -> Re-Read-Verifikation (Dolch weg + Hammer dekrementiert). KEIN
-       Bestaetigungsfenster. Erkennung-vor-Aktion (src=Hammer, dst=Dolch live
-       verifiziert) bleibt zwingend.
+       ziehen. Der Drag oeffnet ein ZERLEGE-Bestaetigungsfenster ('Moechtest du
+       das wirklich zerlegen?') -> 'Ja' klicken (wie der Kauf-Confirm), danach
+       Re-Read-Verifikation (Dolch weg + Hammer dekrementiert). Erkennung-vor-
+       Aktion (src=Hammer, dst=Dolch live verifiziert) bleibt zwingend.
 
 YANG spielt keine Rolle. Diese Methoden werden per Mehrfachvererbung Teil von
 :class:`energiesplitter.bot.EnergiesplitterBot`; sie operieren auf der Bot-
@@ -146,6 +147,23 @@ class DaggerFlowMixin:
       self._start_processing_queue()
       return
 
+    # TASCHE-VOLL-SCHUTZ (2026-06-20): ohne freien Slot hat der gekaufte Dolch
+    # KEINEN Lande-Slot -> _diff_landing_slot=None -> frueher faelschlich
+    # 'buy_unverified'-Stop (User-Log: stoppte bei 11/20). Stattdessen die bereits
+    # gekauften Dolche JETZT verarbeiten (Zerlegen schafft Platz) und in den
+    # naechsten Runden weiterkaufen. Ist noch NICHTS gekauft -> ehrlicher
+    # no_space-Stop (Tasche von Anfang an voll).
+    if not self._has_free_slot():
+      if self._dagger_queue:
+        log.event(self.state, 'ZUSTAND: Tasche voll -> Runde vorzeitig verarbeiten',
+                  gekauft_runde=len(self._dagger_queue), rest_runde=self._round_to_buy)
+        self._round_to_buy = 0
+        self._start_processing_queue()
+      else:
+        log.event(self.state, t('energiesplitter.no_space'))
+        self._stop('no_space')
+      return
+
     try:
       verb = ('[SIM] wuerde' if not self.scharf else 'SCHARF:')
       log.event(self.state, verb + ' GENAU 1 Dolch kaufen',
@@ -260,8 +278,8 @@ class DaggerFlowMixin:
       self._stop('drag_unsafe')
       return
 
-    # Re-Read-Anker fuer die Verifikation (KEIN Dialog): Hammer-Bestand VOR dem
-    # Drag merken -> nach dem Drag muss er um genau 1 gesunken sein (Hammer
+    # Re-Read-Anker fuer die Verifikation: Hammer-Bestand VOR dem Drag merken ->
+    # nach Drag + Zerlege-Bestaetigung muss er um genau 1 gesunken sein (Hammer
     # verbraucht), zusaetzlich zum jetzt-leeren Dolch-Slot.
     self._before_proc = self._shot()
     self._hammer_count_before_proc = self._count_hammers()
@@ -276,10 +294,17 @@ class DaggerFlowMixin:
       pass
     self._drag(sx, sy, dx, dy)
     self.actions_done += 1
+    # Der Drag oeffnet das Zerlege-Bestaetigungsfenster ('Moechtest du das
+    # wirklich zerlegen?') -> 'Ja' klicken (sonst bleibt der Dolch unverarbeitet).
+    # Gleiche Mechanik wie die Kauf-Bestaetigung: Render-Pause, Confirm, Render-
+    # Pause, dann verifizieren.
+    self._settle(self.BUY_CONFIRM_SETTLE_S)
+    self._confirm_dismantle_if_present()
+    self._settle(self.BUY_CONFIRM_SETTLE_S)
     self.state = self.ST_VERIFY_PROCESS
 
   def _dagger_verify_process(self):
-    """Verifiziert die Verarbeitung per Re-Read (KEIN Bestaetigungsfenster):
+    """Verifiziert die Verarbeitung per Re-Read (nach Drag + Zerlege-'Ja'):
     ``verify_process`` belegt den Erfolg (Dolch-Slot jetzt LEER UND Hammer-Bestand
     um 1 gesunken) und liefert ``> 0`` nur dann. NUR bei positivem Beleg wird
     dekrementiert (R5). Danach den NAECHSTEN Dolch der Runde verarbeiten (Queue),

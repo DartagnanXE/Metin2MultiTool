@@ -423,33 +423,56 @@ def find_dialog_line(bgr, word_template, roi=None, thresh=NCC_DIALOG):
     return (True, (rx + pt[0] + tw // 2, ry + pt[1] + th // 2), ncc)
 
 
-# Kauf-Bestaetigung ('Moechtest du ... kaufen?'): der 'Ja'-Knopf liegt zentriert
-# links (gemessen am echten Bild: client ~ (360,313)). ROI nur ueber 'Ja' (nicht
-# 'Nein' rechts). Knopf-NCC: self 1.00, Shop/Szene <= 0.62 -> 0.85 trennt sicher;
-# zusaetzlich KONTEXT-gegated (nur direkt nach einem Kauf-Klick geprueft).
-ROI_BUY_CONFIRM = (300, 296, 135, 40)
+# Bestaetigungs-Dialoge dieser Art (zentrierter Dunkel-Dialog mit 'Ja'/'Nein'):
+# beide Metin2-Dialoge teilen DENSELBEN 'Ja'-Knopf (Asset identisch; NCC self
+# 1.00, Zerlege-Dialog 0.99). Nur seine Y-LAGE haengt von der Textzeilen-Zahl ab,
+# weil der Dialog vertikal zentriert ist (mehr Zeilen -> Knopf tiefer):
+#   * Kauf     ('Moechtest du ... kaufen?',          2 Zeilen) -> 'Ja' ~ (360, 313)
+#   * Zerlegen ('Moechtest du das wirklich zerlegen?', 4 Zeilen) -> 'Ja' ~ (361, 354)
+# X ist in beiden Faellen ~360 (zentriert). ROI nur ueber 'Ja' (nicht 'Nein'
+# rechts). Knopf-NCC: self 1.00, Shop/Szene <= 0.62 -> 0.85 trennt sicher;
+# zusaetzlich KONTEXT-gegated (nur direkt nach der ausloesenden Aktion geprueft).
+ROI_BUY_CONFIRM = (300, 296, 135, 40)        # 2-Zeilen-Dialog: 'Ja' bei y~313
+ROI_DISMANTLE_CONFIRM = (300, 296, 135, 88)  # bis 4 Zeilen: 'Ja' bei y~354 (deckt y~313 mit ab)
 NCC_CONFIRM = 0.85
 
 
-def buy_confirm_present(bgr):
-    """Erkennt den Kauf-Bestaetigungsdialog an seinem 'Ja'-Knopf. Liefert
-    ``(present, ja_center)`` (client-Koordinaten) oder ``(False, None)``. Reiner
-    NCC-Match des gebundelten ``templates/buy_confirm_ja.png``. Wirft NIE."""
+def _yes_button_present(bgr, roi):
+    """Erkennt einen 'Ja'/'Nein'-Bestaetigungsdialog an seinem 'Ja'-Knopf im
+    gegebenen ``roi``. Liefert ``(present, ja_center)`` (client-Koordinaten) oder
+    ``(False, None)``. Reiner NCC-Match des gebundelten
+    ``templates/buy_confirm_ja.png``. Wirft NIE."""
     if np is None or _cv is None or bgr is None:
         return (False, None)
     tpl = _imread(_item_path('buy_confirm_ja'))
     if tpl is None:
         return (False, None)
     client = _geo.to_client(bgr)
-    region = _geo.crop(client, ROI_BUY_CONFIRM)
+    region = _geo.crop(client, roi)
     if region is None:
         return (False, None)
     ok, pt, ncc = match_word(region, tpl)
     if not ok or pt is None or ncc < NCC_CONFIRM:
         return (False, None)
-    rx, ry, _, _ = ROI_BUY_CONFIRM
+    rx, ry, _, _ = roi
     th, tw = tpl.shape[:2]
     return (True, (rx + pt[0] + tw // 2, ry + pt[1] + th // 2))
+
+
+def buy_confirm_present(bgr):
+    """Erkennt den Kauf-Bestaetigungsdialog ('Moechtest du ... kaufen?') an
+    seinem 'Ja'-Knopf. Liefert ``(present, ja_center)`` (client-Koordinaten) oder
+    ``(False, None)``. Wirft NIE."""
+    return _yes_button_present(bgr, ROI_BUY_CONFIRM)
+
+
+def dismantle_confirm_present(bgr):
+    """Erkennt den Zerlege-Bestaetigungsdialog ('Moechtest du das wirklich
+    zerlegen?') an seinem 'Ja'-Knopf. Dieser Dialog erscheint beim Hammer->Dolch-
+    Drag (Dolch wird zerlegt) und MUSS bejaht werden, sonst bleibt der Dolch
+    unverarbeitet. Liefert ``(present, ja_center)`` oder ``(False, None)``.
+    Wirft NIE."""
+    return _yes_button_present(bgr, ROI_DISMANTLE_CONFIRM)
 
 
 # ROI fuer den zentrierten AFK-Dialog-OK-Knopf (client-Koordinaten). Grosszuegiges

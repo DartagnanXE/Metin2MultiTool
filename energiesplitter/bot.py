@@ -725,6 +725,30 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
     self._left_click(int(ja[0]), int(ja[1]))
     return True
 
+  def _confirm_dismantle_if_present(self):
+    """Klickt 'Ja' im Zerlege-Bestaetigungsdialog ('Moechtest du das wirklich
+    zerlegen?'), falls er nach dem Hammer->Dolch-Drag erscheint. Ohne dieses 'Ja'
+    bleibt der Dolch unverarbeitet (-> faelschlich 'process_unverified'). Liefert
+    ``True``, wenn bestaetigt wurde. KONTEXT-gegated: nur direkt nach dem
+    Verarbeitungs-Drag aufgerufen. Wirft NIE."""
+    if _detect is None or not hasattr(_detect, 'dismantle_confirm_present'):
+      return False
+    bgr = self._shot()
+    if bgr is None:
+      return False
+    try:
+      present, ja = _detect.dismantle_confirm_present(bgr)
+    except Exception:  # pragma: no cover - defensiv
+      return False
+    if not present or ja is None:
+      return False
+    try:
+      log.event(self.state, "AKTION: Zerlege-Bestaetigung -> 'Ja' klicken", ziel=tuple(ja))
+    except Exception:  # pragma: no cover
+      pass
+    self._left_click(int(ja[0]), int(ja[1]))
+    return True
+
   def _close_shop(self):
     """Schliesst ein offenes Shop-/Dialogfenster (Taste ESC). NOETIG vor dem
     Dolch-Verarbeiten: nur bei GESCHLOSSENEM Waffenhaendler-Laden laesst sich ein

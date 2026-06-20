@@ -554,6 +554,31 @@ class TestBuyConfirmDialog(unittest.TestCase):
         self.assertFalse(present)
 
 
+class TestDismantleConfirmDialog(unittest.TestCase):
+    """Der Zerlege-Bestaetigungsdialog ('Moechtest du das wirklich zerlegen?',
+    erscheint beim Hammer->Dolch-Drag) muss am 'Ja'-Knopf erkannt werden -- er
+    teilt das Asset mit dem Kauf-Confirm, steht aber ~41px TIEFER (4 statt 2
+    Textzeilen). Er darf NICHT im offenen Shop / normaler Szene falsch ausloesen."""
+
+    def test_detected_with_ja_center(self):
+        present, center = d.dismantle_confirm_present(
+            _load('.', 'dismantle_confirm.png'))
+        self.assertTrue(present)
+        self.assertIsNotNone(center)
+        self.assertTrue(330 <= center[0] <= 400, center)   # 'Ja' links-zentriert
+        self.assertTrue(340 <= center[1] <= 370, center)   # TIEFER als Kauf (~354)
+
+    def test_not_detected_in_open_shop(self):
+        present, _c = d.dismantle_confirm_present(
+            _load('Einkauf_Hammer', 'shop_alchemist.png'))
+        self.assertFalse(present)
+
+    def test_not_detected_in_overworld(self):
+        present, _c = d.dismantle_confirm_present(
+            _load('Alchemist', 'metin2client_BlRGzUUM3w.png'))
+        self.assertFalse(present)
+
+
 class TestAfkDialog(unittest.TestCase):
     """Der zentrierte 'Du bist im AFK-Modus'-Dialog muss am OK-Knopf erkannt
     werden (er blockiert alle Klicks/Tasten) -- und NICHT auf normalen Szenen

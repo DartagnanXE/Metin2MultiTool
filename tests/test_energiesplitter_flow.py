@@ -543,6 +543,7 @@ class TestDaggerSequential(unittest.TestCase):
     bot.hammer_remaining = 5
     bot._round_to_buy = 1
     bot._dagger_queue = []
+    bot._has_free_slot = lambda: True
     bot._locate_shop_item = lambda item: (300, 200)
     bot._inventory_signature = lambda: object()
     bot._diff_landing_slot = lambda a, b: (7, 7)
@@ -563,6 +564,7 @@ class TestDaggerSequential(unittest.TestCase):
     bot.hammer_remaining = 5
     bot._round_to_buy = 2
     bot._dagger_queue = []
+    bot._has_free_slot = lambda: True
     slots = [(7, 7), (8, 8)]
     bot._locate_shop_item = lambda item: (300, 200)
     bot._inventory_signature = lambda: object()
@@ -575,6 +577,87 @@ class TestDaggerSequential(unittest.TestCase):
     self.assertEqual(bot._dolche_gekauft, 2)
     self.assertEqual(len(bot._dagger_queue), 1)  # 1 verarbeitet, 1 wartet
     self.assertEqual(_INPUT_CALLS['right'], 2)
+
+  def test_full_bag_processes_queued_daggers_instead_of_stopping(self):
+    # Regression (User-Log 2026-06-20): Tasche voll bei 11/20 -> frueher
+    # 'buy_unverified'-Stop. Jetzt: schon gekaufte Dolche werden verarbeitet
+    # (Zerlegen schafft Platz), KEIN Stop, KEIN weiterer Kauf-Rechtsklick.
+    _reset_input()
+    bot = _make_bot(mode=MODE_DAGGER,
+                    values=_values(**{'-ES_DAGGERS_PER_ROUND-': 20}))
+    _arm(bot)
+    bot.state = EnergiesplitterBot.ST_BUY_ONE_DOLCH
+    bot.botting = True
+    bot.hammer_remaining = 6
+    bot._round_to_buy = 9                 # wollte noch 9 kaufen ...
+    bot._dagger_queue = [(7, 7), (8, 8)]  # ... hat aber schon 2 gekauft
+    bot._has_free_slot = lambda: False    # Tasche voll
+    bot.runHack()
+    self.assertTrue(bot.botting)          # NICHT gestoppt
+    self.assertEqual(bot.state, EnergiesplitterBot.ST_PROCESS_DRAG)
+    self.assertEqual(bot._round_to_buy, 0)
+    self.assertEqual(_INPUT_CALLS['right'], 0)  # kein weiterer Kauf-Klick
+
+  def test_full_bag_empty_queue_stops_no_space(self):
+    # Tasche von Anfang an voll UND nichts gekauft -> ehrlicher no_space-Stop.
+    _reset_input()
+    bot = _make_bot(mode=MODE_DAGGER)
+    _arm(bot)
+    bot.state = EnergiesplitterBot.ST_BUY_ONE_DOLCH
+    bot.botting = True
+    bot.hammer_remaining = 6
+    bot._round_to_buy = 5
+    bot._dagger_queue = []
+    bot._has_free_slot = lambda: False
+    bot.runHack()
+    self.assertFalse(bot.botting)
+    self.assertEqual(bot._stop_reason, 'no_space')
+    self.assertEqual(_INPUT_CALLS['right'], 0)
+
+  def test_confirm_dismantle_clicks_ja(self):
+    # Der Hammer->Dolch-Drag oeffnet 'Moechtest du das wirklich zerlegen?' ->
+    # 'Ja' muss linksgeklickt werden (sonst bleibt der Dolch unverarbeitet).
+    _reset_input()
+    bot = _make_bot(mode=MODE_DAGGER)
+    _arm(bot)
+    fake = types.SimpleNamespace(
+        dismantle_confirm_present=lambda bgr: (True, (361, 354)))
+    with mock.patch.object(esbot_mod, '_detect', fake):
+      handled = bot._confirm_dismantle_if_present()
+    self.assertTrue(handled)
+    self.assertEqual(_INPUT_CALLS['click'], 1)        # 'Ja' linksgeklickt
+
+  def test_confirm_dismantle_noop_when_absent(self):
+    _reset_input()
+    bot = _make_bot(mode=MODE_DAGGER)
+    _arm(bot)
+    fake = types.SimpleNamespace(
+        dismantle_confirm_present=lambda bgr: (False, None))
+    with mock.patch.object(esbot_mod, '_detect', fake):
+      self.assertFalse(bot._confirm_dismantle_if_present())
+    self.assertEqual(_INPUT_CALLS['click'], 0)
+
+  def test_process_drag_clicks_dismantle_ja_then_verifies(self):
+    # Voller Pfad: ST_PROCESS_DRAG zieht den Hammer auf den Dolch, klickt 'Ja'
+    # im Zerlege-Dialog und geht erst dann in die Verifikation.
+    _reset_input()
+    bot = _make_bot(mode=MODE_DAGGER)
+    _arm(bot)
+    bot.state = EnergiesplitterBot.ST_PROCESS_DRAG
+    bot.botting = True
+    bot._dolch_inv_slot = (5, 5)
+    bot._classified_hammer_slot = lambda: (1, 1)
+    bot._slot_is = lambda item, slot: True
+    bot._count_hammers = lambda: 4
+    bot._shot = lambda: object()
+    confirmed = {'n': 0}
+    def _confirm():
+      confirmed['n'] += 1
+      return True
+    bot._confirm_dismantle_if_present = _confirm
+    bot.runHack()
+    self.assertEqual(confirmed['n'], 1)               # 'Ja' wurde versucht
+    self.assertEqual(bot.state, EnergiesplitterBot.ST_VERIFY_PROCESS)
 
   def test_drag_records_hammer_count_before(self):
     _reset_input()
