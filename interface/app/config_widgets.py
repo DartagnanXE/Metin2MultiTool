@@ -32,10 +32,7 @@ class ConfigWidgetsMixin:
             self._force_deluxe_var.set(bool(puzzle.get('force_deluxe', False)))
         except Exception:
             pass
-        try:
-            self._box_refill_var.set(bool(puzzle.get('box_refill_enabled', False)))
-        except Exception:
-            pass
+        # (box_refill-Spiegelung entfernt in v1.3.)
         try:
             self._opacity_slider.set(puzzle['overlay_opacity'])
             self._refresh_opacity_value()

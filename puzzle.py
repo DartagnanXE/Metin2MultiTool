@@ -1,7 +1,7 @@
 import pydirectinput
 pydirectinput.PAUSE = 0.05  # fast, but down->up MUST stay held >~1 frame or the game IGNORES the key/click (PAUSE=0 = 0ms hold = not registered); 0.05 = ~3 frames
 import cv2 as cv
-from time import time
+from time import time, sleep
 from windowcapture import WindowCapture
 from tetris import Tetris
 from piece import Piece
@@ -19,20 +19,18 @@ from i18n import t
 from interface.config.paths import debug_log_path
 from puzzle_detect import PuzzleDetectMixin
 
-# Box-Nachlegen (opt-in): das Schwerstueck (Inventar scannen + ersten Boxfund
-# zum Box-Slot draggen, F6-/Stop-aware) liegt im getesteten interface.refill;
-# das Inventar-Oeffnen im inventory.open_probe. Beide SOFT importiert -> fehlt
-# das Inventar-Paket (numpy/PIL) bleibt puzzle.py headless importierbar und das
-# Nachlegen einfach inaktiv (``_box_refill_active`` faellt auf False).
+# Box-Nachlegen: ENTFERNT in v1.3. Eine leere Standard-Box wird nicht mehr aus
+# dem Inventar nachgelegt, sondern das Spiel via Event-Uebersicht NEU GEOEFFNET
+# (ESC -> Strg+E -> FISCHPUZZLESPIEL-Label klicken). Die generische
+# Event-Open-Erkennung (NCC-Templates, positionsunabhaengig) liegt im getesteten
+# seher.flow-Modul und wird hier READ-ONLY mitbenutzt (gleiche Pipeline wie der
+# Seherwettstreit-Selbststart). Soft importiert -> fehlt cv2/numpy bleibt
+# puzzle.py headless importierbar und der Selbststart einfach inaktiv.
 import stop_signal as _stopsig
 try:
-    from interface import refill as _refill
-except Exception:  # pragma: no cover - nur ohne Inventar-Paket
-    _refill = None
-try:
-    from inventory import open_probe as _open_probe
-except Exception:  # pragma: no cover
-    _open_probe = None
+    from seher import flow as _flow
+except Exception:  # pragma: no cover - nur ohne cv2/numpy
+    _flow = None
 # Fenster-Fokus fuer das Inventar-Oeffnen: pydirectinput-TASTEN gehen ans
 # fokussierte Fenster. Das Puzzle spielt nur mit KLICKS (positionsbasiert,
 # fokus-frei) -> das Spiel hat beim Puzzle i.d.R. KEINEN Tastatur-Fokus, der
@@ -87,31 +85,44 @@ PIECE_MIN_MARGIN = 30.0
 BOARD_MAX_GARBAGE = 4
 BOARD_READ_RETRY_S = 0.6
 
-# -- Box-Nachlegen (opt-in) -----------------------------------------------
+# -- Leere Box -> Spiel via Event neu oeffnen (v1.3) ----------------------
 # So viele leere getpiece IN FOLGE (kein Stein erschienen) gelten als "Box im
-# Puzzle-Slot leer" -> aus dem Inventar nachlegen. 2 deckt einen EINZELNEN
-# Render-/Lese-Aussetzer ab (ein echter Stein liest sich beim naechsten Frame),
-# laesst den Bot bei echter Leere aber schnell (~1 Zyklus Polster) nachlegen
-# statt sekundenlang ins Leere zu klicken. (War 3 -> mit dem 2s-Farb-Retro je
-# Zyklus brauchte das ~6s, was im Test wie "legt nichts nach" aussah.)
+# Puzzle-Slot leer" -> Spiel neu oeffnen (ESC -> Event-Uebersicht ->
+# FISCHPUZZLESPIEL). 2 deckt einen EINZELNEN Render-/Lese-Aussetzer ab (ein
+# echter Stein liest sich beim naechsten Frame), laesst den Bot bei echter Leere
+# aber schnell (~1 Zyklus Polster) reagieren statt sekundenlang ins Leere zu
+# klicken.
 BOX_EMPTY_STREAK = 2
-# Sicherheits-Obergrenze fuer Nachlegen pro Lauf (gegen Endlos-Drag bei
-# Dauer-Fehlerkennung). 20 Boxen sind weit mehr als eine reale Sitzung braucht.
-BOX_REFILL_MAX = 20
+# So oft darf das Spiel wegen leerer Boxen NEU geoeffnet werden, bevor hart
+# gestoppt wird. 1 reicht: bleiben die Boxen NACH einem frischen Event-Oeffnen
+# erneut leer, sind sie wirklich aufgebraucht (kein Sinn im ESC<->Open-Loop).
+# Verhindert die Endlosschleife ESC -> oeffnen -> leer -> ESC -> oeffnen.
+BOX_REOPEN_MAX = 1
 
-# -- Opportunistische Deluxe-Nutzung (REAKTIV, ohne Box-Zahl-OCR) ----------
-# Strategie (Nutzer-Vorgabe): NICHT pro Zyklus die Box-Zahl lesen (war
-# unzuverlaessig -> las leeren Slot als 0 -> Deluxe nie genutzt; und kostet
-# Speed). Stattdessen: liegt ein freies 2x3-Loch, einfach die Deluxe-Box OEFFNEN
-# (sie ist "fast immer" voll). Kommt kein Magenta-Stein, war der Slot LEER ->
-# reaktiv nachlegen (falls aktiviert) bzw. Deluxe fuer den Lauf abschalten.
-# So oft darf das Oeffnen KEINEN Magenta-Stein liefern, bevor Deluxe (ohne
-# Nachlege-Option) fuer den Lauf abgeschaltet wird. 2 = ein einzelner Render-/
-# Lese-Aussetzer ist ok.
+# -- Magenta-Leer-Erkennung der Deluxe-Box (Deluxe-SPIELEN bleibt) ---------
+# So oft darf das Oeffnen der Deluxe-Box KEINEN Magenta-Stein liefern, bevor die
+# Deluxe-Nutzung fuer den Lauf abgeschaltet wird (NORMALES Spiel laeuft weiter,
+# kein Stop). 2 = ein einzelner Render-/Lese-Aussetzer ist ok. (Deluxe-NACHLEGEN
+# aus dem Inventar wurde in v1.3 entfernt; die reaktive Leer-Erkennung bleibt,
+# damit Force-Deluxe sich bei wirklich leerer Box sauber selbst abschaltet.)
 DELUXE_MISS_LIMIT = 2
-# So oft darf bei leerem Deluxe-Slot eine Box aus dem Inventar nachgelegt werden
-# (gedeckelt gegen Endlos-Nachlegen, falls der Drag die Box nie wirklich laedt).
-DELUXE_REFILL_MAX = 3
+
+# -- Selbststart-/Reopen-Flow (Event-Uebersicht) --------------------------
+# Strg+E-Toggle-Versuche, bis die Eventuebersicht offen ist (Seher-Lektion:
+# DirectInput verschluckt Modifier-Combos -> Retry).
+CTRL_E_RETRIES = 3
+# Render-Floor (Sekunden) nach Strg+E / ESC / Label-Klick, bevor neu geprueft
+# wird (uebernommen aus dem Seher-Flow FLOW_PACE_S).
+FLOW_PACE_S = 0.75
+# NCC-Schwelle der Label-/Header-Erkennung (Seher-Konvention, seher.flow):
+# self-Match ~1.0, andere Eventzeilen/Fenstertitel < 0.5 am Kalibrierbild ->
+# +0.34 Abstand. Live-Render-Unterschiede koennen echte Treffer auf ~0.85
+# druecken; 0.82 haelt Spielraum. Jeder Knapp-daneben-Fall ist via
+# seher.flow.diagnose im Log sichtbar.
+FLOW_NCC_MIN = 0.82
+# Wie oft pro Tick maximal versucht wird, das Spiel selbst zu oeffnen, bevor mit
+# Diagnose gestoppt wird (Selbststart-Cap gegen Endlos-Oeffnen ohne Erfolg).
+GAME_OPEN_MAX_TRIES = 3
 
 
 fish_jigsaw_chest = cv.imread(resource_path("images/fish_jigsaw_chest.png"))
@@ -232,20 +243,16 @@ class PuzzleBot(PuzzleDetectMixin):
     _last_board_garbage = 0
     _board_retry_until = 0.0
 
-    # -- Box-Nachlegen (opt-in; von run_loop injiziert, Default AUS) --------
-    box_refill_enabled = False        # Schalter (Config 'box_refill_enabled')
-    box_refill_db = None              # gebuendelte Inventar-Item-DB (oder None)
-    box_refill_calib = None           # Kalibrierung (None -> DEFAULT_CALIBRATION)
-    inventory_hotkey = 'i'            # Spiel-Taste, die das Inventar oeffnet
+    # -- Leere Box -> Spiel neu oeffnen (v1.3; Default-Verhalten) -----------
     stop_signal = _stopsig.NULL_SIGNAL  # gemeinsames Stop-Signal (F6)
     _empty_getpiece_streak = 0        # leere getpiece IN FOLGE (Box-leer-Signal)
-    _box_refill_count = 0             # bereits nachgelegte Boxen (Cap-Zaehler)
+    _box_reopen_tries = 0             # so oft schon wegen leerer Box neu geoeffnet
+    _game_open_tries = 0             # Selbststart-Versuche im laufenden Tick (Cap)
 
-    # -- Opportunistische Deluxe-Nutzung (Laufzeit-Zustand) ----------------
+    # -- Opportunistische Deluxe-Nutzung (Laufzeit-Zustand; SPIELEN bleibt) -
     _awaiting_deluxe = False          # gerade die Deluxe-Box geoeffnet? (Magenta erwartet)
     _deluxe_miss_streak = 0           # Deluxe geoeffnet, aber KEIN Magenta -> Zaehler
     _deluxe_disabled = False          # nach zu vielen Fehlversuchen fuer den Lauf aus
-    _deluxe_refill_tries = 0          # Deluxe-Box-Nachlegungen aus Inventar (Cap)
 
     state = 0
 
@@ -267,15 +274,15 @@ class PuzzleBot(PuzzleDetectMixin):
         self._expected_meta = None
         self._last_board_garbage = 0
         self._board_retry_until = 0.0
-        # Box-Nachlegen: Streak + Cap-Zaehler pro Lauf frisch (sonst zaehlt ein
-        # alter Lauf weiter -> verfruehtes Nachlegen / fruehes Cap-Limit).
+        # Leere-Box-/Selbststart-Zustand pro Lauf frisch (sonst zaehlt ein alter
+        # Lauf weiter -> verfruehter Reopen-Stop / Open-Cap).
         self._empty_getpiece_streak = 0
-        self._box_refill_count = 0
-        # Opportunistische Deluxe-Nutzung pro Lauf zuruecksetzen.
+        self._box_reopen_tries = 0
+        self._game_open_tries = 0
+        # Opportunistische Deluxe-Nutzung pro Lauf zuruecksetzen (SPIELEN bleibt).
         self._awaiting_deluxe = False
         self._deluxe_miss_streak = 0
         self._deluxe_disabled = False
-        self._deluxe_refill_tries = 0
         # Offset auf den Klassen-Default zuruecksetzen; die Integration setzt
         # danach den aus dem Detection-Modus aufgeloesten Offset (falls
         # abweichend). Garantiert einen wohldefinierten Startwert pro Lauf.
@@ -606,13 +613,11 @@ class PuzzleBot(PuzzleDetectMixin):
         Nur aktiv, wenn gerade die Deluxe-Box geoeffnet wurde (``_awaiting_deluxe``).
         Kommt der Magenta-Stein (Typ 7) -> alles gut, Zaehler zuruecksetzen. Kommt
         KEINER (None/normaler 1-6) -> der Deluxe-Slot war LEER (genau das Signal
-        "es kommt nichts" -> erst JETZT reagieren):
-          1. wenn Nachlegen aktiv UND Cap nicht erreicht -> EINE Deluxe-Box aus dem
-             Inventar in den Slot ziehen, Zaehler reset -> naechster Versuch nutzt
-             die frische Box;
-          2. sonst (kein Nachlegen / keine Box mehr / Cap) -> nach
-             ``DELUXE_MISS_LIMIT`` Deluxe fuer den Lauf abschalten und NORMAL
-             weiterspielen (Bot wird NICHT gestoppt).
+        "es kommt nichts" -> erst JETZT reagieren): nach ``DELUXE_MISS_LIMIT``
+        leeren Oeffnungen wird die Deluxe-Nutzung fuer den Lauf abgeschaltet und
+        NORMAL weitergespielt (Bot wird NICHT gestoppt). (Das frueher hier
+        verdrahtete Deluxe-Box-NACHLEGEN aus dem Inventar wurde in v1.3 entfernt --
+        Deluxe-SPIELEN bleibt, nur die Inventar-Nachlege-Maschinerie faellt weg.)
         Rueckgabe ``True``, wenn es ein Deluxe-Versuch war (Aufrufer ueberspringt
         dann den Standard-Box-Streak). Wirft nie."""
         if not getattr(self, '_awaiting_deluxe', False):
@@ -625,16 +630,8 @@ class PuzzleBot(PuzzleDetectMixin):
         self._deluxe_miss_streak = getattr(self, '_deluxe_miss_streak', 0) + 1
         log.event(self.state, t('puzzle.deluxe_empty_detected'), got=piece,
                   misses=self._deluxe_miss_streak, limit=DELUXE_MISS_LIMIT)
-        # (1) Reaktiv aus dem Inventar nachlegen, falls aktiviert (gedeckelt).
-        if (self._box_refill_active()
-                and getattr(self, '_deluxe_refill_tries', 0) < DELUXE_REFILL_MAX
-                and self._maybe_refill_deluxe_box()):
-            self._deluxe_refill_tries = getattr(self, '_deluxe_refill_tries', 0) + 1
-            self._deluxe_miss_streak = 0
-            log.event(self.state, t('puzzle.deluxe_refilled_retry'),
-                      tries=self._deluxe_refill_tries)
-            return True
-        # (2) Kein Nachlegen moeglich -> Deluxe abschalten, NORMAL weiterspielen.
+        # Deluxe abschalten und NORMAL weiterspielen, sobald die Box mehrfach
+        # leer war (kein Inventar-Nachlegen mehr in v1.3).
         if self._deluxe_miss_streak >= DELUXE_MISS_LIMIT:
             self._deluxe_disabled = True
             log.event(self.state, t('puzzle.deluxe_disabled'))
@@ -711,54 +708,14 @@ class PuzzleBot(PuzzleDetectMixin):
             log.error(t('puzzle.force_deluxe_open_failed'), exc=exc)
             return False
 
-    # -- Box-Nachlegen aus dem Inventar (opt-in) --------------------------
-    # Spiegelt fishingbot._maybe_refill_bait: die schwere Op (Inventar oeffnen +
-    # 4 Seiten scannen + ersten Boxfund zum Box-Slot draggen) liegt im getesteten
-    # interface.refill; hier nur Trigger, Inventar-Oeffnen und das Stop-Seam.
-
-    def _box_refill_active(self):
-        """True nur, wenn das Nachlegen scharf ist UND die Engine importiert
-        werden konnte UND ein Fenster-Capture existiert. Wirft nie."""
-        return (bool(getattr(self, 'box_refill_enabled', False))
-                and _refill is not None and self.wincap is not None)
-
-    def _refill_sleep(self, seconds):
-        """Interruptible Nap fuers Nachlegen: schlaeft ueber das Stop-Signal und
-        kehrt SOFORT zurueck, sobald ein Stop ansteht. Gibt ``False`` zurueck,
-        wenn ein Stop die Nap abgeschnitten hat (Engine bricht ab). Faellt ohne
-        Signal auf ``time.sleep`` zurueck. Wirft nie."""
-        sig = getattr(self, 'stop_signal', None)
-        if sig is not None:
-            try:
-                return sig.wait(seconds)
-            except Exception:
-                pass
-        try:
-            from time import sleep as _sleep
-            _sleep(seconds)
-        except Exception:
-            pass
-        return True
-
-    def _refill_should_stop(self):
-        """Predicate fuer die Refill-Engine: True, sobald ein Stop ansteht
-        (Stop-Signal gesetzt ODER botting bereits geraeumt). Wirft nie."""
-        try:
-            sig = getattr(self, 'stop_signal', None)
-            if sig is not None and sig.stopped:
-                return True
-            return not self.botting
-        except Exception:
-            return False
-
     def _focus_game(self):
         """Holt das Spiel-Fenster in den VORDERGRUND (Tastatur-Fokus).
 
-        NOETIG fuers Inventar-Oeffnen: ``pydirectinput``-TASTEN gehen ans
-        fokussierte Fenster. Das Puzzle spielt sonst nur mit KLICKS (positions-
-        basiert, fokus-frei) -> das Spiel hat beim Puzzle i.d.R. KEINEN Fokus und
-        der Inventar-Hotkey ginge ins Leere. Defensiv: ohne Modul/HWND ein No-op,
-        wirft NIE. Liefert ``True`` bei Erfolg."""
+        NOETIG fuer Strg+E / ESC: ``pydirectinput``-TASTEN gehen ans fokussierte
+        Fenster. Das Puzzle spielt sonst nur mit KLICKS (positions-basiert,
+        fokus-frei) -> das Spiel hat beim Puzzle i.d.R. KEINEN Fokus und ein
+        Hotkey ginge ins Leere. Defensiv: ohne Modul/HWND ein No-op, wirft NIE.
+        Liefert ``True`` bei Erfolg."""
         if _focus_window is None:
             return False
         hwnd = getattr(self.wincap, 'hwnd', None)
@@ -769,125 +726,176 @@ class PuzzleBot(PuzzleDetectMixin):
         except Exception:
             return False
 
-    def _ensure_inventory_open_for_refill(self):
-        """Stellt sicher, dass das Inventar OFFEN ist (sonst Hotkey-Toggle), bevor
-        nachgelegt wird -- exakt die Spec ("waehrend des Puzzles muss das Inventar
-        offen sein, sonst aufmachen"). Nutzt die getestete open_probe (probe-then-
-        toggle). WICHTIG: Vor JEDEM Hotkey-Druck wird das Spiel fokussiert (sonst
-        oeffnet das Inventar nie, s. ``_focus_game``). Lenient wie der erprobte
-        Energiesplitter: nur eine VERIFIZIERT GESCHLOSSENE Tasche (``res is False``)
-        blockt; ``True``/``None`` (offen bzw. nicht eindeutig probebar) -> weiter.
+    # -- Spiel selbst oeffnen via Event-Uebersicht (v1.3) -----------------
+    # Generischer Selbststart/Reopen: Strg+E -> Eventuebersicht -> das Label
+    # "FISCHPUZZLESPIEL" positionsunabhaengig per NCC finden -> auf den NAMEN
+    # klicken (nicht "Ansehen") -> verifizieren, dass das Brett offen ist. Die
+    # NCC-Pipeline (Templates flow_event_title + flow_fisch_label) liegt im
+    # getesteten seher.flow-Modul und wird READ-ONLY mitbenutzt. Erkennung VOR
+    # Aktion: nie blind klicken, Doppel-Guard (Header UND Label muessen matchen).
+
+    def _press_ctrl_e(self):
+        """Strg+E mit expliziten Holds (Seher-Lektion: DirectInput verschluckt
+        Modifier-Combos bei zu kurzem Druck). Fokus davor (Tasten brauchen ihn).
         Wirft nie."""
-        if _open_probe is None or self.wincap is None:
+        self._focus_game()
+        old = getattr(pydirectinput, 'PAUSE', 0.05)
+        try:
+            pydirectinput.PAUSE = 0.1
+            pydirectinput.keyDown('ctrl')
+            sleep(0.06)
+            pydirectinput.keyDown('e')
+            sleep(0.06)
+            pydirectinput.keyUp('e')
+            sleep(0.06)
+            pydirectinput.keyUp('ctrl')
+        except Exception:
+            pass
+        finally:
+            pydirectinput.PAUSE = old
+        sleep(FLOW_PACE_S)
+
+    def _press_esc(self):
+        """ESC drueckt (schliesst das offene Fenster/Spiel). Fokus davor. Wirft nie."""
+        self._focus_game()
+        old = getattr(pydirectinput, 'PAUSE', 0.05)
+        try:
+            pydirectinput.PAUSE = 0.1
+            pydirectinput.press('esc')
+        except Exception:
+            pass
+        finally:
+            pydirectinput.PAUSE = old
+        sleep(FLOW_PACE_S)
+
+    def _event_overview_open(self, frame):
+        """True, wenn die Eventuebersicht offen ist (Header-Template
+        flow_event_title per NCC). Wirft nie -> False."""
+        if _flow is None or frame is None:
             return False
         try:
-            from inventory.constants import DEFAULT_CALIBRATION as _DC
-            calib = self.box_refill_calib or _DC
-
-            def _press_inventory():
-                # Fokus DIREKT vor dem Tastendruck (jeder Toggle-Versuch der
-                # Probe): ohne Fokus landet 'i' im Bot-/Vordergrundfenster und
-                # das Inventar oeffnet nie -> Probe meldet zu -> kein Nachlegen.
-                self._focus_game()
-                pydirectinput.press(self.inventory_hotkey)
-
-            res = _open_probe.ensure_inventory_open(
-                capture_fn=self.wincap.get_screenshot,
-                press_fn=_press_inventory,
-                calib=calib)
-            return res is not False
+            return bool(_flow.find(frame, 'flow_event_title', FLOW_NCC_MIN)[0])
         except Exception:
             return False
 
-    def _refill_box(self, names, target_xy, kind, stop_on_empty=True):
-        """Legt EINE Box aus dem Inventar in den Puzzle-Box-Slot ``target_xy``.
+    def _find_fisch_label(self, frame):
+        """Sucht das FISCHPUZZLESPIEL-Namensfeld in der Eventuebersicht.
 
-        ``names`` ist die getrennte Box-Whitelist (Standard ODER Deluxe -> nie
-        vertauscht). Ablauf: Cap pruefen -> Inventar verifiziert oeffnen -> die
-        getestete ``refill.refill_from_inventory`` (4-Seiten-Scan, ERSTER Fund in
-        Seite->Reihen-Reihenfolge, Drag zum Ziel, F6-aware). Rueckgabe ``True`` NUR
-        bei tatsaechlich gedraggter Box (Aufrufer fordert dann neu an).
+        Doppel-Guard (Seher-Muster find_seher_click): nur ein Treffer, wenn das
+        Label UND der Uebersichts-Header matchen -> nie ins falsche/zugedeckte
+        Fenster klicken (der reine Schriftzug koennte den Fenstertitel matchen).
+        Klickziel = Template-Zentrum (im Frame-Koordinatenraum, OHNE wincap-Rand).
+        Rueckgabe (ok, (x, y), dbg). Wirft nie."""
+        if _flow is None or frame is None:
+            return (False, (0, 0), {})
+        try:
+            ok_l, pos_l, ncc_l = _flow.find(frame, 'flow_fisch_label', FLOW_NCC_MIN)
+            ok_t, _pt, ncc_t = _flow.find(frame, 'flow_event_title', FLOW_NCC_MIN)
+            dbg = {'label_ncc': round(ncc_l, 4), 'title_ncc': round(ncc_t, 4)}
+            if not ok_l:
+                return (False, (0, 0), dbg)
+            if not ok_t:
+                # Label gematcht, aber KEINE Uebersicht offen -> kein Klick.
+                dbg['no_overview'] = True
+                return (False, (0, 0), dbg)
+            return (True, _flow.center('flow_fisch_label', pos_l), dbg)
+        except Exception:
+            return (False, (0, 0), {})
 
-        ``stop_on_empty``: bei ``'empty'`` (keine Box mehr im Inventar) wird der Bot
-        nur dann gestoppt, wenn ``True`` (Standard-Box: ohne Steine geht nichts).
-        Fuer die DELUXE-Box ``False`` -> kein Stopp, der Aufrufer schaltet nur die
-        Deluxe-Nutzung ab und spielt normal weiter. Streng defensiv -- wirft nie."""
-        if not self._box_refill_active():
+    def _board_open(self, frame=None):
+        """True, wenn das Puzzle-Brett bereits offen/spielbar ist
+        (calibration.validate_puzzle_region ok). Liest bei Bedarf einen frischen
+        Ausschnitt. Wirft nie -> False."""
+        try:
+            if frame is None:
+                frame = self.get_image()
+            calib = calibration.validate_puzzle_region(
+                frame, expected_size=self.board_size)
+            return bool(calib.ok)
+        except Exception:
             return False
-        if getattr(self, '_box_refill_count', 0) >= BOX_REFILL_MAX:
-            log.event(self.state, t('puzzle.box_refill_cap', n=BOX_REFILL_MAX))
-            return False
-        log.event(self.state, t('puzzle.box_refill_started', kind=kind))
-        calib = self.box_refill_calib or _refill.DEFAULT_CALIBRATION
 
-        def _open_toggle():
-            # Fokus (Tasten brauchen ihn) + Inventar-Hotkey -> Toggle. Die
-            # Verifikation, ob das Inventar danach OFFEN ist, macht
-            # box_refill_from_inventory template-frei selbst (kein kaputter
-            # Tab-Template-Probe mehr).
-            self._focus_game()
+    def _log_flow_diagnosis(self, step):
+        """Selbst-Diagnose in die Konsole: rohe Best-NCC der Flow-Templates +
+        Anker/Spielfeld (seher.flow.diagnose). Macht jeden Fehlschritt
+        ablesbar (alle Werte niedrig -> Bildschirm gar nicht da; einer knapp
+        unter Schwelle -> Render-Unterschied). Wirft nie."""
+        try:
+            if _flow is None:
+                return
+            shot = self.wincap.get_screenshot()
+            d = _flow.diagnose(shot)
+            fish = 0.0
             try:
-                pydirectinput.press(self.inventory_hotkey)
+                fish = _flow.find(shot, 'flow_fisch_label', 0.0)[2]
             except Exception:
                 pass
-
-        try:
-            # Robuster Box-Finder: template-freie Offen-Erkennung (+ Toggle) +
-            # fester Kalibrier-Grid + obere-Haelfte-Match. Ersetzt den itemdb-Scan
-            # UND die Tab-Template-Probe, die auf dem echten Client beide nichts
-            # erkannten (Auto-Align ~10px daneben; grosse Stueckzahl ueberdeckt die
-            # untere Icon-Haelfte). Bild-validiert.
-            result = _refill.box_refill_from_inventory(
-                names, target_xy, inp=pydirectinput, wincap=self.wincap,
-                open_toggle_fn=_open_toggle, calib=calib,
-                sleep=self._refill_sleep, should_stop=self._refill_should_stop)
+            log.event(self.state, t('puzzle.game_open_diag'), step=step,
+                      thresh=FLOW_NCC_MIN, fisch=round(float(fish), 3),
+                      eventtitel=d.get('flow_event_title'),
+                      anchor=d.get('anchor'), game=d.get('game'))
         except Exception:
-            result = 'error'
-        if result == 'dragged':
-            self._box_refill_count = getattr(self, '_box_refill_count', 0) + 1
-            log.event(self.state, t('puzzle.box_refill_done', kind=kind,
-                                    n=self._box_refill_count))
-            return True
-        if result == 'empty':
-            if stop_on_empty:
-                log.error(t('puzzle.box_refill_none_left', kind=kind))
-                self.botting = False
-            else:
-                log.event(self.state, t('puzzle.box_refill_none_left_soft',
-                                        kind=kind))
-            return False
-        if result == 'stopped':
-            return False
-        log.event(self.state, t('puzzle.box_refill_error', kind=kind))
-        return False
+            pass
 
-    def _maybe_refill_standard_box(self):
-        """Standard-Box nachlegen, wenn genug leere getpiece in Folge auftraten
-        (= Box im Standard-Slot leer). Pure Trigger-Entscheidung in
-        ``refill.box_refill_due`` (headless getestet). Wirft nie."""
-        if not self._box_refill_active():
-            return False
-        if not _refill.box_refill_due(
-                getattr(self, '_empty_getpiece_streak', 0),
-                min_streak=BOX_EMPTY_STREAK,
-                done=getattr(self, '_box_refill_count', 0),
-                max_done=BOX_REFILL_MAX):
-            return False
-        return self._refill_box(_refill.BOX_STD_NAMES,
-                                self.standard_box_screen_point(), 'standard')
+    def _open_puzzle_game(self):
+        """Oeffnet das Fisch-Puzzle SELBST ueber die Eventuebersicht.
 
-    def _maybe_refill_deluxe_box(self):
-        """Deluxe-Box aus dem Inventar in den Slot ziehen (reaktiv, wenn der Slot
-        leer erkannt wurde). ``stop_on_empty=False`` -> ist KEINE Deluxe-Box im
-        Inventar, wird der Bot NICHT gestoppt (der Aufrufer schaltet Deluxe nur ab
-        und spielt normal weiter). Wirft nie."""
-        if not self._box_refill_active():
+        Ablauf (Toggle-Muster wie der Seher-Selbststart):
+          1. Ist das Brett schon offen -> nichts tun, True.
+          2. Strg+E (<=CTRL_E_RETRIES), bis die Eventuebersicht sichtbar ist.
+          3. FISCHPUZZLESPIEL-Label robust per NCC finden (Doppel-Guard) und auf
+             den NAMEN klicken (nicht "Ansehen").
+          4. Verifizieren, dass das Brett jetzt offen ist.
+        Erkennung VOR Aktion -> nie blind klicken. Jeder Fehlschritt loggt eine
+        Diagnose. Rueckgabe ``bool`` (offen?). Wirft nie."""
+        try:
+            if _flow is None or self.wincap is None:
+                log.event(self.state, t('puzzle.game_open_unavailable'))
+                return False
+            # (1) schon offen?
+            if self._board_open():
+                return True
+            log.event(self.state, t('puzzle.open_game'))
+            # (2) Eventuebersicht oeffnen (Toggle nur wenn nicht schon offen).
+            shot = self.wincap.get_screenshot()
+            if not self._event_overview_open(shot):
+                opened = False
+                for attempt in range(1, CTRL_E_RETRIES + 1):
+                    log.event(self.state, t('puzzle.open_ctrl_e'), attempt=attempt)
+                    self._press_ctrl_e()
+                    shot = self.wincap.get_screenshot()
+                    if self._event_overview_open(shot):
+                        opened = True
+                        break
+                if not opened:
+                    self._log_flow_diagnosis('eventuebersicht')
+                    return False
+            # (3) Label finden + auf den NAMEN klicken (Doppel-Guard schuetzt).
+            ok, pt, dbg = self._find_fisch_label(shot)
+            if not ok:
+                log.event(self.state, t('puzzle.fisch_label_missing'),
+                          label_ncc=dbg.get('label_ncc'),
+                          title_ncc=dbg.get('title_ncc'))
+                self._log_flow_diagnosis('fischlabel')
+                return False
+            mx = int(pt[0] + getattr(self.wincap, 'offset_x', 0))
+            my = int(pt[1] + getattr(self.wincap, 'offset_y', 0))
+            log.event(self.state, t('puzzle.fisch_label_click'),
+                      pos=(mx, my), label_ncc=dbg.get('label_ncc'))
+            pydirectinput.click(x=mx, y=my, button='left')
+            sleep(FLOW_PACE_S)
+            # (4) ist das Brett jetzt offen? (kurzes Pollen ueber den Render-Floor)
+            deadline = time() + 4.0
+            while time() < deadline:
+                if self._board_open():
+                    log.event(self.state, t('puzzle.game_opened'))
+                    return True
+                sleep(0.2)
+            self._log_flow_diagnosis('brett_nach_klick')
             return False
-        if getattr(self, '_box_refill_count', 0) >= BOX_REFILL_MAX:
+        except Exception as exc:
+            log.error(t('puzzle.game_open_failed'), exc=exc)
             return False
-        return self._refill_box(_refill.BOX_DELUXE_NAMES,
-                                self.deluxe_box_screen_point(), 'deluxe',
-                                stop_on_empty=False)
 
     def _place_deluxe(self):
         """Setzt den DELUXE-Stein (volles 2x3-Magenta) DETERMINISTISCH.
@@ -1099,16 +1107,34 @@ class PuzzleBot(PuzzleDetectMixin):
 
         # Selbstdiagnose VOR dem Auslesen von Board/Stein: zeigt der Ausschnitt
         # ueberhaupt plausibel das Puzzle? Bei verschobenem Fenster / falscher
-        # Aufloesung ist er schwarz/uniform -> frueher stiller Crash, jetzt ein
-        # sauberer, GELOGGTER Stop mit klarer Ursache fuer den Nutzer.
+        # Aufloesung ist er schwarz/uniform.
+        #
+        # SELBSTSTART (v1.3): Ist das Brett (noch) NICHT da, wird nicht mehr hart
+        # gestoppt, sondern das Spiel SELBST ueber die Eventuebersicht geoeffnet
+        # (Strg+E -> FISCHPUZZLESPIEL -> Klick aufs Namensfeld). Klappt das
+        # GAME_OPEN_MAX_TRIES Mal in Folge nicht -> sauberer, gelogger Stop mit
+        # Diagnose. Der Versuchszaehler wird genullt, sobald das Brett offen ist
+        # (s. unten), damit ein spaeteres Schliessen wieder oeffnen darf.
         calib = calibration.validate_puzzle_region(
             crop_image, expected_size=self.board_size)
         if not calib.ok:
-            log.error(t('puzzle.region_invalid_stop', reasons='; '.join(calib.reasons)))
-            log.snapshot('CALIB_FAIL', screen_xy=self.puzzle_offset,
-                         extra=calib.details)
-            self.botting = False
+            if self._game_open_tries >= GAME_OPEN_MAX_TRIES:
+                log.error(t('puzzle.region_invalid_stop',
+                            reasons='; '.join(calib.reasons)))
+                log.snapshot('CALIB_FAIL', screen_xy=self.puzzle_offset,
+                             extra=calib.details)
+                self.botting = False
+                return None
+            self._game_open_tries += 1
+            log.event(self.state, t('puzzle.board_closed_open_retry'),
+                      attempt=self._game_open_tries, max=GAME_OPEN_MAX_TRIES)
+            if self._open_puzzle_game():
+                # Brett offen -> Zaehler nullen, naechster Tick spielt normal.
+                self._game_open_tries = 0
+                self.timer_action = time()
             return None
+        # Brett ist offen -> Selbststart-Zaehler zuruecksetzen.
+        self._game_open_tries = 0
 
         # Inhalts-Hinweise (z.B. "plausibel leeres Startbrett") sind KEIN
         # Stopgrund mehr (FIX Blocker B), werden aber fuer die Debug-Konsole
@@ -1222,12 +1248,12 @@ class PuzzleBot(PuzzleDetectMixin):
                 # (anderer Slot als getpiece) -> zaehlt NICHT als Standard-Box-Miss.
                 deluxe_attempt = self._register_deluxe_result(piece)
 
-                # Box-Nachlegen: ein ECHTER Miss (kein Stein nach Ablauf des
-                # Retry-Fensters) bedeutet, der getpiece-Klick lieferte nichts ->
-                # moeglicher Hinweis auf eine LEERE Box im Slot. Streak zaehlen;
-                # ein erfolgreicher Read setzt sie zurueck (nur AUFEINANDER
-                # folgende Leerschuesse gelten als "Box leer"). Deluxe-Versuche
-                # zaehlen hier NICHT mit (oben separat behandelt).
+                # Leere Box -> Spiel NEU OEFFNEN (v1.3): ein ECHTER Miss (kein
+                # Stein nach Ablauf des Retry-Fensters) bedeutet, der getpiece-
+                # Klick lieferte nichts -> moeglicher Hinweis auf eine LEERE
+                # Standard-Box. Streak zaehlen; ein erfolgreicher Read setzt sie
+                # zurueck (nur AUFEINANDER folgende Leerschuesse gelten als "Box
+                # leer"). Deluxe-Versuche zaehlen hier NICHT mit (oben separat).
                 if piece is not None:
                     self._empty_getpiece_streak = 0
                 elif deluxe_attempt:
@@ -1235,23 +1261,37 @@ class PuzzleBot(PuzzleDetectMixin):
                 else:
                     self._empty_getpiece_streak = (
                         getattr(self, '_empty_getpiece_streak', 0) + 1)
-                    # Diagnose: macht im Log SICHTBAR, ob das Nachlegen scharf ist
-                    # (Schalter an?) und ob die Engine geladen wurde, plus wie nah
-                    # der Streak an der Schwelle liegt. Ohne diese Zeile war aus dem
-                    # Log nicht zu unterscheiden "Schalter aus" vs "zu frueh
-                    # gestoppt" vs "Engine-Import fehlt".
-                    log.event(self.state, t('puzzle.box_refill_probe'),
-                              enabled=bool(getattr(self, 'box_refill_enabled',
-                                                   False)),
-                              engine=(_refill is not None),
+                    log.event(self.state, t('puzzle.box_empty_probe'),
                               streak=self._empty_getpiece_streak,
-                              threshold=BOX_EMPTY_STREAK)
-                    if self._maybe_refill_standard_box():
-                        # Box nachgelegt -> Streak zuruecksetzen und neu anfordern
-                        # (State 0 klickt getpiece an der frisch gefuellten Box).
-                        self._empty_getpiece_streak = 0
-                        self.state = 0
-                        self.timer_action = time()
+                              threshold=BOX_EMPTY_STREAK,
+                              reopen=self._box_reopen_tries)
+                    if self._empty_getpiece_streak >= BOX_EMPTY_STREAK:
+                        # Boxen wirklich leer. Schon einmal (oder oefter) neu
+                        # geoeffnet und es bleibt leer -> Boxen aufgebraucht: hart
+                        # stoppen (kein ESC<->Open-Endlos-Loop).
+                        if self._box_reopen_tries >= BOX_REOPEN_MAX:
+                            log.error(t('puzzle.boxes_empty_stop'))
+                            log.snapshot('BOXES_EMPTY',
+                                         screen_xy=self.puzzle_offset,
+                                         extra='reopen_tries={}'.format(
+                                             self._box_reopen_tries))
+                            self.botting = False
+                            return None
+                        # ESC (Spiel/leere Boxen schliessen) -> via Event neu
+                        # oeffnen -> weiterspielen mit frisch gefuellten Boxen.
+                        self._box_reopen_tries += 1
+                        log.event(self.state, t('puzzle.box_empty_reopen'),
+                                  tries=self._box_reopen_tries, max=BOX_REOPEN_MAX)
+                        self._press_esc()
+                        sleep(FLOW_PACE_S)
+                        if self._open_puzzle_game():
+                            self._empty_getpiece_streak = 0
+                            self.state = 0
+                            self.timer_action = time()
+                            return None
+                        # Reopen fehlgeschlagen -> Diagnose, dann Stop.
+                        log.error(t('puzzle.boxes_empty_stop'))
+                        self.botting = False
                         return None
                 self.state = 5
                 self.timer_action = time()

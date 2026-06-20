@@ -3,6 +3,37 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.3.0] — 2026-06-20
+
+### Fisch-Puzzle: startet das Spiel selbst + füllt Boxen per Event-Neustart (kein Inventar-Scan/Drag mehr)
+
+Komplett neuer, viel robusterer Weg — **ohne** die fehleranfällige „Inventar-offen?"-Prüfung und **ohne** Drag.
+
+- **Der Bot startet das Puzzle jetzt selbst.** Beim Start prüft er, ob das Brett
+  schon offen ist; wenn nicht, öffnet er es über die **Eventübersicht** (Strg+E →
+  „FISCHPUZZLESPIEL" robust per Bild-Erkennung finden — Sortierung/Position egal —
+  → auf den **Namen** klicken, nicht auf „Ansehen" → Brett-offen verifizieren).
+  Kein harter Abbruch mehr nur, weil das Brett zu war.
+- **Leere Boxen werden per Spiel-Neustart nachgefüllt:** sind die Standard-Boxen
+  leer, drückt der Bot **ESC** und öffnet das Spiel erneut über die Eventübersicht
+  → Boxen sind wieder gefüllt (sofern vorhanden). Sind sie danach immer noch leer,
+  **stoppt** der Bot mit klarer Debug-Meldung „Puzzle-Boxen leer". Ein Reopen-Cap
+  verhindert eine ESC↔Öffnen-Endlosschleife.
+- **Erkennung-vor-Aktion:** Doppel-Guard (Übersicht-Titel **und** das
+  „FISCHPUZZLESPIEL"-Label müssen matchen), sonst kein Klick. Jeder Fehlschritt
+  schreibt eine Diagnose (rohe Best-NCC + Debug-Frame) ins Log. Am Event-Bild
+  gemessen: Label-Self-NCC **1.00**, nächster Fremd-Treffer **0.49** → Schwelle
+  0.82 mit großem Abstand.
+- **Box-Nachlegen über Inventar-Scan/Drag komplett entfernt** (Standard **und**
+  Deluxe-Refill) — inkl. der alten, auf manchen Clients kaputten „Inventar-offen?"-
+  Probe, der GUI-Schalter, Config und i18n. **Deluxe-Spielen** (force_deluxe-
+  Platzierung) bleibt unverändert.
+
+**Validierung:** 352 berührte Tests grün (11 neue: Selbststart, Event-Öffnen,
+Restart-Refill, „Boxen leer"-Stop). **Restunsicherheit:** die Bild-Schwelle der
+„FISCHPUZZLESPIEL"-Erkennung ist am echten Client ggf. nachzujustieren (headless
+nicht final prüfbar) — Debug-Logs zeigen jeden Knapp-daneben-Fall.
+
 ## [1.2.38] — 2026-06-20
 
 ### Eingabe-Mechanik aufgeräumt: Zwei-Klick statt Drag — aber nur wo es sicher ist

@@ -64,15 +64,6 @@ class RunControlMixin:
         self._cfg = self.controller.update_config(
             'puzzle', 'force_deluxe', bool(self._force_deluxe_var.get()))
 
-    def _on_box_refill_toggle(self):
-        """Schreibt den Box-Nachlegen-Schalter in die Config.
-
-        Reines bool. Bei AN legt der PuzzleBot eine leere Puzzle-Box mitten im
-        Spiel aus dem Inventar nach (erster Fund, nur sicher erkannte Box). Default
-        AUS -- opt-in, da Drag/OCR nur live verifizierbar ist."""
-        self._cfg = self.controller.update_config(
-            'puzzle', 'box_refill_enabled', bool(self._box_refill_var.get()))
-
     def sync_controls(self):
         """Spiegelt den Laufzustand ins UI (Hero, Rail-Punkte, Sperren).
 
@@ -137,11 +128,7 @@ class RunControlMixin:
             self.force_deluxe_switch.configure(state=state)
         except Exception:
             pass
-        # Box-Nachlegen-Schalter ebenso waehrend des Laufs sperren.
-        try:
-            self.box_refill_switch.configure(state=state)
-        except Exception:
-            pass
+        # (Box-Nachlegen-Schalter entfernt in v1.3.)
         # Reset-Knopf (Settings, Item K) nur im Leerlauf -- belt-and-suspenders
         # zum Idle-Guard in _on_reset_settings.
         try:

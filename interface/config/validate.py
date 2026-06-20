@@ -285,10 +285,6 @@ def validate(cfg):
         # additiv; default aus -> byte-stabiler Pfad.
         puzzle['force_deluxe'] = bool(
             puzzle.get('force_deluxe', DEFAULTS['puzzle']['force_deluxe']))
-        # Box-Nachlegen: reines bool (ungueltig/fehlend -> Default AUS). Additiv.
-        puzzle['box_refill_enabled'] = bool(
-            puzzle.get('box_refill_enabled',
-                       DEFAULTS['puzzle']['box_refill_enabled']))
         patch = _coerce_int(puzzle.get('color_patch'),
                             DEFAULTS['puzzle']['color_patch'])
         puzzle['color_patch'] = (

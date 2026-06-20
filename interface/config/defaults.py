@@ -172,12 +172,8 @@ DEFAULTS = {
         'verify_placements': True,   # ① Platzierungs-Audit: Soll/Ist-Brett loggen
         'board_plausibility': True,  # ④ Garbage-Zellen erkennen -> Brett neu lesen
         'color_stat': 'mean',        # ② Patch-Statistik im 'multi'-Modus (mean|median); median = robust, erst live testen
-        # Box-Nachlegen: leere Puzzle-Box mitten im Spiel automatisch aus dem
-        # Inventar in den Box-Slot ziehen (Standard -> unterer Slot, Deluxe ->
-        # oberer Slot; immer der ERSTE Fund Seite I->IV, Slot 1..45). NUR sicher
-        # erkannte Box. Default AUS -> opt-in, da Drag/OCR nur LIVE verifizierbar
-        # (erst ueberwacht testen). Inventar wird bei Bedarf geoeffnet.
-        'box_refill_enabled': False,
+        # (Box-Nachlegen-Schalter entfernt in v1.3: leere Boxen werden jetzt per
+        # Spiel-Neustart ueber die Eventuebersicht behandelt, kein Inventar-Scan.)
     },
     # Energiesplitter: ZWEI Aktionen (Hammer-Kauf @ Alchemist / Dolch-Kauf +
     # sequenzielle Verarbeitung @ Waffenhaendler) unter einer Reiter-Ansicht.

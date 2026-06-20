@@ -204,7 +204,7 @@ class TestSimIntentLogged(unittest.TestCase):
       bot._dagger_process_drag()
     self.assertTrue(cap.has('WAHRNEHMUNG: Slot-Klassifikation vor Drag'), cap.lines)
     self.assertTrue(cap.has('[SIM] wuerde'), cap.lines)
-    self.assertTrue(cap.has('Hammer-Stack auf Dolch-Slot ziehen'), cap.lines)
+    self.assertTrue(cap.has('Hammer aufnehmen + auf Dolch setzen'), cap.lines)
 
 
 class TestPerceptionLogged(unittest.TestCase):
