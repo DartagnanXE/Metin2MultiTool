@@ -207,9 +207,9 @@ class DaggerFlowMixin:
       pass
     self._right_click(*slot)
     self.actions_done += 1
-    # Kauf-Bestaetigung ('Moechtest du ... kaufen?') -> 'Ja' klicken.
-    self._settle(self.BUY_CONFIRM_SETTLE_S)
-    self._confirm_buy_if_present()
+    # Kauf-Bestaetigung: poll-instant 'Ja' (Erkennung -> SOFORT klicken; ersetzt
+    # das fixe 0.4s-Blind-Warten -> deutlich schnellerer Kauf, v.a. im Chat-Modus).
+    self._confirm_buy_polled()
 
     result = self._verify_buy(chat_sig)
     if result in ('rate_limited', 'unknown'):
@@ -239,8 +239,10 @@ class DaggerFlowMixin:
     self._round_bought += 1
     self._dolche_gekauft += 1
     self._round_to_buy -= 1
-    if self.buy_mode != 'chat':
-      self._settle(self.buy_delay_s)   # Tempo zwischen Kaufklicks (klick-Modus)
+    # Kauf-Tempo: Pause vor dem naechsten Kaufklick -- in BEIDEN Modi wirksam,
+    # damit das Feld auch im Chat-Modus den Klick-Takt steuert (0 = max. schnell;
+    # gegen das Server-Rate-Limit ggf. leicht erhoehen).
+    self._settle(self.buy_delay_s)
     try:
       log.event(self.state, 'ZUSTAND: Dolch gekauft', rest_runde=self._round_to_buy,
                 dolche_gekauft=self._dolche_gekauft, modus=self.buy_mode)
@@ -316,11 +318,10 @@ class DaggerFlowMixin:
     self._two_click_move(sx, sy, dx, dy)
     self.actions_done += 1
     # Das Setzen oeffnet das Zerlege-Bestaetigungsfenster ('Moechtest du das
-    # wirklich zerlegen?') -> 'Ja' klicken (sonst bleibt der Dolch unverarbeitet).
-    # Gleiche Mechanik wie die Kauf-Bestaetigung: Render-Pause, Confirm, Render-
-    # Pause, dann verifizieren.
-    self._settle(self.BUY_CONFIRM_SETTLE_S)
-    self._confirm_dismantle_if_present()
+    # wirklich zerlegen?') -> 'Ja'. POLL-INSTANT (Erkennung -> sofort klicken;
+    # kein fixes Vor-Warten). Danach KURZ rendern lassen, damit der Verify-Re-Read
+    # den jetzt geleerten Dolch-Slot sieht.
+    self._confirm_dismantle_polled()
     self._settle(self.BUY_CONFIRM_SETTLE_S)
     self.state = self.ST_VERIFY_PROCESS
 

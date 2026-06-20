@@ -3,6 +3,19 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.4.1] — 2026-06-20
+
+### Energiesplitter: deutlich schnellerer Dolch-Kauf (Erkennung statt Blind-Warten)
+
+- **Kauf-Bestätigung jetzt poll-instant:** statt fix 0.4s zu warten, wird auf den
+  „Ja"-Dialog **gepollt** und **sofort** geklickt, sobald er erkannt ist. Gleiches
+  für die Zerlege-Bestätigung beim Verarbeiten. Das war der Haupt-Bremsklotz
+  (~0.4s pro Kauf/Verarbeitung verschenkt) — besonders spürbar im Chat-Modus.
+- **Kauf-Tempo wirkt jetzt in BEIDEN Modi:** vorher wurde das „Kauf-Tempo"-Feld im
+  Chat-Modus ignoriert. Jetzt regelt es den Klick-Takt auch dort — nützlich
+  doppelt: gegen das Server-Rate-Limit **und** für die Chat-Lesbarkeit (≈ eine
+  Quittung pro Klick → saubere 1:1-Zuordnung). 0 = maximal schnell.
+
 ## [1.4.0] — 2026-06-20
 
 ### Energiesplitter: Dolch-Kauf gegen das Rate-Limit (zwei umschaltbare Modi)

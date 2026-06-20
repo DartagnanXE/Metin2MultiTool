@@ -103,6 +103,7 @@ def _make_bot(mode=MODE_HAMMER, values=None, with_window=True):
   # + Intervall auf 0, damit Tests schnell bleiben.
   bot.BUY_CHAT_TIMEOUT_S = 0.0
   bot.DETECT_POLL_INTERVAL_S = 0.0
+  bot.CONFIRM_POLL_TIMEOUT_S = 0.0
   return bot
 
 

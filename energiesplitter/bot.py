@@ -157,6 +157,11 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
   BUY_CHAT_TIMEOUT_S = 1.5
   # Poll-Intervall fuer die Chat-Verifikation (Frame-Takt). Tests setzen 0.
   DETECT_POLL_INTERVAL_S = 0.03
+  # Erkennung-vor-Aktion (zeitlich): statt fix BUY_CONFIRM_SETTLE_S zu warten, wird
+  # auf den Bestaetigungsdialog GEPOLLT und 'Ja' SOFORT geklickt, sobald er erkannt
+  # ist -> kein verschenktes Blind-Warten, kein Klick vor dem Rendern. Max. so lange
+  # pollen, bevor (best-effort) weitergemacht wird. Tests setzen 0.
+  CONFIRM_POLL_TIMEOUT_S = 1.0
   # Max. aufeinanderfolgende rate-limitierte/unklare Kaeufe DESSELBEN Dolchs, bevor
   # der Kauf-Loop (defensiv) aufgibt -> der Lauf stoppt NICHT hart, sondern geht in
   # die Verarbeitung des bisher Gekauften (Rate-Limit ist transient).
@@ -801,6 +806,32 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
       pass
     self._left_click(int(ja[0]), int(ja[1]))
     return True
+
+  def _poll_confirm(self, check_fn, timeout_s=None):
+    """Pollt bis ``check_fn()`` (Einzel-Check, der bei Erkennung 'Ja' klickt + True
+    liefert) anschlaegt und gibt dann SOFORT True zurueck. Kein fixes Blind-Warten
+    davor. False bei Timeout. ``check_fn`` liest pro Frame ein frisches Capture und
+    klickt selbst -> hier nur die Schleife. Wirft NIE."""
+    timeout = self.CONFIRM_POLL_TIMEOUT_S if timeout_s is None else timeout_s
+    deadline = time.monotonic() + max(0.0, float(timeout))
+    while True:
+      try:
+        if check_fn():
+          return True
+      except Exception:  # pragma: no cover - defensiv
+        pass
+      if time.monotonic() >= deadline:
+        return False
+      time.sleep(max(0.0, float(self.DETECT_POLL_INTERVAL_S)))
+
+  def _confirm_buy_polled(self, timeout_s=None):
+    """Kauf-Bestaetigung: pollt -> klickt 'Ja' SOFORT bei Erkennung (ersetzt das
+    fixe BUY_CONFIRM_SETTLE_S-Blind-Warten). Wirft NIE."""
+    return self._poll_confirm(self._confirm_buy_if_present, timeout_s)
+
+  def _confirm_dismantle_polled(self, timeout_s=None):
+    """Zerlege-Bestaetigung: pollt -> klickt 'Ja' SOFORT bei Erkennung. Wirft NIE."""
+    return self._poll_confirm(self._confirm_dismantle_if_present, timeout_s)
 
   def _chat_sig(self):
     """Vorher-Signatur des Chat-ROI (fuer die Chat-Verifikation: ist NACH dem Kauf
