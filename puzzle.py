@@ -114,6 +114,10 @@ CTRL_E_RETRIES = 3
 # Render-Floor (Sekunden) nach Strg+E / ESC / Label-Klick, bevor neu geprueft
 # wird (uebernommen aus dem Seher-Flow FLOW_PACE_S).
 FLOW_PACE_S = 0.75
+# Wie lange nach dem Label-Klick auf das offene Brett gepollt wird (der Client
+# rendert das Puzzle nicht sofort). Innerhalb des Fensters liest jeder Versuch
+# ein FRISCHES Capture; danach gilt der Reopen als gescheitert (mit Diagnose).
+BOARD_OPEN_POLL_S = 4.0
 # NCC-Schwelle der Label-/Header-Erkennung (Seher-Konvention, seher.flow):
 # self-Match ~1.0, andere Eventzeilen/Fenstertitel < 0.5 am Kalibrierbild ->
 # +0.34 Abstand. Live-Render-Unterschiede koennen echte Treffer auf ~0.85
@@ -768,15 +772,21 @@ class PuzzleBot(PuzzleDetectMixin):
             pydirectinput.PAUSE = old
         sleep(FLOW_PACE_S)
 
-    def _event_overview_open(self, frame):
-        """True, wenn die Eventuebersicht offen ist (Header-Template
-        flow_event_title per NCC). Wirft nie -> False."""
+    def _overview_state(self, frame):
+        """Lage der Eventuebersicht als ``(offen?, gemessene_ncc)``.
+
+        Gibt die ROHE Header-NCC mit zurueck (nicht nur den bool), damit jeder
+        Strg+E-Versuch den gemessenen Wert loggen kann -> ein Knapp-daneben
+        (z.B. 0.79 bei Schwelle 0.82) ist im Log sofort als Render-/Schwellen-
+        Problem ablesbar statt als stummes "nicht offen". Wirft nie -> (False,
+        0.0)."""
         if _flow is None or frame is None:
-            return False
+            return (False, 0.0)
         try:
-            return bool(_flow.find(frame, 'flow_event_title', FLOW_NCC_MIN)[0])
+            ok, _pos, ncc = _flow.find(frame, 'flow_event_title', FLOW_NCC_MIN)
+            return (bool(ok), float(ncc))
         except Exception:
-            return False
+            return (False, 0.0)
 
     def _find_fisch_label(self, frame):
         """Sucht das FISCHPUZZLESPIEL-Namensfeld in der Eventuebersicht.
@@ -815,86 +825,122 @@ class PuzzleBot(PuzzleDetectMixin):
         except Exception:
             return False
 
-    def _log_flow_diagnosis(self, step):
-        """Selbst-Diagnose in die Konsole: rohe Best-NCC der Flow-Templates +
-        Anker/Spielfeld (seher.flow.diagnose). Macht jeden Fehlschritt
-        ablesbar (alle Werte niedrig -> Bildschirm gar nicht da; einer knapp
-        unter Schwelle -> Render-Unterschied). Wirft nie."""
+    def _flow_ncc_brief(self):
+        """Rohe Best-NCC ALLER Flow-Templates + Anker/Spielfeld als EIN String
+        (fuer Snapshot-``extra``). Macht jeden Reopen-Fehlschritt ablesbar: alle
+        Werte niedrig -> erwarteter Bildschirm gar nicht da (Klick verschluckt /
+        falsches Fenster); ein Wert knapp unter der Schwelle -> Render-
+        Unterschied am echten Client.
+
+        Bewusst OHNE ``validate_puzzle_region`` (entkoppelt von der Brett-
+        Kalibrierung), damit die Diagnose die Anzahl der Kalibrier-Aufrufe im
+        Control-Flow nicht verschiebt. Wirft nie -> Fehlertext."""
         try:
-            if _flow is None:
-                return
+            if _flow is None or self.wincap is None:
+                return 'flow=unavailable'
             shot = self.wincap.get_screenshot()
             d = _flow.diagnose(shot)
-            fish = 0.0
             try:
-                fish = _flow.find(shot, 'flow_fisch_label', 0.0)[2]
+                fish = float(_flow.find(shot, 'flow_fisch_label', 0.0)[2])
             except Exception:
-                pass
-            log.event(self.state, t('puzzle.game_open_diag'), step=step,
-                      thresh=FLOW_NCC_MIN, fisch=round(float(fish), 3),
-                      eventtitel=d.get('flow_event_title'),
-                      anchor=d.get('anchor'), game=d.get('game'))
+                fish = -1.0
+            return ('thresh={} fisch_label={:.3f} event_title={} anchor={} '
+                    'game={}').format(FLOW_NCC_MIN, fish,
+                                      d.get('flow_event_title'),
+                                      d.get('anchor'), d.get('game'))
         except Exception:
-            pass
+            return 'flow=diag_error'
 
-    def _open_puzzle_game(self):
+    def _open_puzzle_game(self, force=False):
         """Oeffnet das Fisch-Puzzle SELBST ueber die Eventuebersicht.
 
         Ablauf (Toggle-Muster wie der Seher-Selbststart):
-          1. Ist das Brett schon offen -> nichts tun, True.
+          1. Ist das Brett schon offen -> nichts tun, True. ABER nur wenn NICHT
+             ``force``: nach einem ESC (Box-leer-Neustart) meldet das rein
+             STRUKTURELLE ``_board_open`` jede board-foermige Region als "offen"
+             (auch das verbrauchte/leere Brett oder den Hintergrund) -> ein
+             Kurzschluss hier wuerde den Neustart ueberspringen. GENAU das war der
+             v1.3.0-Bug ("oeffnet das Eventboard nicht, klickt in die Gegend").
+             Im ``force``-Pfad wird der Eventlisten-Neustart daher erzwungen.
           2. Strg+E (<=CTRL_E_RETRIES), bis die Eventuebersicht sichtbar ist.
           3. FISCHPUZZLESPIEL-Label robust per NCC finden (Doppel-Guard) und auf
              den NAMEN klicken (nicht "Ansehen").
           4. Verifizieren, dass das Brett jetzt offen ist.
-        Erkennung VOR Aktion -> nie blind klicken. Jeder Fehlschritt loggt eine
-        Diagnose. Rueckgabe ``bool`` (offen?). Wirft nie."""
+
+        SOTA-Debug: jeder Schritt schreibt einen strukturierten ``SNAP``-Block
+        (REOPEN_BEGIN / _NO_OVERVIEW / _NO_LABEL / _OK / _BOARD_MISS) mit den
+        rohen Flow-NCCs -> bei einem erneuten Fehlschlag steht im Log GENAU, an
+        welchem Schritt und warum (Uebersicht nicht erkannt? Label unter
+        Schwelle? Klick lieferte kein Brett?). Erkennung VOR Aktion -> nie blind
+        klicken. Rueckgabe ``bool`` (offen?). Wirft nie."""
         try:
             if _flow is None or self.wincap is None:
                 log.event(self.state, t('puzzle.game_open_unavailable'))
                 return False
-            # (1) schon offen?
-            if self._board_open():
+            board_now = self._board_open()
+            log.snapshot('REOPEN_BEGIN', screen_xy=self.puzzle_offset,
+                         extra='force={} board_open={} | {}'.format(
+                             force, board_now, self._flow_ncc_brief()))
+            # (1) schon offen? (im force-Pfad NICHT vertrauen, s. Docstring)
+            if not force and board_now:
+                log.event(self.state, t('puzzle.game_already_open'))
                 return True
             log.event(self.state, t('puzzle.open_game'))
             # (2) Eventuebersicht oeffnen (Toggle nur wenn nicht schon offen).
             shot = self.wincap.get_screenshot()
-            if not self._event_overview_open(shot):
+            ov_ok, ov_ncc = self._overview_state(shot)
+            if not ov_ok:
                 opened = False
                 for attempt in range(1, CTRL_E_RETRIES + 1):
-                    log.event(self.state, t('puzzle.open_ctrl_e'), attempt=attempt)
                     self._press_ctrl_e()
                     shot = self.wincap.get_screenshot()
-                    if self._event_overview_open(shot):
+                    ov_ok, ov_ncc = self._overview_state(shot)
+                    log.event(self.state, t('puzzle.open_ctrl_e',
+                              attempt=attempt, max=CTRL_E_RETRIES,
+                              title_ncc=round(ov_ncc, 3)))
+                    if ov_ok:
                         opened = True
                         break
                 if not opened:
-                    self._log_flow_diagnosis('eventuebersicht')
+                    log.snapshot('REOPEN_NO_OVERVIEW',
+                                 screen_xy=self.puzzle_offset,
+                                 extra=self._flow_ncc_brief())
                     return False
             # (3) Label finden + auf den NAMEN klicken (Doppel-Guard schuetzt).
             ok, pt, dbg = self._find_fisch_label(shot)
             if not ok:
-                log.event(self.state, t('puzzle.fisch_label_missing'),
+                log.event(self.state, t('puzzle.fisch_label_missing',
                           label_ncc=dbg.get('label_ncc'),
-                          title_ncc=dbg.get('title_ncc'))
-                self._log_flow_diagnosis('fischlabel')
+                          title_ncc=dbg.get('title_ncc')))
+                log.snapshot('REOPEN_NO_LABEL', screen_xy=self.puzzle_offset,
+                             extra=self._flow_ncc_brief())
                 return False
             mx = int(pt[0] + getattr(self.wincap, 'offset_x', 0))
             my = int(pt[1] + getattr(self.wincap, 'offset_y', 0))
-            log.event(self.state, t('puzzle.fisch_label_click'),
-                      pos=(mx, my), label_ncc=dbg.get('label_ncc'))
+            log.event(self.state, t('puzzle.fisch_label_click',
+                      pos=(mx, my), label_ncc=dbg.get('label_ncc')))
             pydirectinput.click(x=mx, y=my, button='left')
             sleep(FLOW_PACE_S)
             # (4) ist das Brett jetzt offen? (kurzes Pollen ueber den Render-Floor)
-            deadline = time() + 4.0
+            deadline = time() + BOARD_OPEN_POLL_S
             while time() < deadline:
                 if self._board_open():
+                    # Zur Diagnose: ist die Uebersicht danach wirklich ZU? Bleibt
+                    # sie offen UND board_open meldet trotzdem "offen", ist die
+                    # strukturelle Brett-Erkennung verdaechtig -> im Log sichtbar.
+                    still_ov = self._overview_state(
+                        self.wincap.get_screenshot())[0]
                     log.event(self.state, t('puzzle.game_opened'))
+                    log.snapshot('REOPEN_OK', screen_xy=self.puzzle_offset,
+                                 extra='overview_still_open={} | {}'.format(
+                                     still_ov, self._flow_ncc_brief()))
                     return True
                 sleep(0.2)
-            self._log_flow_diagnosis('brett_nach_klick')
+            log.snapshot('REOPEN_BOARD_MISS', screen_xy=self.puzzle_offset,
+                         extra=self._flow_ncc_brief())
             return False
         except Exception as exc:
-            log.error(t('puzzle.game_open_failed'), exc=exc)
+            log.error(t('puzzle.game_open_failed', exc=exc), exc=exc)
             return False
 
     def _place_deluxe(self):
@@ -1261,10 +1307,10 @@ class PuzzleBot(PuzzleDetectMixin):
                 else:
                     self._empty_getpiece_streak = (
                         getattr(self, '_empty_getpiece_streak', 0) + 1)
-                    log.event(self.state, t('puzzle.box_empty_probe'),
+                    log.event(self.state, t('puzzle.box_empty_probe',
                               streak=self._empty_getpiece_streak,
                               threshold=BOX_EMPTY_STREAK,
-                              reopen=self._box_reopen_tries)
+                              reopen=self._box_reopen_tries))
                     if self._empty_getpiece_streak >= BOX_EMPTY_STREAK:
                         # Boxen wirklich leer. Schon einmal (oder oefter) neu
                         # geoeffnet und es bleibt leer -> Boxen aufgebraucht: hart
@@ -1280,11 +1326,14 @@ class PuzzleBot(PuzzleDetectMixin):
                         # ESC (Spiel/leere Boxen schliessen) -> via Event neu
                         # oeffnen -> weiterspielen mit frisch gefuellten Boxen.
                         self._box_reopen_tries += 1
-                        log.event(self.state, t('puzzle.box_empty_reopen'),
-                                  tries=self._box_reopen_tries, max=BOX_REOPEN_MAX)
+                        log.event(self.state, t('puzzle.box_empty_reopen',
+                                  tries=self._box_reopen_tries,
+                                  max=BOX_REOPEN_MAX))
                         self._press_esc()
                         sleep(FLOW_PACE_S)
-                        if self._open_puzzle_game():
+                        # force=True: nach dem ESC NICHT auf board_open kurz-
+                        # schliessen -> den Eventlisten-Neustart erzwingen.
+                        if self._open_puzzle_game(force=True):
                             self._empty_getpiece_streak = 0
                             self.state = 0
                             self.timer_action = time()

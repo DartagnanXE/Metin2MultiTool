@@ -59,6 +59,41 @@ class OpenPuzzleGameTest(unittest.TestCase):
             self.assertTrue(b._open_puzzle_game())
             pdi.click.assert_not_called()   # schon offen -> kein Strg+E/Klick
 
+    def test_force_ignores_board_open_shortcut(self):
+        # DER FIX: board_open meldet True (verbrauchtes/leeres Brett nach ESC),
+        # aber force=True -> NICHT kurzschliessen, sondern den Eventlisten-
+        # Neustart erzwingen (sonst der v1.3.0-Bug: Reopen lief nie). Es MUSS
+        # also Strg+E versucht/geklickt werden, obwohl board_open True ist.
+        b = _bare()
+
+        def find(frame, name, thresh=0.0):
+            if name == 'flow_event_title':
+                return (True, (497, 83), 0.99)
+            if name == 'flow_fisch_label':
+                return (True, (300, 108), 0.97)
+            return (False, (0, 0), 0.0)
+
+        flow = types.SimpleNamespace(
+            find=find, center=lambda name, pos: (pos[0] + 75, pos[1] + 11),
+            diagnose=lambda img: {})
+        with mock.patch.object(puzzle, '_flow', flow), \
+             mock.patch.object(puzzle.calibration, 'validate_puzzle_region',
+                               return_value=_calib(True)), \
+             mock.patch.object(puzzle, 'pydirectinput') as pdi, \
+             mock.patch.object(puzzle, 'sleep', lambda *_a: None):
+            ok = b._open_puzzle_game(force=True)
+        self.assertTrue(ok)
+        pdi.click.assert_called_once()   # trotz board_open=True NICHT kurzgeschl.
+
+    def test_non_force_board_open_still_shortcuts(self):
+        # Gegenprobe: OHNE force bleibt der Kurzschluss (Selbststart-Semantik).
+        b = _bare()
+        with mock.patch.object(puzzle.calibration, 'validate_puzzle_region',
+                               return_value=_calib(True)), \
+             mock.patch.object(puzzle, 'pydirectinput') as pdi:
+            self.assertTrue(b._open_puzzle_game(force=False))
+            pdi.click.assert_not_called()
+
     def test_title_and_label_found_clicks_name_center(self):
         # Uebersicht offen (title NCC ok) + Label gefunden bei (300,108) -> Klick
         # aufs Template-ZENTRUM (+wincap-Rand), Brett danach offen -> True.
@@ -172,6 +207,9 @@ class RestartRefillState4Test(unittest.TestCase):
             b.runHack()
         esc.assert_called_once()
         opn.assert_called_once()
+        # Reopen MUSS erzwungen sein (force=True) -> nach dem ESC darf das
+        # strukturelle board_open den Neustart nicht kurzschliessen.
+        self.assertEqual(opn.call_args.kwargs.get('force'), True)
         self.assertEqual(b.state, 0)
         self.assertEqual(b._empty_getpiece_streak, 0)
         self.assertEqual(b._box_reopen_tries, 1)

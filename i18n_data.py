@@ -178,7 +178,8 @@ TRANSLATIONS = {
     'puzzle.boxes_empty_stop': {'en': 'Puzzle boxes empty: still no piece after reopening the game -> stopping (out of boxes)', 'de': 'Puzzle-Boxen leer: auch nach erneutem Öffnen kein Stein -> Stopp (Boxen aufgebraucht)'},
     # -- Spiel selbst oeffnen via Eventuebersicht (v1.3) ------------------
     'puzzle.open_game': {'en': 'Opening the fish puzzle via the event list (Ctrl+E -> overview -> FISCHPUZZLESPIEL)', 'de': 'Öffne das Fischpuzzle über die Eventliste (Strg+E -> Übersicht -> FISCHPUZZLESPIEL)'},
-    'puzzle.open_ctrl_e': {'en': 'Pressing Ctrl+E to open the event overview (attempt {attempt})', 'de': 'Drücke Strg+E, um die Eventübersicht zu öffnen (Versuch {attempt})'},
+    'puzzle.open_ctrl_e': {'en': 'Ctrl+E attempt {attempt}/{max} -> event overview (title NCC={title_ncc})', 'de': 'Strg+E Versuch {attempt}/{max} -> Eventübersicht (Titel-NCC={title_ncc})'},
+    'puzzle.game_already_open': {'en': 'Board already open -> no reopen needed', 'de': 'Brett bereits offen -> kein Neustart nötig'},
     'puzzle.fisch_label_missing': {'en': 'FISCHPUZZLESPIEL label not confidently found (label NCC={label_ncc}, overview NCC={title_ncc}) -> no blind click', 'de': 'FISCHPUZZLESPIEL-Label nicht sicher gefunden (Label-NCC={label_ncc}, Übersicht-NCC={title_ncc}) -> kein Blind-Klick'},
     'puzzle.fisch_label_click': {'en': 'Clicking the FISCHPUZZLESPIEL name field at {pos} (label NCC={label_ncc})', 'de': 'Klicke das FISCHPUZZLESPIEL-Namensfeld bei {pos} (Label-NCC={label_ncc})'},
     'puzzle.game_opened': {'en': 'Fish puzzle board is open -> playing', 'de': 'Fischpuzzle-Brett ist offen -> spiele'},

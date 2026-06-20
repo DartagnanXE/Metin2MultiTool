@@ -3,6 +3,31 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.3.1] — 2026-06-20
+
+### Fix: Box-leer-Neustart lief nie (öffnete das Eventboard nicht, klickte ins Leere)
+
+- **Ursache:** Im Box-leer-Pfad rief der Bot `_open_puzzle_game()`, das als
+  ersten Schritt „Brett schon offen?" prüft und dann abbricht. Diese Prüfung
+  (`validate_puzzle_region`) ist aber **rein strukturell** und meldet **jede**
+  brett-förmige Region als „offen" — auch das gerade per ESC geschlossene/leere
+  Brett. Folge: der Strg+E-→-Eventliste-→-Klick-Flow wurde **komplett
+  übersprungen**, der Bot lief im Normalloop weiter und klickte `getpiece` ins
+  Leere, bis er am Garbage-Board stoppte.
+- **Fix:** Nach dem ESC wird der Neustart jetzt **erzwungen**
+  (`_open_puzzle_game(force=True)`) — der „schon offen?"-Kurzschluss wird im
+  Box-leer-Pfad übersprungen, der Eventlisten-Neustart läuft garantiert. Der
+  Selbststart (Brett zu beim Start) behält die alte „nicht doppelt öffnen"-
+  Semantik.
+- **SOTA-Debug:** Jeder Reopen-Schritt schreibt jetzt einen strukturierten
+  `SNAP`-Block (`REOPEN_BEGIN` / `_NO_OVERVIEW` / `_NO_LABEL` / `_OK` /
+  `_BOARD_MISS`) mit den **rohen Best-NCC** aller Flow-Templates + Anker/Spielfeld;
+  jeder Strg+E-Versuch loggt die gemessene Titel-NCC. Bei erneutem Fehlschlag
+  steht im Log exakt der Schritt **und** der Grund (Übersicht nicht erkannt?
+  Label unter Schwelle? Klick lieferte kein Brett?).
+- Nebenbei: Log-Zeilen zeigten Roh-Platzhalter (`#{streak}/{threshold}`) statt
+  Werten — Format wird jetzt korrekt eingesetzt.
+
 ## [1.3.0] — 2026-06-20
 
 ### Fisch-Puzzle: startet das Spiel selbst + füllt Boxen per Event-Neustart (kein Inventar-Scan/Drag mehr)

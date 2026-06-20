@@ -173,3 +173,6 @@ NOTES.md
 dist_v115/
 dist_v116/
 dist_v117/
+# Versionierte Build-Ausgaben generisch ignorieren (frischer distpath pro Build
+# gegen Datei-Lock der laufenden EXE) -> deckt dist_v130, dist_v131, ... ab.
+dist_v*/
