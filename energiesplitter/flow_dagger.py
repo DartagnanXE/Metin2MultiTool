@@ -22,10 +22,6 @@ Instanz (``self``).
 from debuglog import log
 from i18n import t
 
-# Anti-Drift: Differenz gekaufte Dolche vs. verarbeitete Splitter, ab der ohne
-# erkennbare Verarbeitung gestoppt wird (R10/R5).
-PROCESS_DRIFT_MAX = 2
-
 
 class DaggerFlowMixin:
   """Dolch-Kauf + sequenzielle Verarbeitung (siehe Modul-Docstring, CONTRACT §1)."""
@@ -318,11 +314,15 @@ class DaggerFlowMixin:
       log.event(self.state, t(
           'energiesplitter.processed', value=processed,
           sum=self.splitter_summe, rest=self.hammer_remaining))
-      # Anti-Drift: kauft Dolche ohne zu verarbeiten? (R10/R5-Abbruch)
-      if self._dolche_gekauft - self.splitter_summe > PROCESS_DRIFT_MAX:
-        log.event(self.state, t('energiesplitter.process_unverified'))
-        self._stop('process_unverified')
-        return
+      # HINWEIS: Frueher stand hier ein Anti-Drift-Riegel
+      # ``if self._dolche_gekauft - self.splitter_summe > PROCESS_DRIFT_MAX: stop``.
+      # Der war FALSCH fuer Batch-Kauf: bei daggers_per_round=20 ist nach dem 1.
+      # Verarbeiten gekauft=20, summe=1 -> 19 > 2 -> sofortiger Fehl-Stop
+      # ('kauft 20, verarbeitet 1, stoppt'). Entfernt. Echte Drift (Verarbeitung
+      # schlaegt wirklich fehl) faengt der else-Zweig unten ueber
+      # ``_note_unverified`` (Stop nach ``consecutive_unverified_stop`` Fehlern IN
+      # FOLGE; ein Erfolg setzt den Zaehler zurueck) -- korrekt fuer jede Runden-
+      # groesse.
       # Naechsten Dolch der Runde verarbeiten, falls die Queue noch welche hat.
       if self._dagger_queue:
         self._dolch_inv_slot = self._dagger_queue.pop(0)

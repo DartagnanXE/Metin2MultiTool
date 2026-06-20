@@ -3,6 +3,29 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.37] — 2026-06-20
+
+### Energiesplitter (Dolch): „kauft 20, verarbeitet 1, stoppt" behoben + Default 20
+
+- **Der Bot verarbeitet jetzt die GANZE Runde.** Bei `daggers_per_round = 20`
+  kaufte er 20 Dolche, verarbeitete **1** und stoppte mit `process_unverified`.
+  Ursache: ein Anti-Drift-Riegel verglich *kumulativ gekaufte* mit *verarbeiteten*
+  Dolchen (`gekauft − verarbeitet > 2`). Nach Batch-Kauf von 20 ist das nach dem
+  ersten Verarbeiten 20 − 1 = 19 > 2 → sofortiger Fehl-Stop (trat bei jeder
+  Rundengröße ≥ 4 auf; bei 1–3 blieb es unsichtbar). Der Riegel ist **entfernt** —
+  echte Fehl-Verarbeitung fängt weiterhin der bestehende Schutz (Stop nach
+  `consecutive_unverified_stop` Fehlversuchen **in Folge**; ein Erfolg setzt den
+  Zähler zurück). Damit läuft **kaufen → alles verarbeiten → nächste Runde**
+  korrekt für jede Rundengröße.
+- **Default `daggers_per_round` ist jetzt 20** (vorher 1). Bestehende
+  gespeicherte Werte bleiben erhalten — der neue Default greift für neue Configs.
+- **Dolch-Erkennung über alle Leucht-Zustände bestätigt** (kein Code nötig): an
+  20 echten Bildern gemessen — frisch gekaufte Dolche **leuchten** (4 Eck-Blooms),
+  trotzdem trennt die Icon-Erkennung konfusionsfrei (Dolch-glühend 0.76–0.82,
+  Dolch-normal 1.00, Hammer ≤ 0.52, leer 0.19; Schwelle 0.70). Der Glow war
+  **nicht** die Stopp-Ursache.
+- 1 neuer Regressionstest (20er-Runde ohne Fehl-Stop). 291 grün.
+
 ## [1.2.36] — 2026-06-20
 
 ### Energiesplitter: Inventar vereinheitlicht — 45 Slots (9 Zeilen) + zahl-robuste Item-Erkennung

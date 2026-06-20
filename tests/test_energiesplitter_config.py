@@ -48,7 +48,7 @@ class TestEnergiesplitterConfig(unittest.TestCase):
     es = cfg['energiesplitter']
     self.assertEqual(es['hammer']['stack_count'], 1)
     self.assertEqual(es['hammer']['energie_freischalten'], True)
-    self.assertEqual(es['dagger']['daggers_per_round'], 1)
+    self.assertEqual(es['dagger']['daggers_per_round'], 20)
     self.assertEqual(es['shared']['speed_profile'], 'fast')
     # Default = SCHARF/Live (dry_run False) -- Tester sollen direkt testen koennen
     # (User-Entscheidung 2026-06-16). Der 'Scharf/Live'-Schalter bleibt erhalten.

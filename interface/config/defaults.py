@@ -192,7 +192,7 @@ DEFAULTS = {
             'energie_freischalten': True,  # Aktion 1: Freischalt-Story bei Bedarf
         },
         'dagger': {
-            'daggers_per_round': 1,       # Aktion 2: Dolche pro Runde
+            'daggers_per_round': 20,      # Aktion 2: Dolche pro Runde (Default 20)
         },
         'shared': {
             'speed_profile': 'fast',

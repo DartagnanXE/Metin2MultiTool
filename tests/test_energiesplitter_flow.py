@@ -661,6 +661,30 @@ class TestDaggerSequential(unittest.TestCase):
     self.assertEqual(confirmed['n'], 1)               # 'Ja' wurde versucht
     self.assertEqual(bot.state, EnergiesplitterBot.ST_VERIFY_PROCESS)
 
+  def test_batch_round_no_false_drift_stop(self):
+    # Regression (User-Log 2026-06-20): bei daggers_per_round=20 stoppte der Bot
+    # nach dem 1. Verarbeiten ('kauft 20, verarbeitet 1, stoppt'). Ursache war der
+    # Anti-Drift-Riegel (gekauft - summe > 2): 20 - 1 = 19 > 2 -> Stop. Jetzt
+    # entfernt -> die Runde laeuft weiter (naechster Dolch der Queue).
+    bot = _make_bot(mode=MODE_DAGGER)
+    _arm(bot)
+    bot._dolche_gekauft = 20            # 20 in dieser Runde gekauft (Batch)
+    bot.splitter_summe = 0
+    bot.hammer_remaining = 20
+    bot._dagger_queue = [(i, i) for i in range(2, 21)]  # 19 weitere warten
+    bot._before_proc = object()
+    bot._dolch_inv_slot = (1, 1)
+    bot.state = EnergiesplitterBot.ST_VERIFY_PROCESS
+    bot.botting = True
+    bot._shot = lambda: object()
+    bot.verify_process = lambda a, b: 1   # Verarbeitung verifiziert
+    bot.runHack()
+    self.assertTrue(bot.botting)                          # NICHT gestoppt
+    self.assertNotEqual(getattr(bot, '_stop_reason', None), 'process_unverified')
+    self.assertEqual(bot.splitter_summe, 1)
+    self.assertEqual(bot.state, EnergiesplitterBot.ST_PROCESS_DRAG)  # naechster Dolch
+    self.assertEqual(len(bot._dagger_queue), 18)
+
   def test_drag_records_hammer_count_before(self):
     _reset_input()
     bot = _make_bot(mode=MODE_DAGGER)

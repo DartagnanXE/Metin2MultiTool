@@ -92,7 +92,7 @@ class EnergiesplitterViewMixin:
     bd = sec_d.body
     bd.grid_columnconfigure(1, weight=1)
     r = 0
-    self._es_daggers_var = ctk.StringVar(value='1')
+    self._es_daggers_var = ctk.StringVar(value='20')
     r = self._es_row(bd, r, t('ui.es_daggers_per_round_label'),
                      self._es_entry('dagger', 'daggers_per_round',
                                     self._es_daggers_var, bd))
@@ -260,7 +260,7 @@ class EnergiesplitterViewMixin:
     try:
       self._es_stack_count_var.set(str(h.get('stack_count', 1)))
       self._es_freischalten_var.set(bool(h.get('energie_freischalten', True)))
-      self._es_daggers_var.set(str(d.get('daggers_per_round', 1)))
+      self._es_daggers_var.set(str(d.get('daggers_per_round', 20)))
       self._es_max_actions_var.set(str(s.get('max_actions', 0)))
       self._es_unverif_var.set(str(s.get('consecutive_unverified_stop', 3)))
       self._es_mouse_pause_var.set(str(s.get('mouse_pause', 0.05)))

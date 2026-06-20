@@ -183,7 +183,7 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
   def _reset_config_defaults(self):
     self.stack_count = 1
     self.energie_freischalten = True
-    self.daggers_per_round = 1
+    self.daggers_per_round = 20
     self.mouse_pause = 0.05
     self.keyboard_pause = 0.10
     self.speed_profile = 'fast'
@@ -301,7 +301,7 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
 
     self.stack_count = int(_get('-ES_STACK_COUNT-', 1))
     self.energie_freischalten = bool(_get('-ES_FREISCHALTEN-', True))
-    self.daggers_per_round = int(_get('-ES_DAGGERS_PER_ROUND-', 1))
+    self.daggers_per_round = int(_get('-ES_DAGGERS_PER_ROUND-', 20))
     self.mouse_pause = float(_get('-ES_MOUSE_PAUSE-', 0.05))
     self.keyboard_pause = float(_get('-ES_KB_PAUSE-', 0.10))
     self.speed_profile = str(_get('-ES_SPEED-', 'fast'))
