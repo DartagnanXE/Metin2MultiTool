@@ -194,6 +194,34 @@ def drag(api, x1, y1, x2, y2, steps=DRAG_STEPS, settle=DRAG_SETTLE,
             pass
 
 
+def two_click_place(api, x1, y1, x2, y2, settle=DRAG_SETTLE, sleep=None):
+    """Item per ZWEI-KLICK setzen statt Drag: Linksklick Quelle (aufnehmen) ->
+    Pause -> Linksklick Ziel (setzen). User-Grundwahrheit: das Setzen ist kein
+    Drag, sondern Aufnehmen+Setzen. NUR fuer UI-Slot->UI-Slot (Box -> Box-Slot der
+    Puzzle-Oberflaeche) -- NICHT fuer Slot->Welt (dort bleibt :func:`drag` sicherer,
+    weil ein Welt-Klick sonst die Figur laufen liesse). Kein haengender Mausknopf.
+    Defensiv: wirft nie. (Die geteilte :func:`drag` bleibt fuer die Fisch-Koeder-
+    Nachfuellung unveraendert.)"""
+    if sleep is None:
+        import time
+        sleep = time.sleep
+
+    def _click(x, y):
+        try:
+            if hasattr(api, 'click'):
+                api.click(x=int(x), y=int(y))
+            else:
+                api.moveTo(int(x), int(y))
+                api.mouseDown()
+                api.mouseUp()
+        except Exception:
+            pass
+
+    _click(x1, y1)        # Box aufnehmen
+    sleep(settle)
+    _click(x2, y2)        # auf den Box-Slot setzen
+
+
 # Empty-slot probe tunables (calibrated on live_capture.png, 800x601 CLIENT).
 # An EMPTY slot is not merely dark -- it is DARK *and* FLAT (uniform background,
 # no icon highlights). An OCCUPIED slot -- even a dark, thin reddish bait icon
@@ -619,7 +647,8 @@ def box_refill_from_inventory(box_names, target_xy, *, inp, wincap,
         if not _napped(0.25):
             return 'stopped'
         fx, fy = inventory_slot_screen(row, col, ox, oy, calib)
-        drag(inp, fx, fy, int(target_xy[0]), int(target_xy[1]), sleep=sleep)
+        # ZWEI-KLICK statt Drag (Box -> Box-Slot, beides UI): aufnehmen + setzen.
+        two_click_place(inp, fx, fy, int(target_xy[0]), int(target_xy[1]), sleep=sleep)
         _napped(0.15)
         return 'dragged'
     except Exception:

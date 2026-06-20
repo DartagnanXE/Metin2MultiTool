@@ -283,14 +283,17 @@ class DaggerFlowMixin:
     dx, dy = self._slot_center(self._dolch_inv_slot)
     try:
       verb = ('[SIM] wuerde' if self._guarded() else 'SCHARF:')
-      log.event(self.state, verb + ' Dolch verarbeiten -- Hammer-Stack auf Dolch-Slot ziehen',
+      log.event(self.state, verb + ' Dolch verarbeiten -- Hammer aufnehmen + auf Dolch setzen (Zwei-Klick)',
                 von=(sx, sy), nach=(dx, dy),
-                hammer_vor_drag=self._hammer_count_before_proc)
+                hammer_vor_aktion=self._hammer_count_before_proc)
     except Exception:  # pragma: no cover
       pass
-    self._drag(sx, sy, dx, dy)
+    # ZWEI-KLICK statt Drag (User-Grundwahrheit): Linksklick Hammer (aufnehmen) +
+    # Linksklick Dolch (setzen). Slot->Slot in der Tasche -> sicher (kein Welt-
+    # Klick). Basis fuer die geplante Cross-Page-Verarbeitung.
+    self._two_click_move(sx, sy, dx, dy)
     self.actions_done += 1
-    # Der Drag oeffnet das Zerlege-Bestaetigungsfenster ('Moechtest du das
+    # Das Setzen oeffnet das Zerlege-Bestaetigungsfenster ('Moechtest du das
     # wirklich zerlegen?') -> 'Ja' klicken (sonst bleibt der Dolch unverarbeitet).
     # Gleiche Mechanik wie die Kauf-Bestaetigung: Render-Pause, Confirm, Render-
     # Pause, dann verifizieren.

@@ -133,7 +133,7 @@ class BoxRefillToggleTest(unittest.TestCase):
         def click(self, **k):
             self.events.append(('click',))
 
-    def test_opens_when_closed_then_drags(self):
+    def test_opens_when_closed_then_places(self):
         # Erst geschlossen (gleichmaessig), nach open_toggle_fn offen (Grid+Box).
         closed = np.full((600, 800, 3), 90, np.uint8)
         open_box = _open_grid_frame()
@@ -163,8 +163,9 @@ class BoxRefillToggleTest(unittest.TestCase):
             open_toggle_fn=toggle, sleep=lambda s: None)
         self.assertEqual(res, 'dragged')
         self.assertGreaterEqual(toggles['n'], 1)   # Tasche wurde geoeffnet
-        self.assertIn(('down',), inp.events)        # Drag ausgefuehrt
-        self.assertIn(('up',), inp.events)
+        self.assertIn(('click',), inp.events)       # Zwei-Klick-Move (aufnehmen+setzen)
+        self.assertNotIn(('down',), inp.events)     # KEIN Drag mehr (Box->Box-Slot ist UI)
+        self.assertNotIn(('up',), inp.events)
 
     def test_never_opens_returns_empty_without_blind_clicks(self):
         closed = np.full((600, 800, 3), 90, np.uint8)

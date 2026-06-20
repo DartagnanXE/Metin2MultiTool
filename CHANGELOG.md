@@ -3,6 +3,40 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.38] — 2026-06-20
+
+### Eingabe-Mechanik aufgeräumt: Zwei-Klick statt Drag — aber nur wo es sicher ist
+
+Grundwahrheit (User): Items werden per **Zwei-Klick** gesetzt — Linksklick auf die
+Quelle (aufnehmen), Linksklick aufs Ziel (setzen) — kein Drag&Drop. Beim Scannen
+des Codes zeigte sich aber: **nicht jeder Drag ist gleich.** Entscheidend ist das
+Ziel:
+
+- **Slot → UI-Slot (sicher → auf Zwei-Klick umgestellt):**
+  - **Energiesplitter** Hammer → Dolch (`_two_click_move`): aufnehmen + setzen,
+    kein hängender Mausknopf. Gleichzeitig die Basis für die geplante
+    seitenübergreifende Verarbeitung (Zwei-Klick funktioniert über einen
+    Seitenwechsel hinweg).
+  - **Puzzle-Box-Nachlegen** Box → Box-Slot (`refill.two_click_place`).
+- **Slot → 3D-Welt (bewusst weiter als Drag — sicherer):**
+  - Item **wegwerfen** (auf den Boden) und **Fisch aufs Lagerfeuer** bleiben Drag.
+    Ein zweiter Klick in die 3D-Welt würde — falls die Aufnahme mal nicht greift —
+    die **Figur loslaufen lassen**. Drag vermeidet das. (Das ist der Grund, warum
+    „überall Zwei-Klick" hier *nicht* sauberer wäre.)
+- **Fischen unangetastet** (Köder-Nachfüllung nutzt dieselbe geteilte `drag` —
+  bewusst nicht verändert).
+
+### Außerdem
+- **Campfire-Vogelperspektive** finalisiert: statt des fragilen `g`-Tasten-Holds
+  jetzt dieselbe **Rechtsklick-Drag-Geste** wie beim Energiesplitter (zuverlässige
+  Top-Down-Kamera, client-unabhängig). (Kamera-Geste — kein Item-Move, bleibt
+  daher Drag.)
+
+328+ Tests grün (neu: Zwei-Klick-Move statt Drag + Gate-Schutz; Box → Box-Slot
+per Zwei-Klick). Hinweis: die Zwei-Klick-Umstellung ist am Live-Client noch
+gegenzuprüfen (Aufnahme-Klick muss den Stack greifen) — die Re-Read-Verifikation
+stoppt sicher, falls nicht.
+
 ## [1.2.37] — 2026-06-20
 
 ### Energiesplitter (Dolch): „kauft 20, verarbeitet 1, stoppt" behoben + Default 20

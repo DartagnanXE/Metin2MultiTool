@@ -151,6 +151,11 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
   # Wartezeit, damit der Kauf-Bestaetigungsdialog ('Ja'/'Nein') erscheint bzw.
   # der Kauf verarbeitet wird (Tests setzen 0).
   BUY_CONFIRM_SETTLE_S = 0.4
+  # Pause zwischen den beiden Klicks der Zwei-Klick-Verarbeitung (Hammer aufnehmen
+  # -> auf Dolch setzen). User-Grundwahrheit: Hammer ist KEIN Drag, sondern
+  # Linksklick (aufnehmen) + Linksklick (setzen). Kurze Pause, damit der erste
+  # Klick (Aufnahme) registriert ist, bevor der zweite (Setzen) kommt. Tests = 0.
+  PICKUP_SETTLE_S = 0.15
   # Der Shop blendet nach 'Laden oeffnen' ein -> das Item-Suchen mehrfach mit
   # Renderpause wiederholen, bevor 'nicht im Shop' gemeldet wird (fing den Fall
   # ab: ein Tester sah ncc=0.547, weil der Shop noch nicht fertig gerendert war).
@@ -813,6 +818,24 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
       return True
     except Exception:  # pragma: no cover - drag garantiert mouseUp im finally
       return False
+
+  def _two_click_move(self, x1, y1, x2, y2):
+    """Verschiebt/wendet ein Item per ZWEI-KLICK an: Linksklick auf die Quelle
+    (Item aufnehmen) -> kurze Pause -> Linksklick auf das Ziel (setzen/anwenden).
+
+    User-Grundwahrheit: der Hammer ist KEIN Drag&Drop, sondern genau dieses
+    Aufnehmen+Setzen; funktioniert auch ueber einen Seitenwechsel hinweg (Basis
+    fuer Cross-Page-Verarbeitung). Ersetzt den frueheren ``_drag`` fuer den
+    Hammer->Dolch-SLOT->SLOT-Move (sauberer, kein haengender Mausknopf). NUR fuer
+    UI-Slot->UI-Slot -- NICHT fuer Slot->Welt-Wuerfe (dort bleibt Drag sicherer,
+    weil ein Welt-Klick sonst die Figur laufen liesse). ``_left_click`` ist
+    gate-/abort-geschuetzt. Liefert ``False`` bei gesperrtem Gate. Wirft NIE."""
+    if self._guarded():
+      return False
+    self._left_click(int(x1), int(y1))     # Hammer aufnehmen
+    self._settle(self.PICKUP_SETTLE_S)
+    self._left_click(int(x2), int(y2))     # auf den Dolch setzen
+    return True
 
   # -- gemeinsame Flow-Helfer (Detection von A) ---------------------------
   def _birdseye_drag(self):

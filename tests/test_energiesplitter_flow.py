@@ -263,6 +263,7 @@ class TestGateBlocksAllInput(unittest.TestCase):
     self.assertFalse(bot._left_click(10, 10))
     self.assertFalse(bot._press_key('g'))
     self.assertFalse(bot._drag(1, 1, 2, 2))
+    self.assertFalse(bot._two_click_move(1, 1, 2, 2))   # Zwei-Klick auch gate-geschuetzt
     self.assertEqual(sum(_INPUT_CALLS.values()), 0, _INPUT_CALLS)
 
 
@@ -659,6 +660,26 @@ class TestDaggerSequential(unittest.TestCase):
     bot._confirm_dismantle_if_present = _confirm
     bot.runHack()
     self.assertEqual(confirmed['n'], 1)               # 'Ja' wurde versucht
+    self.assertEqual(bot.state, EnergiesplitterBot.ST_VERIFY_PROCESS)
+
+  def test_process_uses_two_click_not_drag(self):
+    # Verarbeitung = ZWEI Linksklicks (Hammer aufnehmen + auf Dolch setzen),
+    # KEIN Drag (kein mouseDown/mouseUp). Slot->Slot in der Tasche.
+    _reset_input()
+    bot = _make_bot(mode=MODE_DAGGER)
+    _arm(bot)
+    bot.state = EnergiesplitterBot.ST_PROCESS_DRAG
+    bot.botting = True
+    bot._dolch_inv_slot = (5, 5)
+    bot._classified_hammer_slot = lambda: (1, 1)
+    bot._slot_is = lambda item, slot: True
+    bot._count_hammers = lambda: 4
+    bot._shot = lambda: object()
+    bot._confirm_dismantle_if_present = lambda: False   # kein Extra-Klick
+    bot.runHack()
+    self.assertEqual(_INPUT_CALLS['click'], 2)          # aufnehmen + setzen
+    self.assertEqual(_INPUT_CALLS['mouseDown'], 0)      # KEIN Drag
+    self.assertEqual(_INPUT_CALLS['mouseUp'], 0)
     self.assertEqual(bot.state, EnergiesplitterBot.ST_VERIFY_PROCESS)
 
   def test_batch_round_no_false_drift_stop(self):
