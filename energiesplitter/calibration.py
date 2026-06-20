@@ -45,6 +45,12 @@ GRID_ORIGIN_TL = (632, 242)        # KALIBRIER-BAR (Slot 1 obere-linke Ecke)
 INV_HEADER_BAND = (632, 152, 158, 37)   # KALIBRIER-BAR ("Inventar"-Titelbalken, x,y,w,h)
 INV_TAB_BAND = (632, 222, 158, 18)      # KALIBRIER-BAR (Tab-Reihe I..IV)
 INV_GRID_TOP_Y = 242                    # KALIBRIER-BAR (obere Kante Slot-Zeile 1)
+# Klick-/Sample-Zentren der vier Seiten-Reiter (Client-Pixel). Aus dem Angel-
+# Inventar (inventory/constants.py, selber 800x600-Client) uebernommen + am echten
+# ES-Bild verifiziert: der AKTIVE Reiter ist deutlich heller (gemessen Seite I
+# ~127 vs inaktive ~80 -> Marge ~43). KALIBRIER-BAR (am Live-Client re-pruefen).
+INV_TAB_CENTERS = {'I': (654, 231), 'II': (693, 232), 'III': (732, 232), 'IV': (770, 232)}
+INV_PAGES = ('I', 'II', 'III', 'IV')
 
 
 def slot_center(slot):

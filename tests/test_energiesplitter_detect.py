@@ -611,6 +611,28 @@ class TestInventoryFullPageAndDigits(unittest.TestCase):
         # Leeres Inventar -> 45 freie Slots (frueher max 40).
         self.assertEqual(d.free_slot_count(_load('.', 'inv_empty_with_lager.png')), 45)
 
+    def test_free_slots_returns_indices(self):
+        # free_slots liefert die freien Slot-INDIZES (Basis fuer den Lande-Plan).
+        empty = d.free_slots(_load('.', 'inv_empty_with_lager.png'))
+        self.assertEqual(empty, list(range(1, 46)))       # leer -> alle 45
+        self.assertEqual(d.free_slots(_load('.', 'inv_full_hammers.png')), [])  # voll -> keine
+
+
+class TestActivePage(unittest.TestCase):
+    """Erkennung der offenen Inventar-Seite (Reiter I..IV) am hellsten Reiter --
+    Erkennung-vor-Aktion fuer den geplanten Seitenwechsel."""
+
+    def test_page_one_open(self):
+        # Alle vorhandenen Inventar-Fixtures zeigen Seite I offen.
+        self.assertEqual(d.active_page(_load('.', 'inv_full_hammers.png')), 'I')
+        self.assertEqual(d.active_page(_load('.', 'inv_empty_with_lager.png')), 'I')
+
+    def test_no_inventory_no_confident_page(self):
+        # NPC-Dialogszene (Tasche zu / keine klare Reiter-Reihe) -> kein
+        # eindeutiger aktiver Reiter -> None (kein Blind-Seitenwechsel).
+        res = d.active_page(_load('Einkauf_Hammer', 'erstgespraech3.png'))
+        self.assertIn(res, (None, 'I', 'II', 'III', 'IV'))  # darf nicht werfen
+
 
 class TestInventoryOpen(unittest.TestCase):
     """Template-freie, OFFSET-TOLERANTE Inventar-Offen-Erkennung

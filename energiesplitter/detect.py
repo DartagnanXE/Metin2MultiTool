@@ -833,19 +833,72 @@ def free_slot_count(bgr):
     if np is None or _cv is None or bgr is None:
         return 0
     client = _geo.to_client(bgr)
-    free = 0
-    for slot in range(1, MAX_SLOT + 1):
-        cell = _slot_cell_bgr(client, slot)
-        if cell is None:
-            continue
-        if _slot_glowing(cell):
-            continue  # frisch gekauftes Item -> belegt
-        lbl, _ncc = _classify_slot(client, slot)
-        if lbl is not None:
-            continue  # erkanntes Item -> belegt
-        if _cell_is_empty(cell):
-            free += 1
-    return free
+    return sum(1 for slot in range(1, MAX_SLOT + 1) if _slot_is_free(client, slot))
+
+
+def _slot_is_free(client, slot):
+    """``True``, wenn ``slot`` FREI (leer) ist: kein Item-Template ueber
+    ``NCC_ITEM``, NICHT leuchtend (Glow = frisch gekauftes Item) und Zelle uniform
+    dunkel. Konservativ (im Zweifel NICHT frei). Wirft nie."""
+    cell = _slot_cell_bgr(client, slot)
+    if cell is None:
+        return False
+    if _slot_glowing(cell):
+        return False
+    lbl, _ncc = _classify_slot(client, slot)
+    if lbl is not None:
+        return False
+    return _cell_is_empty(cell)
+
+
+def free_slots(bgr):
+    """Freie (leere) Inventar-Slot-INDIZES (1..MAX_SLOT) in Reihenfolge -> ``list``.
+
+    Wie :func:`free_slot_count`, liefert aber die INDIZES statt nur der Anzahl --
+    Basis fuer den seiten-genauen Lande-Plan (welche freien Slots fuellt das Spiel
+    in welcher Reihenfolge). Liest die AKTUELL OFFENE Seite. Defensiv ``[]`` bei
+    fehlendem Bild. Wirft nie."""
+    if np is None or _cv is None or bgr is None:
+        return []
+    client = _geo.to_client(bgr)
+    return [slot for slot in range(1, MAX_SLOT + 1) if _slot_is_free(client, slot)]
+
+
+# Aktiver Reiter (offene Inventar-Seite): der hellste der 4 Reiter-Sample-Punkte,
+# sofern er die anderen klar uebertrifft. Gemessen: aktiv ~127, inaktiv ~80
+# -> Marge 20 trennt sicher. (Erkennung-vor-Aktion fuer den Seitenwechsel.)
+TAB_ACTIVE_MARGIN = 20.0
+
+
+def active_page(bgr):
+    """Welche Inventar-Seite (Reiter I..IV) ist offen? -> ``'I'..'IV'`` oder
+    ``None`` (unklar).
+
+    Der aktive Reiter leuchtet deutlich heller als die inaktiven. Liefert den
+    hellsten, sofern sein Vorsprung >= ``TAB_ACTIVE_MARGIN`` ist (sonst ``None``).
+    Defensiv ``None`` bei fehlendem Bild. Wirft nie."""
+    if np is None or bgr is None:
+        return None
+    try:
+        client = _geo.to_client(bgr)
+        gray = np.asarray(client)[:, :, :3].astype(np.float32).mean(axis=2)
+        h, w = gray.shape
+        vals = {}
+        for page, (x, y) in _cal.INV_TAB_CENTERS.items():
+            x0 = max(0, x - 15); x1 = min(w, x + 15)
+            y0 = max(0, y - 6); y1 = min(h, y + 6)
+            if x1 <= x0 or y1 <= y0:
+                return None
+            vals[page] = float(gray[y0:y1, x0:x1].mean())
+        if not vals:
+            return None
+        best = max(vals, key=vals.get)
+        rest = sorted((v for k, v in vals.items() if k != best), reverse=True)
+        if rest and (vals[best] - rest[0]) < TAB_ACTIVE_MARGIN:
+            return None
+        return best
+    except Exception:
+        return None
 
 
 def _cell_is_empty(cell):
