@@ -109,12 +109,23 @@ PAGE_ORDER = ('I', 'II', 'III', 'IV')
 
 # -- timing (seconds; tunable on the live window) ---------------------------
 
-#: Hold time for the bird's-eye-view key ("G") after placing the campfire, so the
-#: top-down camera settles before scanning for the label. RISK SPOT: this is a
-#: real key-HOLD that moves the CAMERA, not just a wait -- at 0.05s the top-down
-#: view may not flip, so if campfire stops finding the "Lagerfeuer" label this is
-#: the FIRST knob to raise (kept as its OWN value, not tied to INPUT_SETTLE_S).
-BIRDS_EYE_HOLD_S = 0.05
+#: BIRD'S-EYE VIEW via a RIGHT-CLICK DRAG -- the SAME gesture the Energiesplitter
+#: uses to hit NPCs/merchants (``energiesplitter.bot._birdseye_drag``). User ground
+#: truth: only a real TOP-DOWN camera makes a world-object click (the placed fire,
+#: a merchant, the Alchemist) reliable -- hitting the green NAME from straight above
+#: is the safest click. This REPLACES the old 'g' key-HOLD, which only worked on
+#: clients where 'g' happens to be bound to the bird's-eye toggle (fragile / client-
+#: specific). The gesture: hold the RIGHT button at the screen centre (left of the
+#: bag HUD, in the 3D world) and pull the cursor straight down this fraction of the
+#: client height in one sweep.
+BIRDS_EYE_DRAG_FRACTION = 0.25       # pull 25% of the client height down
+BIRDS_EYE_CLIENT_H = 600             # 800x600 client -> 150 px drag
+BIRDS_EYE_CENTER = (400, 250)        # client centre, LEFT of the bag HUD (~625)
+BIRDS_EYE_DRAG_STEPS = 10            # smooth one-sweep drag (mirrors Energiesplitter)
+#: Camera render time AFTER the tilt, before the first label scan (the tilt is not
+#: instant). RISK SPOT: if the campfire stops finding the "Lagerfeuer" label, raise
+#: this first. Tests inject an instant ``sleep`` so it costs nothing headless.
+BIRDS_EYE_SETTLE_S = 0.8
 
 #: Settle after the place double-click, before pressing the bird's-eye key.
 PLACE_SETTLE_S = INPUT_SETTLE_S
@@ -441,9 +452,14 @@ def run_campfire(states, *, inp, capture_rgb_fn, scan_fn, offset=(0, 0),
         fire_deadline = time.monotonic() + FIRE_LIFETIME_S
         sleep(PLACE_SETTLE_S)
 
-        # 3) Bird's-eye view: HOLD the configured key (~1 s) so the top-down
-        #    camera settles, then look for the label.
-        _hold_key(inp, birds_eye_key, BIRDS_EYE_HOLD_S, sleep)
+        # 3) Bird's-eye view via the SAME right-click-drag gesture the
+        #    Energiesplitter uses for NPCs/merchants (top-down camera -> the green
+        #    "Lagerfeuer" name is reliably clickable from straight above). The
+        #    preceding place double-click already activated the game window, and a
+        #    mouse gesture self-activates too, so no extra key-focus is needed.
+        #    ``birds_eye_key`` is now legacy/unused (kept for call-site stability).
+        _birds_eye_drag(inp, ox, oy, sleep)
+        sleep(BIRDS_EYE_SETTLE_S)
 
         # 4) Locate the fire by its label, rotating the camera ("E") until found.
         fire, score, rotations = locate_fire(
@@ -560,6 +576,47 @@ def _double_click(api, x, y):
             api.mouseUp()
     except Exception:
         pass
+
+
+def _birds_eye_drag(api, offset_x, offset_y, sleep):
+    """Full BIRD'S-EYE view via a RIGHT-CLICK DRAG (identical to
+    :meth:`energiesplitter.bot.EnergySplitterBot._birdseye_drag`).
+
+    Hold the RIGHT mouse button at the client centre (``BIRDS_EYE_CENTER``, left of
+    the bag HUD so it lands in the 3D world) and pull the cursor straight DOWN
+    ``BIRDS_EYE_DRAG_FRACTION`` of the client height in one smooth sweep -> the
+    camera tilts top-down. Only then is the world-object (the placed fire) click
+    reliable. The RIGHT button is ALWAYS released in ``finally`` -- a stuck mouse
+    button would wreck every later click/drag. Pure mouse gesture (no key press,
+    self-activates the window). Strictly defensive: never raises.
+    """
+    cx, cy = BIRDS_EYE_CENTER
+    sx, sy = int(offset_x + cx), int(offset_y + cy)
+    dy = max(1, int(BIRDS_EYE_DRAG_FRACTION * BIRDS_EYE_CLIENT_H))
+    steps = max(1, int(BIRDS_EYE_DRAG_STEPS))
+    try:
+        api.moveTo(sx, sy)
+        try:
+            api.mouseDown(button='right')
+        except TypeError:                       # api without a button kwarg
+            api.mouseDown()
+        for i in range(1, steps + 1):
+            api.moveTo(sx, sy + (dy * i) // steps)
+    except Exception:
+        pass
+    finally:
+        # Release the SAME (right) button -- a left-button release would leave the
+        # right button held. Fall back to no-arg only for a button-less api (which
+        # then never pressed right either).
+        try:
+            api.mouseUp(button='right')
+        except TypeError:
+            try:
+                api.mouseUp()
+            except Exception:
+                pass
+        except Exception:
+            pass
 
 
 def _hold_key(api, key, hold_s, sleep):

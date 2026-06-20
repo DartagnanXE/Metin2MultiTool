@@ -62,11 +62,13 @@ class _PDI:
     def moveTo(self, x, y):
         self.ev.append(('mv', int(x), int(y)))
 
-    def mouseDown(self):
-        self.ev.append(('down',))
+    def mouseDown(self, button=None, **_):
+        # Bird's-eye right-drag recorded apart from the left fish-drag so the
+        # first 'down' stays the fish drag (the assertions key off that).
+        self.ev.append(('rdown',) if button == 'right' else ('down',))
 
-    def mouseUp(self):
-        self.ev.append(('up',))
+    def mouseUp(self, button=None, **_):
+        self.ev.append(('rup',) if button == 'right' else ('up',))
 
 
 class _WinCap:

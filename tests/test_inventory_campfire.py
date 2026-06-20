@@ -80,11 +80,13 @@ class _Recorder:
     def moveTo(self, x, y):
         self.events.append(('move', int(x), int(y)))
 
-    def mouseDown(self):
-        self.events.append(('down',))
+    def mouseDown(self, button=None, **_):
+        # Right-button (bird's-eye drag) recorded separately from the left-button
+        # fish-drag so the per-fish down/up counts stay clean.
+        self.events.append(('rdown',) if button == 'right' else ('down',))
 
-    def mouseUp(self):
-        self.events.append(('up',))
+    def mouseUp(self, button=None, **_):
+        self.events.append(('rup',) if button == 'right' else ('up',))
 
     def click(self, x=None, y=None, **_):
         self.events.append(('click', int(x), int(y)))
@@ -383,9 +385,16 @@ class TestRunCampfireOrchestration(unittest.TestCase):
         first_dclick = next(i for i, e in enumerate(ev) if e[0] == 'dclick')
         first_down = next(i for i, e in enumerate(ev) if e[0] == 'down')
         self.assertLess(first_dclick, first_down)
-        # Bird's-eye key held (keydown 'g' ... keyup 'g').
-        self.assertIn(('keydown', 'g'), ev)
-        self.assertIn(('keyup', 'g'), ev)
+        # Bird's-eye via the RIGHT-CLICK DRAG (same gesture as the Energiesplitter):
+        # right-button held, then released BEFORE any fish drag; happens AFTER place.
+        self.assertIn(('rdown',), ev)
+        self.assertIn(('rup',), ev)
+        rdown_i = next(i for i, e in enumerate(ev) if e[0] == 'rdown')
+        rup_i = next(i for i, e in enumerate(ev) if e[0] == 'rup')
+        self.assertLess(first_dclick, rdown_i)        # place, THEN tilt camera
+        self.assertLess(rup_i, first_down)            # right button freed before drags
+        self.assertEqual([e[0] for e in ev].count('rdown'), 1)
+        self.assertEqual([e[0] for e in ev].count('rup'), 1)
         # Exactly two drags (one down/up pair per fish).
         self.assertEqual([e[0] for e in ev].count('down'), 2)
         self.assertEqual([e[0] for e in ev].count('up'), 2)
@@ -599,6 +608,60 @@ class TestDrag(unittest.TestCase):
         except RuntimeError:
             pass
         self.assertIn(('up',), rec.events)
+
+
+# ---------------------------------------------------------------------------
+# Bird's-eye right-click-drag (same gesture as the Energiesplitter NPC click)
+# ---------------------------------------------------------------------------
+
+class TestBirdsEyeDrag(unittest.TestCase):
+    def test_right_drag_sweeps_down_and_frees_button(self):
+        rec = _Recorder()
+        campfire._birds_eye_drag(rec, 10, 20, _noop_sleep)
+        ev = rec.events
+        # Centre = client (400,250) + offset (10,20) = (410,270).
+        sx, sy = 410, 270
+        self.assertEqual(ev[0], ('move', sx, sy))     # park at the pivot first
+        self.assertEqual(ev[1], ('rdown',))           # RIGHT button held
+        self.assertEqual(ev[-1], ('rup',))            # RIGHT button always freed
+        # The sweep pulls straight DOWN 25% of 600 = 150 px (x stays put).
+        moves = [e for e in ev if e[0] == 'move']
+        self.assertEqual(moves[-1], ('move', sx, sy + 150))
+        self.assertTrue(all(m[1] == sx for m in moves))   # purely vertical
+        # Monotonic downward sweep.
+        ys = [m[2] for m in moves]
+        self.assertEqual(ys, sorted(ys))
+
+    def test_button_freed_even_if_a_move_raises(self):
+        class _Boom(_Recorder):
+            def moveTo(self, x, y):
+                if len(self.events) > 2:
+                    raise RuntimeError('boom')
+                super().moveTo(x, y)
+        rec = _Boom()
+        campfire._birds_eye_drag(rec, 0, 0, _noop_sleep)   # must not raise
+        self.assertEqual(rec.events[-1], ('rup',))         # right button released
+
+    def test_button_less_api_falls_back_to_left(self):
+        # An injected api WITHOUT a button kwarg must still press+release (left),
+        # never leaving a button stuck.
+        class _NoButton:
+            def __init__(self):
+                self.ev = []
+
+            def moveTo(self, x, y):
+                self.ev.append(('move', int(x), int(y)))
+
+            def mouseDown(self):
+                self.ev.append(('down',))
+
+            def mouseUp(self):
+                self.ev.append(('up',))
+
+        rec = _NoButton()
+        campfire._birds_eye_drag(rec, 0, 0, _noop_sleep)
+        self.assertIn(('down',), rec.ev)
+        self.assertEqual(rec.ev[-1], ('up',))
 
 
 if __name__ == '__main__':
