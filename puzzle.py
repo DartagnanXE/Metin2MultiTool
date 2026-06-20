@@ -921,23 +921,29 @@ class PuzzleBot(PuzzleDetectMixin):
                       pos=(mx, my), label_ncc=dbg.get('label_ncc')))
             pydirectinput.click(x=mx, y=my, button='left')
             sleep(FLOW_PACE_S)
-            # (4) ist das Brett jetzt offen? (kurzes Pollen ueber den Render-Floor)
+            # (4) Erfolg = Brett offen UND Eventuebersicht wieder ZU. Das rein
+            # strukturelle board_open meldet auch die noch offene Uebersicht als
+            # "board-foermig" -> als alleiniges Signal LUEGT es (real beobachtet:
+            # Fehlklick auf "Name", Uebersicht blieb offen, board_open=True ->
+            # falsches REOPEN_OK). Der erfolgreiche Klick auf den
+            # FISCHPUZZLESPIEL-Button SCHLIESST die Uebersicht und oeffnet das
+            # Brett -> beide Bedingungen zusammen sind das verlaessliche Signal.
             deadline = time() + BOARD_OPEN_POLL_S
             while time() < deadline:
-                if self._board_open():
-                    # Zur Diagnose: ist die Uebersicht danach wirklich ZU? Bleibt
-                    # sie offen UND board_open meldet trotzdem "offen", ist die
-                    # strukturelle Brett-Erkennung verdaechtig -> im Log sichtbar.
-                    still_ov = self._overview_state(
-                        self.wincap.get_screenshot())[0]
+                overview_open = self._overview_state(
+                    self.wincap.get_screenshot())[0]
+                if self._board_open() and not overview_open:
                     log.event(self.state, t('puzzle.game_opened'))
                     log.snapshot('REOPEN_OK', screen_xy=self.puzzle_offset,
-                                 extra='overview_still_open={} | {}'.format(
-                                     still_ov, self._flow_ncc_brief()))
+                                 extra=self._flow_ncc_brief())
                     return True
                 sleep(0.2)
+            # Deadline abgelaufen: Brett nicht sauber offen (Uebersicht evtl. noch
+            # offen -> Klick verfehlt / Button nicht gestartet). Voll diagnostiziert.
+            still_ov = self._overview_state(self.wincap.get_screenshot())[0]
             log.snapshot('REOPEN_BOARD_MISS', screen_xy=self.puzzle_offset,
-                         extra=self._flow_ncc_brief())
+                         extra='overview_still_open={} | {}'.format(
+                             still_ov, self._flow_ncc_brief()))
             return False
         except Exception as exc:
             log.error(t('puzzle.game_open_failed', exc=exc), exc=exc)

@@ -65,10 +65,14 @@ class OpenPuzzleGameTest(unittest.TestCase):
         # Neustart erzwingen (sonst der v1.3.0-Bug: Reopen lief nie). Es MUSS
         # also Strg+E versucht/geklickt werden, obwohl board_open True ist.
         b = _bare()
+        st = {'clicked': False}
 
         def find(frame, name, thresh=0.0):
             if name == 'flow_event_title':
-                return (True, (497, 83), 0.99)
+                # Uebersicht offen bis zum Klick auf den Button, danach ZU
+                # (Spiel gestartet) -> erst dann gilt der Reopen als Erfolg.
+                return (not st['clicked'], (497, 83),
+                        0.2 if st['clicked'] else 0.99)
             if name == 'flow_fisch_label':
                 return (True, (300, 108), 0.97)
             return (False, (0, 0), 0.0)
@@ -81,6 +85,7 @@ class OpenPuzzleGameTest(unittest.TestCase):
                                return_value=_calib(True)), \
              mock.patch.object(puzzle, 'pydirectinput') as pdi, \
              mock.patch.object(puzzle, 'sleep', lambda *_a: None):
+            pdi.click.side_effect = lambda *a, **k: st.update(clicked=True)
             ok = b._open_puzzle_game(force=True)
         self.assertTrue(ok)
         pdi.click.assert_called_once()   # trotz board_open=True NICHT kurzgeschl.
@@ -96,14 +101,17 @@ class OpenPuzzleGameTest(unittest.TestCase):
 
     def test_title_and_label_found_clicks_name_center(self):
         # Uebersicht offen (title NCC ok) + Label gefunden bei (300,108) -> Klick
-        # aufs Template-ZENTRUM (+wincap-Rand), Brett danach offen -> True.
+        # aufs Template-ZENTRUM (+wincap-Rand); nach dem Klick ist die Uebersicht
+        # ZU und das Brett offen -> Erfolg.
         b = _bare()
+        st = {'clicked': False}
         calib_seq = [_calib(False),  # _board_open() im Vorlauf: noch zu
                      _calib(True)]   # nach Klick: offen
 
         def find(frame, name, thresh=0.0):
             if name == 'flow_event_title':
-                return (True, (497, 83), 0.99)
+                return (not st['clicked'], (497, 83),
+                        0.2 if st['clicked'] else 0.99)
             if name == 'flow_fisch_label':
                 return (True, (300, 108), 0.97)
             return (False, (0, 0), 0.0)
@@ -117,6 +125,7 @@ class OpenPuzzleGameTest(unittest.TestCase):
                                side_effect=calib_seq), \
              mock.patch.object(puzzle, 'pydirectinput') as pdi, \
              mock.patch.object(puzzle, 'sleep', lambda *_a: None):
+            pdi.click.side_effect = lambda *a, **k: st.update(clicked=True)
             ok = b._open_puzzle_game()
         self.assertTrue(ok)
         pdi.click.assert_called_once()
@@ -126,6 +135,39 @@ class OpenPuzzleGameTest(unittest.TestCase):
         self.assertEqual(kwargs.get('y'), 108 + 11 + 50)
         # NICHT in der "Ansehen"-Spalte (die liegt deutlich weiter rechts).
         self.assertLess(kwargs.get('x'), 600)
+
+    def test_overview_stays_open_is_miss_not_false_ok(self):
+        # REGRESSION (Live-Bug 2026-06-20): der Klick passierte, aber die
+        # Uebersicht blieb offen (Fehlklick auf "Name" statt den Button) ->
+        # das strukturelle board_open meldete faelschlich "offen" => falsches
+        # REOPEN_OK. Erfolg MUSS jetzt board_open UND Uebersicht-ZU verlangen
+        # -> hier bleibt die Uebersicht offen => Miss (False), kein REOPEN_OK.
+        b = _bare()
+        clock = {'t': 1000.0}
+
+        def faketime():
+            clock['t'] += 0.5
+            return clock['t']
+
+        def find(frame, name, thresh=0.0):
+            if name == 'flow_event_title':
+                return (True, (497, 83), 0.99)   # Uebersicht bleibt OFFEN
+            if name == 'flow_fisch_label':
+                return (True, (300, 108), 0.97)
+            return (False, (0, 0), 0.0)
+
+        flow = types.SimpleNamespace(
+            find=find, center=lambda name, pos: (pos[0] + 75, pos[1] + 11),
+            diagnose=lambda img: {})
+        with mock.patch.object(puzzle, '_flow', flow), \
+             mock.patch.object(puzzle.calibration, 'validate_puzzle_region',
+                               return_value=_calib(True)), \
+             mock.patch.object(puzzle, 'pydirectinput') as pdi, \
+             mock.patch.object(puzzle, 'time', faketime), \
+             mock.patch.object(puzzle, 'sleep', lambda *_a: None):
+            ok = b._open_puzzle_game(force=True)
+        self.assertFalse(ok)             # Uebersicht offen -> KEIN Erfolg
+        pdi.click.assert_called_once()   # geklickt wurde trotzdem
 
     def test_label_missing_no_blind_click(self):
         # Uebersicht offen, aber Label NICHT gefunden -> KEIN Klick, False.

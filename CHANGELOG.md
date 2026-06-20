@@ -3,6 +3,30 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.3.2] — 2026-06-20
+
+### Fix: Reopen klickte auf den Spaltenkopf „Name" statt auf den FISCHPUZZLESPIEL-Button
+
+Der v1.3.1-Reopen lief korrekt durch (Strg+E → Übersicht → Klick), startete das
+Puzzle aber **nicht** — das SOTA-Debug (`REOPEN_OK | overview_still_open=True`)
+machte es sichtbar.
+
+- **Ursache:** Das Erkennungs-Template `flow_fisch_label.png` war aus der
+  **falschen Zeile** geschnitten — es enthielt den Spaltenkopf **„Name"**
+  (ROI y=108–130) statt der Button-Beschriftung **„FISCHPUZZLESPIEL"** (y=139–151,
+  eine Zeile tiefer). Der Klick (NCC=1.0) landete also exakt auf „Name" → die
+  Eventübersicht blieb offen, das Spiel startete nie.
+- **Fix:** Template neu aus der echten „FISCHPUZZLESPIEL"-Button-Beschriftung
+  geschnitten (Self-NCC 1.0, nächstbester Fremd-Treffer 0.58 → Schwelle 0.82 mit
+  Reserve). Die Vollbild-NCC-Suche findet den Button weiterhin **positions-
+  unabhängig** im ganzen Übersichts-Bereich (wie beim Seherspiel) — Sortierung
+  egal.
+- **Ehrliche Erfolgs-Verifikation:** Ein Reopen gilt nur noch als erfolgreich,
+  wenn das Brett offen **und die Eventübersicht wieder geschlossen** ist. Das rein
+  strukturelle „Brett offen?" meldete bisher auch die noch offene Übersicht als
+  „offen" → falsches REOPEN_OK. Ein Fehlklick wird jetzt als `REOPEN_BOARD_MISS`
+  (mit `overview_still_open`) korrekt erkannt statt als Erfolg verbucht.
+
 ## [1.3.1] — 2026-06-20
 
 ### Fix: Box-leer-Neustart lief nie (öffnete das Eventboard nicht, klickte ins Leere)
