@@ -579,6 +579,34 @@ class TestDismantleConfirmDialog(unittest.TestCase):
         self.assertFalse(present)
 
 
+class TestInventoryOpen(unittest.TestCase):
+    """Template-freie, OFFSET-TOLERANTE Inventar-Offen-Erkennung
+    (``inventory_open``) ueber die periodische 32px-Slot-Struktur. Ersetzt die
+    pixel-genaue Tab-Template-Probe (Live-Bug 2026-06-20). An den Fixtures
+    gemessen: ZU <= 6.7, OFFEN >= 26.3 -> Schwelle 15 trennt mit grossem Abstand.
+    Muss SOWOHL volle (Spalten-Kontrast) ALS AUCH spaerliche (Zeilen-Kontrast)
+    Taschen als offen erkennen und in NPC-Dialogszenen (Tasche zu) False sein."""
+
+    def test_open_full_bag(self):
+        is_open, score = d.inventory_open(_load('.', 'inventory_open_full_window.png'))
+        self.assertTrue(is_open)
+        self.assertGreaterEqual(score, 15.0)
+
+    def test_open_sparse_bag(self):
+        # Volle Tasche -> Spalten-Kontrast; spaerliche -> Zeilen-Kontrast. Diese
+        # Szene ist offen aber duenn besetzt -> darf NICHT als zu gelten.
+        is_open, score = d.inventory_open(
+            _load('Alchemist', 'metin2client_BlRGzUUM3w.png'))
+        self.assertTrue(is_open, 'sparse-but-open bag misread as closed (score=%.1f)' % score)
+
+    def test_closed_in_npc_dialog(self):
+        # Erstgespraech am NPC -> Tasche ZU -> keine 32px-Periodik im Raster.
+        is_open, score = d.inventory_open(
+            _load('Einkauf_Hammer', 'erstgespraech3.png'))
+        self.assertFalse(is_open, 'closed bag misread as open (score=%.1f)' % score)
+        self.assertLess(score, 15.0)
+
+
 class TestAfkDialog(unittest.TestCase):
     """Der zentrierte 'Du bist im AFK-Modus'-Dialog muss am OK-Knopf erkannt
     werden (er blockiert alle Klicks/Tasten) -- und NICHT auf normalen Szenen

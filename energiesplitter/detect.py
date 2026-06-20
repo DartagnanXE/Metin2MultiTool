@@ -843,6 +843,64 @@ def _cell_is_empty(cell):
         return False
 
 
+# Inventar-OFFEN-Erkennung (TEMPLATE-FREI, OFFSET-TOLERANT). Die fruehere Angel-
+# Tab-Template-Probe war am Live-Capture zu pixel-genau: schon wenige px Versatz
+# (DWM-Rahmen/Fokus) schoben die Tab-Reihe aus ihrer +-3px-Toleranz -> 0/4 ->
+# faelschlich 'inventory_not_open' (Live-Bug 2026-06-20). Stattdessen die
+# PERIODISCHE 32px-Slot-Struktur des Rasters messen (Rand- vs. Mitte-Helligkeit)
+# -- in SPALTEN UND ZEILEN, Maximum davon: volle Tasche -> Spalten-Kontrast hoch,
+# spaerliche -> Zeilen-Kontrast hoch -> ``max`` deckt BEIDE Fuell-Grade ab. Die
+# Spielwelt/der Dialog hat keine solche 32px-Periodik. An den Fixtures gemessen:
+# ZU <= 6.7, OFFEN >= 26.3 -> Schwelle 15 trennt mit grossem Abstand in beide
+# Richtungen. Nutzt dieselbe kalibrierte Raster-Geometrie wie die (live
+# bewaehrten) Slot-Detektoren -> live-frame-aligned, kein Tab-Pixel-Risiko.
+INVENTORY_OPEN_MIN = 15.0   # Helligkeits-Periodik-Score (kein NCC)
+
+
+def inventory_open(bgr):
+    """Template-frei: ist die Inventar-Tasche offen? -> ``(is_open, score)``.
+
+    Misst die 32px-Periodik des Slot-Rasters (Rand- vs. Mitte-Helligkeit) in
+    Spalten UND Zeilen und nimmt das Maximum -> FUELLGRAD-unabhaengig (volle wie
+    spaerliche Tasche werden erkannt). ``score`` fuers Debug/Kalibrieren.
+    Defensiv ``(False, 0.0)`` bei fehlendem/ungueltigem Bild. Wirft NIE."""
+    if np is None or bgr is None:
+        return (False, 0.0)
+    try:
+        client = _geo.to_client(bgr)
+        gray = np.asarray(client)[:, :, :3].astype(np.float32).mean(axis=2)
+        h, w = gray.shape
+        x0, y0 = int(_cal.GRID_ORIGIN_TL[0]), int(_cal.GRID_ORIGIN_TL[1])
+        p = int(_cal.GRID_PITCH_X)
+        cols = int(_cal.GRID_COLS)
+        rows = max(1, MAX_SLOT // max(1, cols))
+        y1 = min(h, y0 + rows * p)
+        x1 = min(w, x0 + cols * p)
+        if y1 - y0 < p or x1 - x0 < p:
+            return (False, 0.0)
+
+        def col_mean(x):
+            return float(gray[y0:y1, x].mean()) if 0 <= x < w else None
+
+        def row_mean(y):
+            return float(gray[y, x0:x1].mean()) if 0 <= y < h else None
+
+        cb = [col_mean(x0 + i * p) for i in range(cols + 1)]
+        cc = [col_mean(x0 + p // 2 + i * p) for i in range(cols)]
+        rb = [row_mean(y0 + i * p) for i in range(rows + 1)]
+        rc = [row_mean(y0 + p // 2 + i * p) for i in range(rows)]
+        if any(v is None for v in cb + cc + rb + rc):
+            return (False, 0.0)
+        col = float(np.mean([abs(cc[i] - (cb[i] + cb[i + 1]) / 2.0)
+                             for i in range(cols)]))
+        row = float(np.mean([abs(rc[i] - (rb[i] + rb[i + 1]) / 2.0)
+                             for i in range(rows)]))
+        score = max(col, row)
+        return (score >= INVENTORY_OPEN_MIN, score)
+    except Exception:
+        return (False, 0.0)
+
+
 def find_inventory_item(bgr, item):
     """Sucht ``item`` im Inventar -> ``(ok: bool, slot_point)``.
 

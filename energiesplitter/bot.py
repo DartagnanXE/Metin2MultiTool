@@ -72,15 +72,10 @@ try:
 except Exception:  # pragma: no cover
     _discard_drag = None
 
-# Inventar-Offen-Erkennung WIEDERVERWENDET aus dem Angel-Inventar (bewaehrt:
-# Tab-Template-Probe + Toggle-Hotkey). So weiss der Energiesplitter -- wie die
-# anderen Funktionen -- ob die Tasche offen ist, und oeffnet sie sonst selbst.
-try:
-    from inventory import open_probe as _open_probe
-    from inventory.constants import DEFAULT_CALIBRATION as _INV_CALIB
-except Exception:  # pragma: no cover
-    _open_probe = None
-    _INV_CALIB = None
+# Inventar-Offen-Erkennung laeuft jetzt ueber den eigenen, OFFSET-TOLERANTEN
+# Detektor ``detect.inventory_open`` (periodische Slot-Struktur) -- die fruehere
+# Angel-Tab-Template-Probe war am Live-Capture zu pixel-genau (Live-Bug
+# 2026-06-20). Kein Inventar-Paket-Import mehr noetig.
 
 
 MODE_HAMMER = 'hammer'
@@ -592,27 +587,6 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
     except Exception:  # pragma: no cover - defensiv
       return None
 
-  def _client_shot(self):
-    """Wie :meth:`_shot`, aber auf den 800x600-CLIENT normiert (Windows-
-    Titelleiste/Rahmen weg).
-
-    NOETIG fuer die Angel-Inventar-Open-Probe (``inventory.open_probe``): deren
-    Tab-Kalibrierung (z.B. Tab 'I' bei CLIENT-(654,231)) gilt im 800x600-Client-
-    System. Ein rohes ``_shot()`` kann die ~31px-Titelleiste enthalten -> die
-    Probe sampelt die Tab-Reihe 31px zu HOCH -> 0/4 Tabs -> faelschlich
-    'inventory_not_open' (Live-Bug 2026-06-20, am echten Bild belegt: roh 0/4 vs.
-    normiert 3/4). Die ``detect.py``-Detektoren normieren intern selbst; die
-    EXTERNE Probe nicht -> hier explizit. ``to_client`` ist idempotent auf einem
-    bereits 800x600 grossen Frame -> der bisher funktionierende Fall bleibt
-    unveraendert. Wirft NIE."""
-    bgr = self._shot()
-    if _geometry is None or bgr is None:
-      return bgr
-    try:
-      return _geometry.to_client(bgr)
-    except Exception:  # pragma: no cover - defensiv
-      return bgr
-
   def _snapshot(self, name):
     bgr = self._shot()
     try:
@@ -655,37 +629,47 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
       return False
 
   def _ensure_inventory_open(self):
-    """Stellt sicher, dass die TASCHE offen ist -- WIEDERVERWENDUNG der bewaehrten
-    Angel-Inventar-Logik (``inventory.open_probe.ensure_inventory_open``: Tab-
-    Template-Probe; ist die Tasche zu, wird die Toggle-Taste gedrueckt und erneut
-    geprobt). Genau das fehlte dem Energiesplitter -- er scannte 'blind' und las
-    bei geschlossener Tasche 0 freie Plaetze.
+    """Stellt sicher, dass die TASCHE offen ist -- TEMPLATE-FREI ueber die
+    periodische 32px-Slot-Struktur (``detect.inventory_open``), die OFFSET-
+    TOLERANT ist und dieselbe live-bewaehrte Raster-Geometrie nutzt wie die
+    Slot-Detektoren.
 
-    Rueckgabe: ``True`` weiter (offen verifiziert ODER Probe headless nicht
+    Ersetzt die fruehere Angel-Tab-Template-Probe: die war am Live-Capture zu
+    pixel-genau (schon wenige px DWM-/Fokus-Versatz schoben die Tab-Reihe aus der
+    +-3px-Toleranz -> 0/4 -> faelschlich 'inventory_not_open', Live-Bug
+    2026-06-20). Ist die Tasche zu, wird die Toggle-Taste gedrueckt und erneut
+    geprueft (bis 3 Versuche).
+
+    Rueckgabe: ``True`` weiter (offen verifiziert ODER Detektor headless nicht
     verfuegbar -> nicht blockieren), ``False`` = konnte nicht geoeffnet werden ->
     der Aufrufer bricht ab (der Bot hat sich bereits gestoppt). Wirft NIE."""
-    if _open_probe is None or _INV_CALIB is None:
-      return True  # headless/ohne Inventar-Paket: nicht blockieren (GATE deckt ab)
-    try:
-      res = _open_probe.ensure_inventory_open(
-          capture_fn=self._client_shot,   # CLIENT-normiert (Titelleiste weg, s.u.)
-          press_fn=lambda: self._press_key(self.inventory_hotkey),
-          calib=_INV_CALIB)
-    except Exception:  # pragma: no cover - Probe-Fehler nie zum Stop eskalieren
-      return True
-    if res is False:
+    if _detect is None or not hasattr(_detect, 'inventory_open'):
+      return True  # headless/ohne Detektor: nicht blockieren (GATE deckt ab)
+    tries = 3
+    for attempt in range(tries):
+      bgr = self._shot()
       try:
-        log.event(self.state, t('energiesplitter.inventory_not_open'))
+        is_open, score = _detect.inventory_open(bgr)
+      except Exception:  # pragma: no cover - Probe-Fehler nie zum Stop eskalieren
+        return True
+      try:
+        log.event(self.state, 'WAHRNEHMUNG: Inventar-Offen-Check (Slot-Periodik)',
+                  offen=bool(is_open), score=round(float(score), 1),
+                  schwelle=getattr(_detect, 'INVENTORY_OPEN_MIN', None),
+                  hotkey=self.inventory_hotkey, versuch=attempt + 1)
       except Exception:  # pragma: no cover
         pass
-      self._stop('inventory_not_open')
-      return False
+      if is_open:
+        return True
+      if attempt < tries - 1:
+        self._press_key(self.inventory_hotkey)   # Toggle-Taste -> erneut pruefen
+        self._settle(self.SHOP_OPEN_SETTLE_S)    # Toggle rendern lassen
     try:
-      log.event(self.state, 'WAHRNEHMUNG: Tasche offen',
-                verifiziert=bool(res), hotkey=self.inventory_hotkey)
+      log.event(self.state, t('energiesplitter.inventory_not_open'))
     except Exception:  # pragma: no cover
       pass
-    return True
+    self._stop('inventory_not_open')
+    return False
 
   def _dismiss_afk_if_present(self):
     """Erkennt den zentrierten 'Du bist im AFK-Modus'-Dialog und klickt OK weg.

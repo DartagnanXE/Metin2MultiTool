@@ -374,6 +374,7 @@ class TestHammerStateFlow(unittest.TestCase):
     _arm(bot)
     bot.state = EnergiesplitterBot.ST_INVENTORY_BASE
     bot.botting = True
+    bot._ensure_inventory_open = lambda: True   # Offen-Check separat getestet
     bot._item_template_ready = lambda item: False
     bot.runHack()
     self.assertFalse(bot.botting)
@@ -386,6 +387,7 @@ class TestHammerStateFlow(unittest.TestCase):
     _arm(bot)
     bot.state = EnergiesplitterBot.ST_INVENTORY_BASE
     bot.botting = True
+    bot._ensure_inventory_open = lambda: True   # Offen-Check separat getestet
     bot._item_template_ready = lambda item: True
     bot._free_slot_count = lambda: 0
     bot.runHack()
@@ -764,6 +766,7 @@ class TestDaggerSequential(unittest.TestCase):
     _arm(bot)
     bot.state = EnergiesplitterBot.ST_INVENTORY_BASE
     bot.botting = True
+    bot._ensure_inventory_open = lambda: True   # Offen-Check separat getestet
     bot._item_template_ready = lambda item: True
     bot._count_hammers = lambda: 0
     bot.runHack()
@@ -920,53 +923,57 @@ class TestOpenShopViaDialog(unittest.TestCase):
 
 
 class TestEnsureInventoryOpen(unittest.TestCase):
-    """Der Energiesplitter muss -- wie das Angel-Inventar -- die Tasche-Offen-
-    Erkennung nutzen (open_probe) statt blind zu scannen. Sonst las er bei
-    geschlossener Tasche 0 freie Plaetze (-> falscher no_space)."""
+    """Der Energiesplitter erkennt die Tasche-Offen ueber den eigenen, OFFSET-
+    TOLERANTEN ``detect.inventory_open`` (periodische Slot-Struktur) statt blind
+    zu scannen. Sonst las er bei geschlossener Tasche 0 freie Plaetze (-> falscher
+    no_space). Hier mit gestubbtem Detektor (die echte Bild-Erkennung ist in
+    test_energiesplitter_detect + TestInventoryOpenCheck abgedeckt)."""
+
+    def _detect_stub(self, open_seq):
+        seq = list(open_seq)
+        return types.SimpleNamespace(
+            INVENTORY_OPEN_MIN=15.0,
+            inventory_open=lambda bgr: (seq.pop(0) if seq else (True, 99.0)))
 
     def test_open_when_probe_true_proceeds(self):
         bot = _make_bot(mode=MODE_HAMMER)
         _arm(bot)
-        fake = types.SimpleNamespace(
-            ensure_inventory_open=lambda **kw: True)
-        with mock.patch.object(esbot_mod, '_open_probe', fake), \
-             mock.patch.object(esbot_mod, '_INV_CALIB', {'tabs': {}}):
+        bot._shot = lambda: object()
+        with mock.patch.object(esbot_mod, '_detect',
+                               self._detect_stub([(True, 40.0)])):
             self.assertTrue(bot._ensure_inventory_open())
         self.assertNotEqual(bot._stop_reason, 'inventory_not_open')
 
     def test_closed_unopenable_stops(self):
+        _reset_input()
         bot = _make_bot(mode=MODE_HAMMER)
         _arm(bot)
         bot.botting = True
-        fake = types.SimpleNamespace(
-            ensure_inventory_open=lambda **kw: False)
-        with mock.patch.object(esbot_mod, '_open_probe', fake), \
-             mock.patch.object(esbot_mod, '_INV_CALIB', {'tabs': {}}):
+        bot._shot = lambda: object()
+        with mock.patch.object(esbot_mod, '_detect',
+                               self._detect_stub([(False, 5.0), (False, 5.0),
+                                                  (False, 5.0)])):
             self.assertFalse(bot._ensure_inventory_open())
         self.assertEqual(bot._stop_reason, 'inventory_not_open')
         self.assertFalse(bot.botting)
 
     def test_probe_unavailable_does_not_block(self):
-        # headless / kein Inventar-Paket -> nicht blockieren (GATE deckt ab).
+        # headless / kein Detektor -> nicht blockieren (GATE deckt ab).
         bot = _make_bot(mode=MODE_HAMMER)
         _arm(bot)
-        with mock.patch.object(esbot_mod, '_open_probe', None):
+        with mock.patch.object(esbot_mod, '_detect', None):
             self.assertTrue(bot._ensure_inventory_open())
 
     def test_presses_configured_hotkey_when_closed(self):
-        # Bei geschlossener Tasche wird die konfigurierte Toggle-Taste gedrueckt.
+        # War ZU, nach einem Toggle OFFEN -> genau EINE Taste, kein Stop.
         _reset_input()
         bot = _make_bot(mode=MODE_HAMMER)
         _arm(bot)
         bot.inventory_hotkey = 'i'
-        # Fake-Probe: ruft press_fn EINMAL (simuliert 'war zu, jetzt offen').
-        def _ensure(**kw):
-            kw['press_fn']()
-            return True
-        fake = types.SimpleNamespace(ensure_inventory_open=_ensure)
-        with mock.patch.object(esbot_mod, '_open_probe', fake), \
-             mock.patch.object(esbot_mod, '_INV_CALIB', {'tabs': {}}):
-            bot._ensure_inventory_open()
+        bot._shot = lambda: object()
+        with mock.patch.object(esbot_mod, '_detect',
+                               self._detect_stub([(False, 5.0), (True, 40.0)])):
+            self.assertTrue(bot._ensure_inventory_open())
         self.assertEqual(_INPUT_CALLS['keyDown'], 1)   # genau eine Taste
 
 
@@ -1203,67 +1210,71 @@ class TestApproachNpcBirdseyeDrag(unittest.TestCase):
     self.assertEqual(bot._npc_tries, 0)
 
 
-class TestInventoryOpenProbeTitlebar(unittest.TestCase):
-  """Regression (Live-Bug 2026-06-20): bei vollem Beutel meldete der Bot
-  faelschlich 'inventory_not_open', obwohl das Inventar offen war. Ursache: die
-  externe Angel-Open-Probe bekam ein ROHES Frame MIT Windows-Titelleiste und
-  sampelte die Tab-Reihe 31px zu hoch (0/4). _client_shot normiert jetzt auf den
-  800x600-Client (Titelleiste weg) -> 3/4 -> offen erkannt."""
+class TestInventoryOpenCheck(unittest.TestCase):
+  """Regression (Live-Bug 2026-06-20): bei vollem/aufgeraeumtem Beutel meldete
+  der Bot faelschlich 'inventory_not_open', obwohl das Inventar offen war.
+  Ursache: die pixel-genaue Tab-Template-Probe war am Live-Capture zu offset-
+  empfindlich. _ensure_inventory_open nutzt jetzt den OFFSET-TOLERANTEN
+  detect.inventory_open (periodische 32px-Slot-Struktur, eigene Raster-
+  Geometrie)."""
 
   _FIX = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                       'fixtures', 'energiesplitter')
 
-  def _full_window_open_inventory(self):
+  def _load(self, *parts):
     try:
       import cv2
     except Exception:
       self.skipTest('cv2 nicht verfuegbar')
-    path = os.path.join(self._FIX, 'inventory_open_full_window.png')
+    path = os.path.join(self._FIX, *parts)
     img = cv2.imread(path)
     if img is None:
       self.skipTest('fixture fehlt: %s' % path)
     return img
 
-  def test_client_shot_strips_titlebar(self):
-    # _client_shot muss ein 802x632-Vollfenster auf 800x600-Client normieren.
-    img = self._full_window_open_inventory()
-    self.assertEqual(img.shape[:2], (632, 802))   # Vollfenster MIT Titelleiste
-    bot = _make_bot(mode=MODE_DAGGER)
-    bot._shot = lambda: img
-    client = bot._client_shot()
-    self.assertEqual(client.shape[:2], (600, 800))  # Titelleiste/Rahmen weg
-
-  def test_ensure_open_true_on_full_window_open_inventory(self):
-    # End-to-end mit der ECHTEN Open-Probe + echten Tab-Templates + echter
-    # Inventar-Kalibrierung: offenes (volles) Inventar wird als offen erkannt,
-    # OHNE die Toggle-Taste zu druecken (sonst wuerde der Bot es schliessen).
-    if esbot_mod._open_probe is None or esbot_mod._INV_CALIB is None:
-      self.skipTest('Angel-Inventar-Paket (open_probe/INV_CALIB) nicht verfuegbar')
-    img = self._full_window_open_inventory()
+  def test_ensure_open_true_on_real_open_inventory(self):
+    # End-to-end mit dem ECHTEN Detektor: offenes (volles) Inventar -> offen
+    # erkannt, KEIN Stop, KEINE Toggle-Taste (sonst wuerde der Bot es schliessen).
+    img = self._load('inventory_open_full_window.png')
     _reset_input()
     bot = _make_bot(mode=MODE_DAGGER)
     _arm(bot)
     bot.botting = True
     bot._shot = lambda: img
     ok = bot._ensure_inventory_open()
-    self.assertTrue(ok)                              # offen erkannt
-    self.assertTrue(bot.botting)                     # NICHT gestoppt
+    self.assertTrue(ok)
+    self.assertTrue(bot.botting)
     self.assertNotEqual(getattr(bot, '_stop_reason', None), 'inventory_not_open')
-    self.assertEqual(_INPUT_CALLS['keyDown'], 0)     # KEINE Toggle-Taste gedrueckt
+    self.assertEqual(_INPUT_CALLS['keyDown'], 0)
 
-  def test_ensure_open_would_fail_without_normalisation(self):
-    # Gegenprobe: die rohe (un-normierte) Probe auf demselben Vollfenster-Frame
-    # liefert NICHT offen -> belegt, dass die Titelleisten-Normierung der Fix ist.
-    if esbot_mod._open_probe is None or esbot_mod._INV_CALIB is None:
-      self.skipTest('Angel-Inventar-Paket nicht verfuegbar')
-    img = self._full_window_open_inventory()
-    raw = esbot_mod._open_probe.probe_open(img, esbot_mod._INV_CALIB)
-    self.assertIsNotNone(raw)
-    self.assertFalse(raw[0])                          # roh (mit Titelleiste): zu
-    # ... und normiert (Titelleiste weg) ist es offen:
-    client = esbot_mod._geometry.to_client(img)
-    norm = esbot_mod._open_probe.probe_open(client, esbot_mod._INV_CALIB)
-    self.assertTrue(norm[0])
+  def test_ensure_open_toggles_then_succeeds_when_initially_closed(self):
+    # Zuerst zu (NPC-Dialog), nach einem Toggle 'offen' -> der Bot drueckt GENAU
+    # einmal die Inventar-Taste und faehrt fort (kein Stop).
+    closed = self._load('Einkauf_Hammer', 'erstgespraech3.png')
+    opened = self._load('inventory_open_full_window.png')
+    seq = [closed, opened, opened]
+    _reset_input()
+    bot = _make_bot(mode=MODE_DAGGER)
+    _arm(bot)
+    bot.botting = True
+    bot._shot = lambda: seq.pop(0) if seq else opened
+    ok = bot._ensure_inventory_open()
+    self.assertTrue(ok)
+    self.assertTrue(bot.botting)
+    self.assertEqual(_INPUT_CALLS['keyDown'], 1)     # genau einmal getoggelt
+
+  def test_ensure_open_stops_when_stays_closed(self):
+    # Bleibt es nach allen Toggles zu -> sauberer inventory_not_open-Stop.
+    closed = self._load('Einkauf_Hammer', 'erstgespraech3.png')
+    _reset_input()
+    bot = _make_bot(mode=MODE_DAGGER)
+    _arm(bot)
+    bot.botting = True
+    bot._shot = lambda: closed
+    ok = bot._ensure_inventory_open()
+    self.assertFalse(ok)
+    self.assertFalse(bot.botting)
+    self.assertEqual(bot._stop_reason, 'inventory_not_open')
 
 
 if __name__ == '__main__':

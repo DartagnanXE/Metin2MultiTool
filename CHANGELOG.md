@@ -3,6 +3,34 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.35] — 2026-06-20
+
+### Energiesplitter: Inventar-Offen-Erkennung jetzt offset-tolerant (der eigentliche Fix)
+
+- **v1.2.34 hat das Symptom nicht behoben** — der Bot meldete weiter sofort
+  `inventory_not_open`, obwohl die Tasche offen war. Grund: der Live-Kamera-Frame
+  ist NICHT einfach „Vollfenster mit Titelleiste"; die Annahme aus v1.2.34 traf
+  den Live-Fall nicht.
+- **Wahre Ursache.** Die alte „Tasche offen?"-Prüfung war eine **pixel-genaue
+  Reiter-Template-Probe** (±3 px). Der Live-Capture verschiebt das Bild je nach
+  Fenster-/DWM-Rahmen um ein paar Pixel — genug, um die Reiter-Reihe aus der
+  ±3 px-Toleranz zu schieben → 0/4 → fälschlich „zu". Die eigentlichen
+  Energiesplitter-Erkenner (NPC, Raster, Shop) liefen dagegen **pixelgenau live**
+  — sie nutzen die kalibrierte Raster-Geometrie, mit der der Live-Frame
+  nachweislich übereinstimmt (der Bot kaufte Dolche exakt an den Raster-Slots).
+- **Fix.** Neue, **template-freie, offset-tolerante** Erkennung
+  `detect.inventory_open`: misst die **periodische 32 px-Slot-Struktur** des
+  Rasters (Rand- vs. Mitte-Helligkeit) in **Spalten UND Zeilen** und nimmt das
+  Maximum → erkennt **volle** (Spalten-Kontrast) wie **spärliche** (Zeilen-
+  Kontrast) Taschen. An den echten Bildern gemessen: **zu ≤ 6,7 / offen ≥ 26,3**
+  → Schwelle 15 trennt mit großem Abstand in beide Richtungen. Nutzt dieselbe
+  Raster-Geometrie wie die live bewährten Slot-Detektoren — kein Reiter-Pixel-
+  Risiko mehr. Ist die Tasche zu, wird wie bisher die Inventar-Taste gedrückt und
+  erneut geprüft.
+- Die alte Angel-Reiter-Probe (inkl. `_client_shot`/Inventar-Paket-Import) ist
+  raus. 6 neue/ersetzte Tests (volle + spärliche offene Tasche, geschlossener
+  NPC-Dialog, Toggle-dann-offen, bleibt-zu-Stop). 216 grün.
+
 ## [1.2.34] — 2026-06-20
 
 ### Energiesplitter: „Inventar nicht erkannt / Tasche konnte nicht geöffnet werden" behoben (Titelleisten-Offset)
