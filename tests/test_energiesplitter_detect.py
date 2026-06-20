@@ -579,6 +579,39 @@ class TestDismantleConfirmDialog(unittest.TestCase):
         self.assertFalse(present)
 
 
+class TestInventoryFullPageAndDigits(unittest.TestCase):
+    """Das echte Inventar ist 5x9 = 45 Slots (wie das Lager), und die Item-
+    Erkennung muss UNABHAENGIG von der eingeblendeten Stack-Zahl sein. Beides an
+    echten Voll-Hammer-Seiten geprueft."""
+
+    def test_full_page_sees_all_45_slots(self):
+        # Volle Hammer-Seite (normale Zahlen) -> alle 45 Slots als Hammer erkannt
+        # (frueher nur 40: die 9. Zeile fehlte).
+        self.assertEqual(d.MAX_SLOT, 45)
+        hits = d.find_all_inventory_items(_load('.', 'inv_full_hammers.png'), 'hammer')
+        self.assertEqual(len(hits), 45)
+
+    def test_item_recognition_is_stack_count_independent(self):
+        # GLEICHE Items, aber GROESSERE Stack-Zahlen -> muss weiterhin alle 45
+        # Haemmer erkennen. Mit Voll-Zellen-Template brach das auf 0 ein
+        # (Zahl faellt ins Matching); Icon-only (Zahl maskiert) loest das.
+        hits = d.find_all_inventory_items(
+            _load('.', 'inv_full_hammers_bignum.png'), 'hammer')
+        self.assertEqual(len(hits), 45)
+
+    def test_row9_slots_are_scanned(self):
+        # Slots 41..45 (9. Zeile) muessen als Hammer klassifiziert werden.
+        img = _load('.', 'inv_full_hammers.png')
+        client = geo.to_client(img)
+        for slot in (41, 42, 43, 44, 45):
+            lbl, _ncc = d._classify_slot(client, slot)
+            self.assertEqual(lbl, 'hammer', 'Slot %d (Zeile 9) nicht erkannt' % slot)
+
+    def test_empty_page_counts_45_free(self):
+        # Leeres Inventar -> 45 freie Slots (frueher max 40).
+        self.assertEqual(d.free_slot_count(_load('.', 'inv_empty_with_lager.png')), 45)
+
+
 class TestInventoryOpen(unittest.TestCase):
     """Template-freie, OFFSET-TOLERANTE Inventar-Offen-Erkennung
     (``inventory_open``) ueber die periodische 32px-Slot-Struktur. Ersetzt die

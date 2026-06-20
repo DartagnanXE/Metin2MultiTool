@@ -48,7 +48,7 @@ INV_GRID_TOP_Y = 242                    # KALIBRIER-BAR (obere Kante Slot-Zeile 
 
 
 def slot_center(slot):
-    """Inventar-Slot (1..40, Seite I) -> Client-Pixel-Mittelpunkt ``(x, y)``.
+    """Inventar-Slot (1..45, Seite I, 5x9) -> Client-Pixel-Mittelpunkt ``(x, y)``.
 
     ``slot = (zeile-1)*5 + spalte`` (1-basiert, links->rechts, oben->unten).
     Gibt ``None`` bei nicht-positiver/nicht-ganzer Eingabe (defensiv; der GATE

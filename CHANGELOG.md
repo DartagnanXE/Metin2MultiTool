@@ -3,6 +3,31 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.36] — 2026-06-20
+
+### Energiesplitter: Inventar vereinheitlicht — 45 Slots (9 Zeilen) + zahl-robuste Item-Erkennung
+
+Zwei strukturelle Inventar-Bugs behoben (am echten Bild gemessen):
+
+- **Inventar ist 5×9 = 45 Slots, nicht 40.** Der Bot modellierte nur 8 Zeilen
+  (40 Slots) und war damit **blind für die 9. (unterste) Zeile**: freie Plätze
+  wurden unterzählt, und Hämmer/Dolche/Lande-Slots in Zeile 9 wurden übersehen
+  (mögliche Fehl-Stops „kein Platz"/„unverifiziert"). Jetzt **45 Slots** durchweg
+  — an einer vollen Hammer-Seite bestätigt (Zeilen 1–9 belegt, Zeile 10 leer).
+- **Item-Erkennung ist jetzt unabhängig von der Stack-Zahl.** Das alte Voll-
+  Zellen-Template nahm die eingeblendete Stückzahl mit ins Matching → bei
+  **größeren Zahlen brach die Erkennung ein** (gemessen: NCC 0.93 bei normaler
+  Zahl, **0.57 bei großer → 0 Hämmer erkannt** → der Bot hätte „keine Hämmer"
+  gemeldet und gestoppt). Jetzt wird **nur die Icon-Region** verglichen (das
+  Zahl-Band unten ist maskiert) → **beide Fälle 1.00**, Diskriminierung bleibt
+  (leerer Slot 0.18, Fremd-Item 0.52). Greift einheitlich für alle Slot-Checks
+  (Bestand, freie Plätze, Lande-Slot, Drag-Quelle/Ziel).
+- Grundlage für die geteilte Inventar-Wahrheit (ein Inventar für alle Modi): die
+  Lager-Geometrie ist dieselbe Form (5×9), nur ein anderer Ursprung — für die
+  spätere Lagerverwalter-Session festgehalten.
+- 7 neue Tests (45 Slots voll/leer, 9. Zeile, Zahl-Unabhängigkeit an großer-Zahl-
+  Seite). 220 grün.
+
 ## [1.2.35] — 2026-06-20
 
 ### Energiesplitter: Inventar-Offen-Erkennung jetzt offset-tolerant (der eigentliche Fix)

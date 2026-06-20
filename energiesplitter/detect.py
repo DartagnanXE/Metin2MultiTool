@@ -82,8 +82,19 @@ RING_MAX_FILL = 0.35
 # Slot-Klassifikation: volle 32px-Zelle gibt matchTemplate Spielraum; an dieser
 # Groesse reproduzieren die gemessenen NCC-Werte (CALIBRATION.md, Abschnitt 1).
 SLOT_CELL = 32
-# Maximale Slot-Nummer auf Seite I (5 Spalten x 8 Zeilen = 40).
-MAX_SLOT = 40
+# Maximale Slot-Nummer auf Seite I. Das echte Inventar (wie das Lager) ist
+# 5 Spalten x 9 Zeilen = 45 (an echten Voll-Bildern bestaetigt: Zeilen 1..9
+# belegt, Zeile 10 leer). Frueher faelschlich 40 (8 Zeilen) -> der Bot war BLIND
+# fuer die 9. Zeile (free_slot_count unterzaehlt, Landing/Item-Scan uebersieht
+# Slots 41..45). MAX_SLOT treibt alle Slot-Schleifen + inventory_open(rows).
+MAX_SLOT = 45
+# Item-Icon-Region (obere Zeilen der Zelle): NUR diese matchen, das STACK-ZAHL-
+# Band (untere ~Zeilen 18..28) wird ausgeschlossen. Sonst faellt die Zahl ins
+# Template-Matching -> bei groesseren/anderen Stack-Zahlen bricht der NCC ein
+# (gemessen: volle Zelle 0.93 bei normaler Zahl, 0.57 bei grosser -> 0 Treffer).
+# Icon-only (obere 14 Zeilen) matcht beide mit 1.00, bleibt aber diskriminativ
+# (leerer Slot 0.18, Fremd-Item 0.52). Am echten Bild verifiziert.
+ITEM_ICON_ROWS = 14
 
 
 # ----------------------------------------------------------------------------
@@ -255,7 +266,7 @@ def grid_present():
 # Inventar-Geometrie (kalibriert) -- Slot <-> Zelle
 # ----------------------------------------------------------------------------
 def _slot_index(slot):
-    """Normiert ``slot`` (int-Index 1..40 ODER (x,y)-Punkt) -> int-Index|None.
+    """Normiert ``slot`` (int-Index 1..45 ODER (x,y)-Punkt) -> int-Index|None.
 
     Ein Punkt wird auf den naechsten Raster-Slot zurueckgerechnet; abseits des
     Rasters / ungueltig -> ``None`` (defensiv, kein Raten).
@@ -312,19 +323,33 @@ def _slot_glowing(cell):
         return False
 
 
+def _icon_region(tpl):
+    """Obere Icon-Zeilen eines Item-Templates (ohne das Stack-Zahl-Band unten).
+
+    Macht das Slot-Matching robust gegen die eingeblendete Stack-Zahl: nur die
+    oberen ``ITEM_ICON_ROWS`` Zeilen (das eigentliche Icon) werden verglichen.
+    Defensiv: ``None``-Template -> ``None``; zu niedriges Template -> unveraendert.
+    """
+    if tpl is None:
+        return None
+    h = tpl.shape[0]
+    return tpl[0:ITEM_ICON_ROWS] if h > ITEM_ICON_ROWS else tpl
+
+
 def _classify_slot(client, slot):
     """Bestes Item-Label einer Slot-Zelle -> ``(item, ncc)`` oder ``(None, ncc)``.
 
-    Vergleicht die volle 32px-Zelle gegen Hammer- UND Dolch-Template; das Item
-    mit hoechstem NCC gewinnt, sofern ``>= NCC_ITEM`` (sonst leer/Fremd-Item ->
-    ``(None, best_ncc)``). Glow-tolerant (Template-NCC matcht leuchtende Slots
-    ~0.74..0.82). Defensiv, wirft nie.
+    Vergleicht die ICON-Region (obere Zeilen, ohne Stack-Zahl-Band) der Zelle
+    gegen Hammer- UND Dolch-Template; das Item mit hoechstem NCC gewinnt, sofern
+    ``>= NCC_ITEM`` (sonst leer/Fremd-Item -> ``(None, best_ncc)``). Das
+    Maskieren der Zahl macht die Erkennung stack-zahl-unabhaengig (sonst Einbruch
+    bei grossen Zahlen). Glow-tolerant. Defensiv, wirft nie.
     """
     cell = _slot_cell_bgr(client, slot)
     if cell is None:
         return (None, -1.0)
-    ham = _imread(_item_path('hammer'))
-    dol = _imread(_item_path('dolch'))
+    ham = _icon_region(_imread(_item_path('hammer')))
+    dol = _icon_region(_imread(_item_path('dolch')))
     n_ham = _ncc_max(cell, ham) if ham is not None else -1.0
     n_dol = _ncc_max(cell, dol) if dol is not None else -1.0
     best_item, best = (None, -1.0)
@@ -770,7 +795,7 @@ def load_template(key):
 
 
 def count_item(bgr, item):
-    """Zaehlt Inventar-Slots, die ``item`` tragen -> ``int`` (0..40).
+    """Zaehlt Inventar-Slots, die ``item`` tragen -> ``int`` (0..45).
 
     Klassifiziert JEDE Slot-Zelle ueber das kalibrierte Lattice per Template-NCC
     (Glow-tolerant). Zaehlt einen Slot als ``item``, wenn dessen NCC der
@@ -796,7 +821,7 @@ def count_item(bgr, item):
 
 
 def free_slot_count(bgr):
-    """Zaehlt freie (leere) Inventar-Slots auf Seite I -> ``int`` (0..40).
+    """Zaehlt freie (leere) Inventar-Slots auf Seite I -> ``int`` (0..45).
 
     Ein Slot gilt als frei, wenn KEIN Item-Template ueber ``NCC_ITEM`` matcht UND
     die Zelle nicht leuchtet (Glow = belegt durch frisch gekauftes Item) UND der
@@ -944,7 +969,7 @@ def find_all_inventory_items(bgr, item):
 def slot_is(bgr, slot, item):
     """``True``, wenn auf ``slot`` das Icon ``item`` liegt (Drag-Quelle/Ziel-Check).
 
-    ``slot`` ist ein int-Index (1..40) ODER ein (x,y)-Punkt. Klassifiziert die
+    ``slot`` ist ein int-Index (1..45) ODER ein (x,y)-Punkt. Klassifiziert die
     Slot-Zelle per Template-NCC (Glow-tolerant) und vergleicht den Gewinner mit
     ``item``. Ungueltiger Slot / kein Bild / fehlendes Template -> ``False``
     (NotReady -> der Drag wird als unsicher abgebrochen). Wirft nie.
