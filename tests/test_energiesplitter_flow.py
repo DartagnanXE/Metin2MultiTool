@@ -101,7 +101,7 @@ def _make_bot(mode=MODE_HAMMER, values=None, with_window=True):
     bot.set_to_begin(values if values is not None else _values())
   # Headless: Chat-Verifikation NICHT real pollen (kein echtes Capture) -> Timeout
   # + Intervall auf 0, damit Tests schnell bleiben.
-  bot.BUY_CHAT_TIMEOUT_S = 0.0
+  bot.BUY_VERIFY_TIMEOUT_S = 0.0
   bot.DETECT_POLL_INTERVAL_S = 0.0
   bot.CONFIRM_POLL_TIMEOUT_S = 0.0
   return bot
@@ -1344,7 +1344,7 @@ class TestBuyVerifyModes(unittest.TestCase):
   """Dolch-Kauf-Verifikation: Chat-Modus (Quittung) vs. Klick-Modus (rein Klick).
   Rate-Limit ist transient -> Backoff + erneut, KEIN harter Stop."""
 
-  def _dagger_bot(self, mode):
+  def _dagger_bot(self, mode, free_seq=None):
     bot = _make_bot(mode=MODE_DAGGER, values=_values(
         **{'-ES_DAGGERS_PER_ROUND-': 1, '-ES_BUY_MODE-': mode}))
     _arm(bot)
@@ -1358,46 +1358,52 @@ class TestBuyVerifyModes(unittest.TestCase):
     bot._has_free_slot = lambda: True
     bot._locate_shop_item = lambda item: (300, 200)
     bot._all_dolch_slots = lambda: [(7, 7)]
+    # Chat-Modus: freie-Slot-Folge steuert die Landungs-Erkennung
+    # (Index 0 = free_before-Capture, Index 1 = Verify-Pruefung).
+    if free_seq is not None:
+      it = iter(free_seq)
+      bot._free_slot_count = lambda quiet=False: next(it)
     return bot
 
-  def _detect(self, result):
-    return types.SimpleNamespace(
-        chat_signature=lambda b: 's',
-        chat_changed=lambda a, b: True,
-        chat_buy_result=lambda b: result)
-
-  def test_chat_ok_counts_buy(self):
+  def test_chat_ok_when_dagger_lands(self):
+    # Chat-Modus: freie Slots SINKEN (Dolch gelandet) -> Erfolg, gezaehlt.
     _reset_input()
-    bot = self._dagger_bot('chat')
-    with mock.patch.object(esbot_mod, '_detect', self._detect('ok')):
-      bot.runHack()
+    bot = self._dagger_bot('chat', free_seq=[20, 19])
+    bot.runHack()
     self.assertEqual(bot._dolche_gekauft, 1)
     self.assertEqual(bot.state, EnergiesplitterBot.ST_PROCESS_DRAG)
 
-  def test_chat_rate_limited_backoff_no_count_no_stop(self):
+  def test_chat_rate_limited_when_nothing_lands(self):
+    # Nichts gelandet (freie Slots unveraendert) + Chat 'rate_limited' -> Backoff,
+    # NICHT gezaehlt, KEIN harter Stop.
     _reset_input()
-    bot = self._dagger_bot('chat')
-    with mock.patch.object(esbot_mod, '_detect', self._detect('rate_limited')):
+    bot = self._dagger_bot('chat', free_seq=[20, 20])
+    with mock.patch.object(esbot_mod, '_detect', types.SimpleNamespace(
+        chat_buy_result=lambda b: 'rate_limited')):
       bot.runHack()
-    self.assertEqual(bot._dolche_gekauft, 0)          # NICHT gezaehlt
-    self.assertEqual(bot.state, EnergiesplitterBot.ST_BUY_ONE_DOLCH)  # erneut
+    self.assertEqual(bot._dolche_gekauft, 0)
+    self.assertEqual(bot.state, EnergiesplitterBot.ST_BUY_ONE_DOLCH)
     self.assertEqual(bot._buy_rl_streak, 1)
-    self.assertTrue(bot.botting)                      # KEIN harter Stop
+    self.assertTrue(bot.botting)
 
   def test_chat_unknown_streak_processes_not_stops(self):
+    # Nichts gelandet, kein Rate-Limit erkannt -> 'unknown'; an der Streak-Schwelle
+    # wird das bisher Gekaufte verarbeitet statt hart zu stoppen.
     _reset_input()
-    bot = self._dagger_bot('chat')
+    bot = self._dagger_bot('chat', free_seq=[20, 20])
     bot.BUY_RATELIMIT_MAX = 2
     bot._buy_rl_streak = 1     # dieser Versuch erreicht die Schwelle (2)
-    with mock.patch.object(esbot_mod, '_detect', self._detect(None)):
+    with mock.patch.object(esbot_mod, '_detect', types.SimpleNamespace(
+        chat_buy_result=lambda b: None)):
       bot.runHack()
-    self.assertTrue(bot.botting)                      # NICHT hart gestoppt
+    self.assertTrue(bot.botting)
     self.assertEqual(bot.state, EnergiesplitterBot.ST_PROCESS_DRAG)
 
-  def test_click_mode_needs_no_detect(self):
+  def test_click_mode_needs_no_landing_check(self):
+    # Klick-Modus: keine Landungs-/Chat-Pruefung -> sofort gezaehlt.
     _reset_input()
     bot = self._dagger_bot('click')
-    bot.runHack()                                     # kein _detect noetig
+    bot.runHack()
     self.assertEqual(bot._dolche_gekauft, 1)
     self.assertEqual(bot.state, EnergiesplitterBot.ST_PROCESS_DRAG)
 

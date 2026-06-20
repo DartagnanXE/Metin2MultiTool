@@ -3,6 +3,23 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.4.2] — 2026-06-20
+
+### Energiesplitter: Dolch-Kauf-Verifikation robust + schnell (Fixes)
+
+- **Fix „kauft endlos trotz 1 eingestellt":** Im Chat-Modus lieferte die
+  Quittungs-Erkennung bei schnellem Kauf `unknown` (identische „Yang"-Zeilen →
+  Vorher/Nachher-Signatur sah keine Änderung), obwohl die Käufe **landeten** →
+  endloses Re-Buying. **Neu:** Erfolg = **ein Dolch ist gelandet** (freie Slots
+  auf Seite 1 gesunken) — robust + schnell, unabhängig vom Chat-Wirrwarr. Gekauft
+  wird nur mit freiem Seite-1-Slot, also ist die Landung immer sichtbar. Der Chat
+  wird nur noch fürs **Rate-Limit** (`Bitte später erneut`) gelesen.
+- **Schneller:** kein sekundenlanges Chat-Warten mehr pro Kauf (Landung rendert
+  < 0,5 s). Der Dolch-Kauf zeigt **kein** Bestätigungsfenster → der Confirm-Poll
+  dreht nicht mehr ins Leere (Einzel-Check statt Poll-Spin).
+- **Fix UI:** „Kauf-Tempo" speicherte Nachkommastellen nicht (z.B. 0.15 → 0),
+  weil das Feld nicht als Float behandelt wurde. Jetzt korrekt als Float.
+
 ## [1.4.1] — 2026-06-20
 
 ### Energiesplitter: deutlich schnellerer Dolch-Kauf (Erkennung statt Blind-Warten)

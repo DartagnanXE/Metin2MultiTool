@@ -198,8 +198,9 @@ class DaggerFlowMixin:
       return
     self._dolch_shop_slot = slot
 
-    # Chat-Modus: Vorher-Signatur des Chats merken (fuer "neue Zeile?"-Diff).
-    chat_sig = self._chat_sig()
+    # Chat-Modus: freie Slots VOR dem Kauf merken -> Erfolg = Dolch gelandet
+    # (freie Slots gesunken). Schnell + robust, unabhaengig vom Chat-Wirrwarr.
+    free_before = self._free_slot_count() if self.buy_mode == 'chat' else 0
     try:
       verb = ('[SIM] wuerde' if self._guarded() else 'SCHARF:')
       log.event(self.state, verb + ' Dolch rechtsklicken (Kauf)', ziel=tuple(slot))
@@ -207,11 +208,12 @@ class DaggerFlowMixin:
       pass
     self._right_click(*slot)
     self.actions_done += 1
-    # Kauf-Bestaetigung: poll-instant 'Ja' (Erkennung -> SOFORT klicken; ersetzt
-    # das fixe 0.4s-Blind-Warten -> deutlich schnellerer Kauf, v.a. im Chat-Modus).
-    self._confirm_buy_polled()
+    # Kauf-Bestaetigung: EINMAL pruefen + 'Ja' falls vorhanden. Der Dolch-Kauf
+    # zeigt KEIN Bestaetigungsfenster (nur das Zerlegen tut das) -> hier KEIN
+    # Poll-Spin (der wuerde sonst pro Kauf bis zum Timeout ins Leere drehen).
+    self._confirm_buy_if_present()
 
-    result = self._verify_buy(chat_sig)
+    result = self._verify_buy(free_before)
     if result in ('rate_limited', 'unknown'):
       # Zu schnell / keine Quittung -> Backoff, NICHT zaehlen, denselben Dolch
       # erneut (Rate-Limit ist transient -> KEIN harter Stop).

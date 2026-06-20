@@ -62,7 +62,7 @@ class BridgesMixin:
   def _has_free_slot(self) -> bool:
     return self._free_slot_count() > 0
 
-  def _free_slot_count(self) -> int:
+  def _free_slot_count(self, quiet=False) -> int:
     if _b._detect is None or not hasattr(_b._detect, 'free_slot_count'):
       return 0
     bgr = self._shot()
@@ -73,10 +73,11 @@ class BridgesMixin:
       free = max(0, int(_b._detect.free_slot_count(bgr)))
     except Exception:  # pragma: no cover
       free = 0
-    try:
-      log.event(self.state, 'WAHRNEHMUNG: Inventar-Scan (freie Slots)', frei=free)
-    except Exception:  # pragma: no cover
-      pass
+    if not quiet:   # im Landungs-Poll (verify) wird quiet=True genutzt -> kein Spam
+      try:
+        log.event(self.state, 'WAHRNEHMUNG: Inventar-Scan (freie Slots)', frei=free)
+      except Exception:  # pragma: no cover
+        pass
     return free
 
   def _bag_count_measurable(self) -> bool:

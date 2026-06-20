@@ -107,7 +107,7 @@ class EnergiesplitterViewMixin:
     self._es_buy_delay_var = ctk.StringVar(value='0.35')
     r = self._es_row(bd, r, t('ui.es_buy_delay_label'),
                      self._es_entry('dagger', 'buy_delay_s',
-                                    self._es_buy_delay_var, bd))
+                                    self._es_buy_delay_var, bd, is_float=True))
 
     # -- Section: Sicherheit ------------------------------------------------
     sec_s = Section(scroll, t('ui.es_group_safety'))

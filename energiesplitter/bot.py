@@ -151,10 +151,11 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
   # Wartezeit, damit der Kauf-Bestaetigungsdialog ('Ja'/'Nein') erscheint bzw.
   # der Kauf verarbeitet wird (Tests setzen 0).
   BUY_CONFIRM_SETTLE_S = 0.4
-  # Chat-Verifikations-Modus: max. Wartezeit auf die Chat-Quittung nach einem
-  # Kaufklick, bevor der Versuch als 'unklar' (-> Backoff/Retry) gilt. Pro Frame
-  # wird ein FRISCHES Capture gegen die Vorher-Signatur geprueft (Tests setzen 0).
-  BUY_CHAT_TIMEOUT_S = 1.5
+  # Chat-Modus: max. Wartezeit, bis ein gekaufter Dolch im Inventar LANDET (freie
+  # Slots sinken), bevor der Versuch als blockiert (-> Backoff/Retry) gilt. Der
+  # Dolch rendert i.d.R. < 0.5s -> 0.7s deckt das mit Polster, haelt aber den Kauf
+  # schnell (kein sekundenlanges Chat-Warten mehr). Tests setzen 0.
+  BUY_VERIFY_TIMEOUT_S = 0.7
   # Poll-Intervall fuer die Chat-Verifikation (Frame-Takt). Tests setzen 0.
   DETECT_POLL_INTERVAL_S = 0.03
   # Erkennung-vor-Aktion (zeitlich): statt fix BUY_CONFIRM_SETTLE_S zu warten, wird
@@ -833,47 +834,42 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
     """Zerlege-Bestaetigung: pollt -> klickt 'Ja' SOFORT bei Erkennung. Wirft NIE."""
     return self._poll_confirm(self._confirm_dismantle_if_present, timeout_s)
 
-  def _chat_sig(self):
-    """Vorher-Signatur des Chat-ROI (fuer die Chat-Verifikation: ist NACH dem Kauf
-    eine NEUE Zeile dazugekommen?). ``None`` ausserhalb des Chat-Modus / ohne
-    Detektor. Wirft NIE."""
-    if self.buy_mode != 'chat' or _detect is None \
-        or not hasattr(_detect, 'chat_signature'):
-      return None
-    try:
-      return _detect.chat_signature(self._shot())
-    except Exception:  # pragma: no cover - defensiv
-      return None
-
-  def _verify_buy(self, chat_sig):
+  def _verify_buy(self, free_before):
     """Verifiziert EINEN Dolch-Kauf je nach Modus. Liefert:
       * ``'ok'``           -- Kauf erfolgreich (zaehlen, naechster Dolch),
       * ``'rate_limited'`` -- zu schnell gekauft (Backoff + denselben Dolch erneut),
-      * ``'unknown'``      -- keine Quittung erkannt (wie rate_limited behandeln).
+      * ``'unknown'``      -- nicht gelandet, kein Rate-Limit erkannt (Backoff).
 
-    ``click``-Modus: KEINE Erkennung -> immer ``'ok'`` (rein klickbasiert, der
-    Tempo-Delay haelt unter dem Limit; robust bei mehreren Inventarseiten).
-    ``chat``-Modus: pollt bis sich der Chat ggue. ``chat_sig`` AENDERT (neue Zeile)
-    und klassifiziert dann die NEUESTE Quittung (Vorher/Nachher -> loest alt/neu).
-    Wirft NIE."""
+    ``click``-Modus: KEINE Erkennung -> immer ``'ok'`` (rein klickbasiert, Tempo
+    haelt unter dem Limit; robust bei mehreren Inventarseiten).
+
+    ``chat``-Modus: ERFOLG = ein Dolch ist GELANDET -> freie Slots auf Seite 1
+    GESUNKEN ggue. ``free_before``. Das ist der robuste + schnelle Beleg (gekauft
+    wird nur mit freiem Seite-1-Slot -> die Landung ist auf Seite 1 sichtbar),
+    UNABHAENGIG vom fortlaufenden/identischen Chat. Landet binnen
+    ``BUY_VERIFY_TIMEOUT_S`` nichts -> war der Kauf blockiert; der Chat wird dann
+    nur noch gelesen, um 'rate_limited' (zu schnell) sauber zu loggen. Wirft NIE."""
     if self.buy_mode != 'chat':
       return 'ok'
-    if _detect is None or not hasattr(_detect, 'chat_buy_result'):
-      return 'ok'  # ohne Detektor nicht blockieren (klick-aequivalent)
-    deadline = time.monotonic() + max(0.0, float(self.BUY_CHAT_TIMEOUT_S))
+    deadline = time.monotonic() + max(0.0, float(self.BUY_VERIFY_TIMEOUT_S))
     while True:
-      shot = self._shot()
       try:
-        changed = (chat_sig is None) or _detect.chat_changed(
-            chat_sig, _detect.chat_signature(shot))
-        res = _detect.chat_buy_result(shot) if changed else None
+        if self._free_slot_count(quiet=True) < int(free_before):
+          return 'ok'   # ein Dolch ist gelandet -> Kauf erfolgreich
       except Exception:  # pragma: no cover - defensiv
-        res = None
-      if res in ('ok', 'rate_limited'):
-        return res
+        pass
       if time.monotonic() >= deadline:
-        return 'unknown'
+        break
       time.sleep(max(0.0, float(self.DETECT_POLL_INTERVAL_S)))
+    # Nichts gelandet -> blockiert. Chat lesen, um Rate-Limit vs. unklar zu trennen
+    # (Aktion ist in beiden Faellen Backoff+Retry; nur fuers Log getrennt).
+    try:
+      if _detect is not None and hasattr(_detect, 'chat_buy_result') \
+          and _detect.chat_buy_result(self._shot()) == 'rate_limited':
+        return 'rate_limited'
+    except Exception:  # pragma: no cover - defensiv
+      pass
+    return 'unknown'
 
   def _close_shop(self):
     """Schliesst ein offenes Shop-/Dialogfenster (Taste ESC). NOETIG vor dem
