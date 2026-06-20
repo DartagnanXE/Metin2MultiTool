@@ -3,6 +3,27 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.2.34] — 2026-06-20
+
+### Energiesplitter: „Inventar nicht erkannt / Tasche konnte nicht geöffnet werden" behoben (Titelleisten-Offset)
+
+- **Symptom.** Nach dem Aufräumen des (vollen) Inventars stoppte der Bot sofort
+  mit `inventory_not_open` — „Tasche konnte nicht geöffnet werden" —, obwohl das
+  Inventar **offen** war.
+- **Ursache.** Die Inventar-„offen?"-Prüfung nutzt die bewährte Angel-Open-Probe
+  (Abgleich der vier Seiten-Reiter I–IV). Diese externe Probe bekam ein **rohes
+  Kamera-Bild inklusive der ~31 px Windows-Titelleiste** und tastete die
+  Reiter-Reihe dadurch **31 px zu weit oben** ab → 0 von 4 Reitern erkannt →
+  fälschlich „zu". Die eigentlichen Energiesplitter-Detektoren normieren intern
+  selbst auf den 800×600-Client — **nur die Open-Probe nicht**.
+- **Fix.** Die Open-Probe bekommt jetzt ein **auf den 800×600-Client normiertes
+  Bild** (Titelleiste/Rahmen entfernt). Am echten Screenshot belegt: roh **0/4**
+  (zu) → normiert **3/4** (offen). Die Normierung ist idempotent — ein bereits
+  korrekt zugeschnittenes Bild bleibt unverändert, der bisher funktionierende
+  Fall ändert sich nicht.
+- 3 neue Tests (Titelleisten-Normierung + End-to-end-Offen-Erkennung am echten
+  Vollfenster-Bild + Gegenprobe roh-vs-normiert).
+
 ## [1.2.33] — 2026-06-20
 
 ### Energiesplitter (Dolch-Modus): Zerlege-Bestätigung + „hört bei vollem Beutel auf zu kaufen"

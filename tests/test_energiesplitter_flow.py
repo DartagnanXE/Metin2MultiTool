@@ -1203,5 +1203,68 @@ class TestApproachNpcBirdseyeDrag(unittest.TestCase):
     self.assertEqual(bot._npc_tries, 0)
 
 
+class TestInventoryOpenProbeTitlebar(unittest.TestCase):
+  """Regression (Live-Bug 2026-06-20): bei vollem Beutel meldete der Bot
+  faelschlich 'inventory_not_open', obwohl das Inventar offen war. Ursache: die
+  externe Angel-Open-Probe bekam ein ROHES Frame MIT Windows-Titelleiste und
+  sampelte die Tab-Reihe 31px zu hoch (0/4). _client_shot normiert jetzt auf den
+  800x600-Client (Titelleiste weg) -> 3/4 -> offen erkannt."""
+
+  _FIX = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                      'fixtures', 'energiesplitter')
+
+  def _full_window_open_inventory(self):
+    try:
+      import cv2
+    except Exception:
+      self.skipTest('cv2 nicht verfuegbar')
+    path = os.path.join(self._FIX, 'inventory_open_full_window.png')
+    img = cv2.imread(path)
+    if img is None:
+      self.skipTest('fixture fehlt: %s' % path)
+    return img
+
+  def test_client_shot_strips_titlebar(self):
+    # _client_shot muss ein 802x632-Vollfenster auf 800x600-Client normieren.
+    img = self._full_window_open_inventory()
+    self.assertEqual(img.shape[:2], (632, 802))   # Vollfenster MIT Titelleiste
+    bot = _make_bot(mode=MODE_DAGGER)
+    bot._shot = lambda: img
+    client = bot._client_shot()
+    self.assertEqual(client.shape[:2], (600, 800))  # Titelleiste/Rahmen weg
+
+  def test_ensure_open_true_on_full_window_open_inventory(self):
+    # End-to-end mit der ECHTEN Open-Probe + echten Tab-Templates + echter
+    # Inventar-Kalibrierung: offenes (volles) Inventar wird als offen erkannt,
+    # OHNE die Toggle-Taste zu druecken (sonst wuerde der Bot es schliessen).
+    if esbot_mod._open_probe is None or esbot_mod._INV_CALIB is None:
+      self.skipTest('Angel-Inventar-Paket (open_probe/INV_CALIB) nicht verfuegbar')
+    img = self._full_window_open_inventory()
+    _reset_input()
+    bot = _make_bot(mode=MODE_DAGGER)
+    _arm(bot)
+    bot.botting = True
+    bot._shot = lambda: img
+    ok = bot._ensure_inventory_open()
+    self.assertTrue(ok)                              # offen erkannt
+    self.assertTrue(bot.botting)                     # NICHT gestoppt
+    self.assertNotEqual(getattr(bot, '_stop_reason', None), 'inventory_not_open')
+    self.assertEqual(_INPUT_CALLS['keyDown'], 0)     # KEINE Toggle-Taste gedrueckt
+
+  def test_ensure_open_would_fail_without_normalisation(self):
+    # Gegenprobe: die rohe (un-normierte) Probe auf demselben Vollfenster-Frame
+    # liefert NICHT offen -> belegt, dass die Titelleisten-Normierung der Fix ist.
+    if esbot_mod._open_probe is None or esbot_mod._INV_CALIB is None:
+      self.skipTest('Angel-Inventar-Paket nicht verfuegbar')
+    img = self._full_window_open_inventory()
+    raw = esbot_mod._open_probe.probe_open(img, esbot_mod._INV_CALIB)
+    self.assertIsNotNone(raw)
+    self.assertFalse(raw[0])                          # roh (mit Titelleiste): zu
+    # ... und normiert (Titelleiste weg) ist es offen:
+    client = esbot_mod._geometry.to_client(img)
+    norm = esbot_mod._open_probe.probe_open(client, esbot_mod._INV_CALIB)
+    self.assertTrue(norm[0])
+
+
 if __name__ == '__main__':
   unittest.main()

@@ -592,6 +592,27 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
     except Exception:  # pragma: no cover - defensiv
       return None
 
+  def _client_shot(self):
+    """Wie :meth:`_shot`, aber auf den 800x600-CLIENT normiert (Windows-
+    Titelleiste/Rahmen weg).
+
+    NOETIG fuer die Angel-Inventar-Open-Probe (``inventory.open_probe``): deren
+    Tab-Kalibrierung (z.B. Tab 'I' bei CLIENT-(654,231)) gilt im 800x600-Client-
+    System. Ein rohes ``_shot()`` kann die ~31px-Titelleiste enthalten -> die
+    Probe sampelt die Tab-Reihe 31px zu HOCH -> 0/4 Tabs -> faelschlich
+    'inventory_not_open' (Live-Bug 2026-06-20, am echten Bild belegt: roh 0/4 vs.
+    normiert 3/4). Die ``detect.py``-Detektoren normieren intern selbst; die
+    EXTERNE Probe nicht -> hier explizit. ``to_client`` ist idempotent auf einem
+    bereits 800x600 grossen Frame -> der bisher funktionierende Fall bleibt
+    unveraendert. Wirft NIE."""
+    bgr = self._shot()
+    if _geometry is None or bgr is None:
+      return bgr
+    try:
+      return _geometry.to_client(bgr)
+    except Exception:  # pragma: no cover - defensiv
+      return bgr
+
   def _snapshot(self, name):
     bgr = self._shot()
     try:
@@ -647,7 +668,7 @@ class EnergiesplitterBot(HammerFlowMixin, DaggerFlowMixin, BridgesMixin):
       return True  # headless/ohne Inventar-Paket: nicht blockieren (GATE deckt ab)
     try:
       res = _open_probe.ensure_inventory_open(
-          capture_fn=self._shot,
+          capture_fn=self._client_shot,   # CLIENT-normiert (Titelleiste weg, s.u.)
           press_fn=lambda: self._press_key(self.inventory_hotkey),
           calib=_INV_CALIB)
     except Exception:  # pragma: no cover - Probe-Fehler nie zum Stop eskalieren
