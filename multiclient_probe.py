@@ -4,6 +4,15 @@
 EIGENSTAENDIGES Diagnose-Tool -- fasst den Bot NICHT an. Klaert vor jedem
 Refactor die zwei teuren Unbekannten fuer "4 Clients parallel ohne Injection":
 
+.. WARNUNG -- NICHT DOKTRIN-KONFORM, NIE IN DEN BOT-PFAD ZIEHEN:
+   Dieses Tool nutzt experimentell ``PostMessageW``/``SendMessageW`` (Background-
+   Message-Injection) und ``SetCursorPos``/``mouse_event``. Das ist NICHT die
+   anti-cheat-neutrale Linie des Bots (rein externer Screenshot/OCR + user32-
+   READS + pydirectinput). Es wird bewusst NIRGENDS importiert. Der Shipping-Pfad
+   ist CursorClient -> BrokerServer -> pydirectinput (echter OS-Cursor). Diese
+   Datei bleibt reines Mess-/Diagnose-Artefakt -- nicht in Worker/Launcher/GUI
+   verdrahten (Review-Finding LOW, 2026-06-23).
+
   1. INPUT  -- Reagiert ein NICHT-fokussierter Metin2-Client auf PostMessage-
                Klicks? (Kernfrage von Plan 2 / "kein Fenster-Flackern".)
   2. CAPTURE-- Liefert die ECHTE Capture-Methode des Bots (GetWindowDC+BitBlt,
