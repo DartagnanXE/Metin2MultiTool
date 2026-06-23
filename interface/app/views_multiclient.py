@@ -207,9 +207,14 @@ class MulticlientViewMixin:
             return set()
 
     def _mc_begin_mark(self, i):
-        """Klick-Erfassung fuer Slot ``i`` scharf schalten + Poll-Schleife starten."""
+        """Klick-Erfassung fuer Slot ``i`` scharf schalten + Poll-Schleife starten.
+
+        Erneuter Klick auf denselben Knopf (oder Esc) bricht eine laufende
+        Erfassung ab."""
         if self._mc_capture is not None:
-            return  # bereits eine Erfassung aktiv
+            # Re-Klick = Abbruch (egal welcher Slot); sonst ignorieren.
+            self._mc_finish_mark(None)
+            return
         if not self._mc_game_hwnds():
             self._mc_set_status(t('ui.mc_no_windows'))
             return
@@ -224,6 +229,13 @@ class MulticlientViewMixin:
                 btn.configure(text=t('ui.mc_mark_active'), state='normal')
             except Exception:
                 pass
+        # Esc bricht die Erfassung ab (wie im Hinweistext versprochen).
+        try:
+            self._mc_esc_bind = self.bind('<Escape>',
+                                          lambda _e: self._mc_finish_mark(None),
+                                          add='+')
+        except Exception:
+            self._mc_esc_bind = None
         self._mc_set_status(t('ui.mc_mark_active'))
         self._mc_poll_mark()
 
@@ -249,9 +261,17 @@ class MulticlientViewMixin:
 
     def _mc_finish_mark(self, hwnd):
         """Erfassung abschliessen: HWND zuweisen (oder abbrechen), UI zuruecksetzen."""
+        if self._mc_capture is None:
+            return  # bereits abgeschlossen (Esc + Klick koennten doppelt feuern)
         i = self._mc_capture_idx
         self._mc_capture = None
         self._mc_capture_idx = None
+        try:
+            if getattr(self, '_mc_esc_bind', None):
+                self.unbind('<Escape>', self._mc_esc_bind)
+            self._mc_esc_bind = None
+        except Exception:
+            pass
         btn = self._mc_mark_btns.get(i) if i is not None else None
         if btn is not None:
             try:
