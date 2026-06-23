@@ -1,4 +1,4 @@
-"""Single-Window-UI fuer den Metin2 Fishing Bot (CustomTkinter, "Cockpit Sidebar").
+"""Single-Window-UI fuer den Metin2 MultiTool (CustomTkinter, "Cockpit Sidebar").
 
 Layout (Blueprint variant3_final.html, in CTk uebersetzt):
   * Kompaktes, FIXES Fenster (~470px breit) -- DARK + Teal, KEIN Scrollen.
@@ -48,6 +48,7 @@ from interface.app.views_run import FishingPuzzleConsoleViewsMixin
 from interface.app.views_inventory import InventoryViewMixin
 from interface.app.views_seher import SeherViewMixin
 from interface.app.views_energiesplitter import EnergiesplitterViewMixin
+from interface.app.views_multiclient import MulticlientViewMixin
 from interface.app.views_ranking import RankingViewMixin
 from interface.app.builders import RowBuildersMixin
 from interface.app.run_control import RunControlMixin
@@ -76,6 +77,7 @@ class App(
     InventoryViewMixin,
     SeherViewMixin,
     EnergiesplitterViewMixin,
+    MulticlientViewMixin,
     FishingPuzzleConsoleViewsMixin,
     ConfigWidgetsMixin,
     WindowPickerMixin,
@@ -203,10 +205,16 @@ class App(
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)   # Shell waechst
 
-        self._active_view = self._cfg['mode']
+        # Start IMMER auf der Fishing-Ansicht (User-Wunsch). Der gespeicherte
+        # ``mode`` ist ein RUN-Modus (fishing/puzzle/energiesplitter_hammer/
+        # _dagger) -- KEIN View-Name. Frueher wurde er direkt an ``_show_view``
+        # gereicht: bei ``energiesplitter_hammer`` matchte kein View -> ALLE
+        # Frames ausgeblendet -> leere Startseite. Wir starten daher fest auf
+        # 'fishing'; ``_show_view`` mappt unbekannte Namen zusaetzlich defensiv.
+        self._active_view = 'fishing'
         self._build_content()
         self._build_footer()       # Version + EN|DE-Umschalter unten (row 2)
-        self._show_view(self._cfg['mode'])
+        self._show_view('fishing')
 
         self._apply_config_to_widgets()
         self._apply_window_prefs()
@@ -303,6 +311,13 @@ class App(
 
     def _show_view(self, view):
         """Tauscht die sichtbare Ansicht + setzt (im Leerlauf) den Lauf-Modus."""
+        # Defensive: ein unbekannter View-Name (z.B. der RUN-Modus
+        # 'energiesplitter_hammer'/'_dagger' aus der gespeicherten Config) wuerde
+        # sonst ALLE Frames ausblenden -> leere Seite. Auf den realen View mappen
+        # (energiesplitter_* -> 'energiesplitter'), sonst sicher auf 'fishing'.
+        if view not in self._views:
+            view = ('energiesplitter' if str(view).startswith('energiesplitter')
+                    else 'fishing')
         self._active_view = view
         for name, frame in self._views.items():
             if name == view:

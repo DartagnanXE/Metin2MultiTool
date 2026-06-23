@@ -86,11 +86,10 @@ class ShellMixin:
         rail.grid(row=0, column=0, sticky='ns')
         rail.grid_propagate(False)
         rail.grid_columnconfigure(0, weight=1)
-        # Top-Gruppe Fishing/Puzzle/Inventory/Ranking/Roadmap/Console (rows 0-5);
-        # Inventory sitzt direkt unter Puzzle (regulaere Sektion). Die Spacer-Zeile
-        # (row 7) waechst und drueckt das unten angepinnte Settings (row 8) nach
-        # unten.
-        rail.grid_rowconfigure(8, weight=1)
+        # Top-Gruppe (rows 0-8: Fishing/Puzzle/Inventory/Seher/Energie/Multiclient/
+        # Ranking/Roadmap/Console). Die Spacer-Zeile (row 9) waechst und drueckt das
+        # unten angepinnte Settings (row 10) nach unten.
+        rail.grid_rowconfigure(9, weight=1)
 
         self._rail_items = {}
         self._rail_dots = {}
@@ -101,13 +100,14 @@ class ShellMixin:
         # WICHTIG: JEDER Eintrag in RAIL_ORDER (_common.py) MUSS hier eine Zeile
         # haben -- sonst fehlt das Item (defensiv via .get: kein App-Crash mehr).
         rows = {'fishing': 0, 'puzzle': 1, 'inventory': 2, 'seher': 3,
-                'energiesplitter': 4, 'ranking': 5, 'roadmap': 6, 'console': 7,
-                'settings': 9}
+                'energiesplitter': 4, 'multiclient': 5, 'ranking': 6,
+                'roadmap': 7, 'console': 8, 'settings': 10}
         tip_keys = {'fishing': 'ui.view_fishing', 'puzzle': 'ui.view_puzzle',
                     'console': 'ui.view_console',
                     'inventory': 'ui.view_inventory',
                     'seher': 'ui.view_seher',
                     'energiesplitter': 'ui.view_energiesplitter',
+                    'multiclient': 'ui.view_multiclient',
                     'ranking': 'ui.view_ranking',
                     'roadmap': 'ui.view_roadmap',
                     'settings': 'ui.view_settings'}
@@ -183,6 +183,7 @@ class ShellMixin:
         self._build_inventory_view(self.panel_wrap)
         self._build_seher_view(self.panel_wrap)
         self._build_energiesplitter_view(self.panel_wrap)
+        self._build_multiclient_view(self.panel_wrap)
         self._build_ranking_view(self.panel_wrap)
         self._build_roadmap_view(self.panel_wrap)
         self._build_settings_view(self.panel_wrap)
