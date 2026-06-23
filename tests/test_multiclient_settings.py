@@ -207,6 +207,23 @@ class TestConfigValidateIntegration:
         assert out['multiclient']['clients'] == []
 
 
+class TestPruneToLive:
+    def test_resets_stale_hwnd_keeps_mode(self):
+        slots = [mc.ClientSlot(mode='puzzle', hwnd=111),
+                 mc.ClientSlot(mode='seher', hwnd=222)]
+        out = mc.prune_to_live(slots, {111})   # 222 ist weg
+        assert out[0].hwnd == 111
+        assert out[1].hwnd is None
+        assert out[1].mode == 'seher'          # Modus bleibt erhalten
+
+    def test_keeps_unmarked_and_is_immutable(self):
+        slots = [mc.ClientSlot(hwnd=None), mc.ClientSlot(hwnd=5)]
+        out = mc.prune_to_live(slots, set())   # nichts live
+        assert out[0].hwnd is None
+        assert out[1].hwnd is None
+        assert slots[1].hwnd == 5              # Original unveraendert
+
+
 class TestSpecs:
     def test_specs_only_active_marked(self):
         slots = [mc.ClientSlot(mode='fischen', hwnd=1),

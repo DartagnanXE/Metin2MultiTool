@@ -100,6 +100,30 @@ class TestBurstHappyPath(unittest.TestCase):
         self.assertEqual(inp.log[-2:], [('mouseUp', 'left'), ('mouseUp', 'right')])
 
 
+class TestAcquireFailureCancels(unittest.TestCase):
+    """Review HIGH #2: schlaegt acquire fehl (Timeout/Pipe), muss _run trotzdem
+    ein release() schicken (Geister-Lease verwerfen) und den Fehler weiterreichen.
+    Frueher stand acquire VOR dem try -> finally/release lief nie."""
+
+    def test_acquire_timeout_sends_release_and_reraises(self):
+        inp = FakeInput()
+        released = []
+
+        def boom(idx, holds):
+            raise TimeoutError('grant timeout')
+
+        c = cc.CursorClient(
+            idx=3, hwnd=42, to_screen=lambda cx, cy: (cx, cy),
+            acquire=boom, release=lambda i: released.append(i),
+            inp=inp, foreground_fn=lambda: 42,
+            activate_fn=lambda h: None, stop_check=lambda: False,
+            sleep=lambda s: None, needs_activation=False)
+        with self.assertRaises(TimeoutError):
+            c.click(1, 2)
+        self.assertEqual(released, [3])              # Cancel trotz Acquire-Fail
+        self.assertNotIn(('click', 'left'), inp.log)  # kein Klick passiert
+
+
 class TestSingleClientLegacyMode(unittest.TestCase):
     """needs_activation=False -> KEINE Aktivierung/Fokus-Gate (legacy-identisch)."""
 

@@ -104,10 +104,17 @@ class MulticlientViewMixin:
         self._mc_rebuild_rows()
 
     def _mc_persist(self):
-        """Aktuelle Slots/Anzahl in config['multiclient'] schreiben (Auto-Save)."""
+        """Aktuelle Slots/Anzahl in config['multiclient'] schreiben (Auto-Save).
+
+        Erhaelt ``auto_restart`` aus der bestehenden Config (Review HIGH #1: frueher
+        nicht mitgeschrieben -> bei jedem Slot-Save auf False zurueckgefallen)."""
         try:
-            data = mcfg.config_from_slots(self._mc_slots, self._mc_count)
+            cur = self.controller.current_config()
+            auto = bool(cur.get('multiclient', {}).get('auto_restart', False))
+            data = mcfg.config_from_slots(self._mc_slots, self._mc_count, auto)
             self.controller.update_config('multiclient', 'count', data['count'])
+            self.controller.update_config('multiclient', 'auto_restart',
+                                          data['auto_restart'])
             self.controller.update_config('multiclient', 'clients', data['clients'])
         except Exception:
             pass
@@ -314,6 +321,17 @@ class MulticlientViewMixin:
         if self._mc_running:
             self._mc_stop_all()
             return
+        # Stale/recycelte HWNDs aussortieren: ein markiertes Fenster koennte seit
+        # dem Markieren geschlossen (oder die HWND neu vergeben) worden sein
+        # (Review MEDIUM #4). Gegen die LIVE-Fensterliste pruefen, betroffene Slots
+        # auf unmarkiert zuruecksetzen, persistieren, UI auffrischen.
+        live = self._mc_game_hwnds()
+        pruned = mcfg.prune_to_live(self._mc_slots, live)
+        if pruned != self._mc_slots:
+            self._mc_slots = pruned
+            self._mc_persist()
+            for j in range(self._mc_count):
+                self._mc_refresh_row(j)
         if not mcfg.is_ready(self._mc_slots, self._mc_count):
             self._mc_set_status(t('ui.mc_not_ready'))
             return

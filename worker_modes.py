@@ -75,7 +75,19 @@ def _drive_tick_bot(bot, ipc, stop_sig, args, sleep):
     bridge.start()
     try:
         while not ipc.stop_requested() and getattr(bot, 'botting', False):
-            bot.runHack()
+            try:
+                bot.runHack()
+            except TimeoutError:
+                # Transienter Lease-Grant-Timeout (Broker stark ausgelastet):
+                # diesen Tick verwerfen, der naechste fordert neu an. Den Worker
+                # NICHT sterben lassen -- sonst ist er ohne auto_restart still tot,
+                # waehrend die anderen Clients weiterlaufen (Review HIGH #2).
+                if ipc.stop_requested():
+                    break
+                sleep(TICK_S)
+                continue
+            except BrokenPipeError:
+                break              # IPC/Broker zu -> sauber beenden
             if ipc.stop_requested():
                 break
             sleep(TICK_S)

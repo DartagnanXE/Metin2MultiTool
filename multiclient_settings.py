@@ -193,6 +193,17 @@ def is_ready(slots, count):
     return not validate(slots, count)
 
 
+def prune_to_live(slots, live_hwnds):
+    """Slots, deren markiertes Fenster nicht (mehr) existiert, auf unmarkiert setzen.
+
+    Gegen stale/recycelte HWNDs (Review MEDIUM #4): vor „Alle starten" wird gegen
+    die aktuelle Fensterliste geprueft -- ein geschlossenes/neu vergebenes Fenster
+    darf NICHT bespielt werden (Windows recycelt HWNDs). Immutable."""
+    live = set(live_hwnds)
+    return [s if (s.hwnd is None or s.hwnd in live)
+            else ClientSlot(mode=s.mode, hwnd=None) for s in slots]
+
+
 def specs_from_slots(slots, count):
     """Launcher-Specs ``[(hwnd, mode), ...]`` aus den aktiven, markierten Slots.
 

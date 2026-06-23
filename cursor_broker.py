@@ -26,6 +26,7 @@ KRITISCHE INVARIANTEN (aus der adversarialen Verifikation):
 """
 
 import json
+import threading
 
 #: Default-Obergrenzen (Sekunden). Ein normaler Klick-Burst ist << 1s; der
 #: Hard-Timeout faengt nur einen HAENGENDEN Worker (Finding #2). Drags halten
@@ -141,18 +142,28 @@ class CursorBroker:
         self._send_grant = send_grant
         self._neutralize = neutralize or _default_neutralize
         self._on_revoke = on_revoke or (lambda idx, why: None)
+        # Re-entrant Lock: der BrokerServer-Thread (on_message/tick) UND der
+        # Supervisor-Main-Thread (on_eof beim Worker-Crash, supervisor.py:209)
+        # mutieren denselben Scheduler. Ohne Serialisierung -> Daten-Race auf
+        # _queue/holder (doppelte Grants, verlorenes neutralize). RLock, weil
+        # on_message -> on_acquire -> _apply re-entrant verschachtelt.
+        self._lock = threading.RLock()
 
     def on_acquire(self, idx, holds_button, now):
-        self._apply(self.sched.request(idx, holds_button, now))
+        with self._lock:
+            self._apply(self.sched.request(idx, holds_button, now))
 
     def on_release(self, idx, now):
-        self._apply(self.sched.release(idx, now))
+        with self._lock:
+            self._apply(self.sched.release(idx, now))
 
     def on_eof(self, idx, now):
-        self._apply(self.sched.drop(idx, now))
+        with self._lock:
+            self._apply(self.sched.drop(idx, now))
 
     def tick(self, now):
-        self._apply(self.sched.tick(now))
+        with self._lock:
+            self._apply(self.sched.tick(now))
 
     def on_message(self, idx, msg, now):
         """Verarbeitet eine dekodierte IPC-Nachricht eines Workers."""

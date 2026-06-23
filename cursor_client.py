@@ -116,7 +116,20 @@ class CursorClient:
 
     # -- Kern: die gehaertete Burst-Sequenz --------------------------------
     def _run(self, actions, holds_button=False):
-        self._acquire(self.idx, holds_button)
+        try:
+            self._acquire(self.idx, holds_button)
+        except Exception:
+            # Grant kam NICHT (Timeout/Pipe zu). Der Broker koennte die Anfrage
+            # noch in der Queue haben -> ein release() verwirft sie, sonst haengt
+            # spaeter eine ungenutzte Geister-Lease (blockiert die anderen, bis
+            # der Hang-Tick sie entzieht). Danach den Fehler weiterreichen, damit
+            # der Tick-Treiber entscheidet (retry vs. stop) -- ohne diese
+            # Bereinigung lief der finally-Release nie (acquire stand vor dem try).
+            try:
+                self._release(self.idx)
+            except Exception:
+                pass
+            raise
         try:
             # (Finding #1) globalen Button-State neutralisieren, BEVOR irgendetwas
             # passiert -- ein vorheriger (zwangsentzogener) Holder koennte eine

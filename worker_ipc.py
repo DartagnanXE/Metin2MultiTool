@@ -56,10 +56,20 @@ class WorkerIpc:
             self._closed.set()
             return False
 
-    def acquire(self, idx, holds_button, timeout=10.0):
+    def acquire(self, idx, holds_button, timeout=30.0):
         """Fordert die Cursor-Lease an und BLOCKIERT bis zum Grant (oder Timeout).
 
         Passt zur ``CursorClient``-Erwartung (acquire blockiert -> danach exklusiv).
+
+        Der Timeout (30s) liegt BEWUSST ueber dem Broker-Drag-Cap
+        (``cursor_broker.DRAG_HARD_TIMEOUT`` = 20s) plus Lease-Cap (5s): unter
+        normaler FIFO-Contention soll ein wartender Worker geduldig auf seinen
+        fairen Zug warten und NICHT sterben, nur weil ein anderer gerade einen
+        langen, legitimen Drag haelt. Frueher waren es 10s < 20s -> ein wartender
+        Worker konnte mitten in fremder Drag-Lease faelschlich TimeoutError
+        bekommen. Der Timeout ist reiner Backstop gegen einen WIRKLICH wedged
+        Broker. Heartbeats laufen in einem eigenen Thread
+        (worker._heartbeat_loop) -> ein langes acquire verhungert sie nicht.
         :raises TimeoutError: wenn der Broker nicht rechtzeitig grantet.
         :raises BrokenPipeError: wenn die Verbindung zu ist.
         """

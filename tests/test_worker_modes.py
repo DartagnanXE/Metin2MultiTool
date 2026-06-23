@@ -86,6 +86,40 @@ class TestRunFishingLoop(unittest.TestCase):
         self.assertTrue(bot.stop_signal.stopped)
 
 
+class _TimeoutThenOkBot:
+    """runHack wirft beim 1. Aufruf TimeoutError (transienter Lease-Timeout),
+    danach normal -- prueft, dass der Tick-Treiber den Worker NICHT toetet."""
+    def __init__(self, stop_sig):
+        self.stop_signal = stop_sig
+        self.botting = True
+        self.ran = 0
+        self.raised = False
+
+    def runHack(self):
+        if not self.raised:
+            self.raised = True
+            raise TimeoutError('lease grant timeout')
+        self.ran += 1
+        if self.ran >= 2:
+            self.botting = False
+
+
+class TestTickSurvivesLeaseTimeout(unittest.TestCase):
+    def test_timeout_does_not_kill_worker(self):
+        ipc = FakeIpc()
+
+        def build(cfg, cursor, *, stop_sig):
+            return _TimeoutThenOkBot(stop_sig)
+
+        bot = worker_modes.run_fishing(
+            cursor='CUR', ipc=ipc, args=_Args(), sleep=lambda s: None,
+            build_bot=build, config_load=lambda: {'fishing': {}})
+        self.assertTrue(bot.raised)         # Timeout trat auf
+        self.assertEqual(bot.ran, 2)        # danach normal weitergetickt
+        self.assertFalse(bot.botting)
+        self.assertTrue(bot.stop_signal.stopped)
+
+
 class TestRunPuzzleLoop(unittest.TestCase):
     def test_ticks_until_botting_false(self):
         ipc = FakeIpc()
