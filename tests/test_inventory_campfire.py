@@ -105,6 +105,36 @@ def _noop_sleep(*_a, **_k):
     return None
 
 
+class TestBirdsEyePauseParity(unittest.TestCase):
+    """Item 2 (2026-06-23): die Lagerfeuer-Vogelperspektive nutzt EXAKT die
+    Energie-Methode -- inkl. der kritischen Halte-Dauer (PAUSE=0.05). Ohne
+    gesetztes PAUSE verschluckt DirectInput die Kamera-Geste."""
+
+    def test_pause_equals_energiesplitter_value(self):
+        # Paritaet zur bewaehrten Energie-Methode (energiesplitter mouse_pause 0.05).
+        self.assertEqual(campfire.BIRDS_EYE_PAUSE, 0.05)
+
+    def test_drag_sets_birds_eye_pause_during_and_restores_after(self):
+        rec = _Recorder()
+        rec.PAUSE = 0.2                       # ambient PAUSE vor der Geste
+        seen = {}
+        orig_down = rec.mouseDown
+
+        def _md(button=None, **k):            # PAUSE im Moment des Rechtsklicks
+            seen['pause_at_rdown'] = rec.PAUSE
+            return orig_down(button=button, **k)
+
+        rec.mouseDown = _md
+        campfire._birds_eye_drag(rec, 100, 50, _noop_sleep)
+        self.assertEqual(seen['pause_at_rdown'], campfire.BIRDS_EYE_PAUSE)  # 0.05
+        self.assertEqual(rec.PAUSE, 0.2)      # ambient danach restauriert
+        self.assertIn(('rdown',), rec.events)  # rechte Taste gedrueckt ...
+        self.assertIn(('rup',), rec.events)    # ... und IMMER geloest
+        # genau die Drag-Schritte (mirror Energie: 10 Bewegungen nach unten)
+        moves = [e for e in rec.events if e[0] == 'move']
+        self.assertGreaterEqual(len(moves), campfire.BIRDS_EYE_DRAG_STEPS)
+
+
 # ---------------------------------------------------------------------------
 # Label recognition against the real reference shots
 # ---------------------------------------------------------------------------

@@ -187,6 +187,35 @@ class TestNormalizeConfig:
             {'mode': mc.DEFAULT_MODE, 'hwnd': None}]
 
 
+class TestSingleClientByteIdentity:
+    """Item 1 (2026-06-23): Mit Multiclient=1 (bzw. ungenutzt) MUSS alles wie
+    frueher laufen. Garantie: (a) die multiclient-Sektion veraendert KEINEN
+    Legacy-Key, (b) der Default startet NICHTS automatisch (der normale
+    Single-Client-Lauf wird nie vom Multiclient-Pfad angefasst -- Worker laufen
+    nur ueber 'Alle starten')."""
+
+    def test_multiclient_section_leaves_legacy_keys_untouched(self):
+        from interface.config.validate import validate as _validate
+        legacy = _validate({'mode': 'fishing', 'fishing': {'bait_time': 0.5}})
+        with_mc = _validate({'mode': 'fishing', 'fishing': {'bait_time': 0.5},
+                             'multiclient': {'count': 1, 'clients': []}})
+        legacy.pop('multiclient', None)
+        with_mc.pop('multiclient', None)
+        assert legacy == with_mc          # alle Nicht-multiclient-Keys identisch
+
+    def test_default_config_auto_starts_nothing(self):
+        slots = mc.slots_from_config({})
+        # count=1 + leere/unmarkierte clients -> KEINE Launcher-Specs -> kein Worker
+        assert mc.specs_from_slots(slots, mc.count_from_config({})) == []
+
+    def test_count_one_marked_is_still_opt_in_only(self):
+        # Selbst mit 1 markierten Client liefert die Logik nur die EINE Spec -- der
+        # Start bleibt explizit (GUI 'Alle starten'); der Legacy-Start ist
+        # multiclient-frei (kein Code ausserhalb view/launcher liest die Sektion).
+        slots = [mc.ClientSlot(mode='fischen', hwnd=4242)]
+        assert mc.specs_from_slots(slots, 1) == [(4242, 'fischen')]
+
+
 class TestConfigValidateIntegration:
     def test_validate_adds_normalized_multiclient_default(self):
         from interface.config.validate import validate as _validate

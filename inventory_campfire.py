@@ -122,6 +122,12 @@ BIRDS_EYE_DRAG_FRACTION = 0.25       # pull 25% of the client height down
 BIRDS_EYE_CLIENT_H = 600             # 800x600 client -> 150 px drag
 BIRDS_EYE_CENTER = (400, 250)        # client centre, LEFT of the bag HUD (~625)
 BIRDS_EYE_DRAG_STEPS = 10            # smooth one-sweep drag (mirrors Energiesplitter)
+#: Per-Schritt-Halte-Dauer (PAUSE) WAEHREND des Drags -- EXAKT der Wert, den
+#: energiesplitter._birdseye_drag nutzt (``mouse_pause`` = 0.05). KRITISCH fuer
+#: DirectInput: ohne ein gesetztes PAUSE liefe der Drag mit dem ambient-globalen
+#: Wert (evtl. 0) -> die Kamera-Kipp-Geste wird verschluckt. Mit diesem Wert ist
+#: die Geste byte-gleich zur bewaehrten Energie-Methode (User-Wunsch 2026-06-23).
+BIRDS_EYE_PAUSE = 0.05
 #: Camera render time AFTER the tilt, before the first label scan (the tilt is not
 #: instant). RISK SPOT: if the campfire stops finding the "Lagerfeuer" label, raise
 #: this first. Tests inject an instant ``sleep`` so it costs nothing headless.
@@ -594,7 +600,16 @@ def _birds_eye_drag(api, offset_x, offset_y, sleep):
     sx, sy = int(offset_x + cx), int(offset_y + cy)
     dy = max(1, int(BIRDS_EYE_DRAG_FRACTION * BIRDS_EYE_CLIENT_H))
     steps = max(1, int(BIRDS_EYE_DRAG_STEPS))
+    # Halte-Dauer EXAKT wie energiesplitter._birdseye_drag (PAUSE=mouse_pause):
+    # ohne dieses gesetzte PAUSE liefe der Drag mit dem ambient-globalen Wert
+    # (evtl. 0) -> DirectInput verschluckt die Kamera-Kipp-Geste. Vorher/nachher
+    # sichern + restaurieren, damit der restliche Campfire-Pfad unveraendert bleibt.
+    old_pause = getattr(api, 'PAUSE', None)
     try:
+        try:
+            api.PAUSE = BIRDS_EYE_PAUSE
+        except Exception:
+            pass
         api.moveTo(sx, sy)
         try:
             api.mouseDown(button='right')
@@ -617,6 +632,11 @@ def _birds_eye_drag(api, offset_x, offset_y, sleep):
                 pass
         except Exception:
             pass
+        if old_pause is not None:               # ambient PAUSE wiederherstellen
+            try:
+                api.PAUSE = old_pause
+            except Exception:
+                pass
 
 
 def _hold_key(api, key, hold_s, sleep):
