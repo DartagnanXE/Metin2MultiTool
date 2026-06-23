@@ -1,9 +1,19 @@
-# 🎣 Metin2 Fishing Bot
+# 🎣 Metin2 MultiTool
 
-A visual automation bot for the Metin2 fishing mini-games. It re-baits and casts
-the rod automatically while fishing, and can solve the jigsaw puzzle mini-game.
-Modern single-window UI — and every "smart" upgrade is **optional**: the original
-behaviour is fully preserved as the default.
+A visual automation suite for several Metin2 mini-games and activities, all in one
+window. It automates **fishing** (auto re-bait, cast and catch mini-game), solves
+the **jigsaw puzzle**, plays the **Duel of the Seers** (Seherwettstreit) card
+event, and runs the **Energiesplitter** (buy hammers / process daggers at the
+NPCs). Modern single-window UI — and every "smart" upgrade is **optional**: the
+original behaviour is fully preserved as the default.
+
+The **Multiclient** tab lets you run **1–4 game clients in parallel**, each with its
+own mode. To assign a client to a window — reliable even with more than 4 windows
+open — press **"Mark window"** and click the real game window; the tool resolves the
+window under your cursor and confirms it with a short flash (purely external
+user32 reads, no process access). A single physical mouse is shared safely across
+clients via a lease broker. *(Multiclient is wired and unit-tested; the live
+multi-window run still needs verification on Windows.)*
 
 > ⚠️ **Disclaimer.** For educational purposes only. Automating gameplay typically
 > violates the game's Terms of Service and may get your account banned. Use at
@@ -428,9 +438,9 @@ read=N` so it's finally visible whether a box is detected. A safety cap disables
 
 Grab the latest build from the **Releases** page:
 
-| File                         | What it is                                                        |
-| ---------------------------- | ----------------------------------------------------------------- |
-| `Metin2FishBot-Portable.exe` | **Portable** — a single file, just double-click. No installation. |
+| File                          | What it is                                                        |
+| ----------------------------- | ----------------------------------------------------------------- |
+| `Metin2MultiTool-Portable.exe` | **Portable** — a single file, just double-click. No installation. |
 
 > It is **unsigned**. Windows SmartScreen / Defender may show a generic warning
 > for any new unsigned app — see [the note below](#-why-does-defender-sometimes-flag-it).
@@ -453,7 +463,7 @@ Requires **Python 3.11–3.13 (64-bit)** on Windows.
 
 ```bat
 pip install -r requirements.txt
-build.bat            :: -> dist_onefile\Metin2FishBot.exe (the portable single file)
+build.bat            :: -> dist_onefile\Metin2MultiTool.exe (the portable single file)
 ```
 
 - **Portable single file (what `build.bat` does):** `pyinstaller --noconfirm --distpath dist_onefile Metin2FishBot_onefile.spec`
