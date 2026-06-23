@@ -34,3 +34,7 @@ realer 2–4-Client-Start (FD-Vererbung, Fokus-Gate). Headless deckt nur die Log
 ## Doktrin
 Extern/OCR only, kein Prozess-Speicher. Eingabe-/GUI-/Capture-Änderungen MÜSSEN vor
 Release live getestet werden (headless kann In-Game-Eingabe/Capture nicht validieren).
+
+## Eingehende Intentionen (vom Autopilot zu triagieren)
+- [ ] (2026-06-23T23:25:08+02:00) Metin2MultiTool Folge-Items: (1) Single-Client (Multiclient=1) MUSS byte-identisch wie frueher laufen (Legacy-Pfad absichern+testen, clean fuer Testphase); (2) Energie-Bot-Vogelperspektive vom Waffenhaendler EXAKT auch fuers Lagerfeuer im Inventory-Management nutzen (gleiche bewaehrte Kamera-Methode, Testbilder falls vorhanden); (3) Energie-Bot-Settings 'benutze Inventare 1-2-3-4' markierbar, damit der Bot weiss welche Inventar-Seiten er nutzt und wo er NICHT nachschaut.
+  -> ABGEARBEITET 2026-06-23: alle drei Items gebaut+getestet+committet; Live-Test offen (PARKED_DECISION)
