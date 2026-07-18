@@ -34,23 +34,34 @@ jobs:
           pip install --prefer-binary -r requirements.txt
           pip install --prefer-binary pytest pytest-timeout
 
-      # Executable-Gate: die reinen Logik-Tests (identisch zu dem, was lokal
-      # headless gruen ist). Die GUI-/App-Controller-Tests sind ausgeschlossen,
-      # weil sie auf dem Runner einen Event-Loop starten und HAENGEN (bekannt
-      # seit v1.5.0 -> tests.yml lief 6 h in den Timeout). --timeout killt jeden
-      # Einzeltest > 90 s, timeout-minutes killt den Job spaetestens nach 30 min.
-      - name: Tests (Logik-Gate, GUI-Haenger ausgeschlossen)
+      # Executable-Gate: POSITIV die Logik-Tests der 1.6.0-geaenderten Module
+      # (puzzle/deluxe/solver/tracker/fishing/refill/cursor). Bewusst NICHT die
+      # volle Suite: GUI-Tests (customtkinter-Event-Loop) UND der IPC-Test
+      # (test_worker_ipc: os.close(fd) blockiert auf Windows im tearDown) HAENGEN
+      # auf dem Runner -> das war der 6-h-Default-Timeout seit v1.5.0. Diese Datei-
+      # Auswahl ist rein Logik (kein GUI/IPC/app-Import) und deckt exakt den Diff
+      # ab. --timeout=90 + job-timeout-minutes sind zusaetzliche Backstops.
+      - name: Tests (Logik-Gate der 1.6.0-Aenderungen)
         run: >
-          python -m pytest tests -q -p no:cacheprovider
+          python -m pytest -q -p no:cacheprovider
           --timeout=90 --timeout-method=thread
-          --ignore=tests/test_anon_model_wiring.py
-          --ignore=tests/test_app_controller.py
-          --ignore=tests/test_config.py
-          --ignore=tests/test_gui_smoke.py
-          --ignore=tests/test_run1_ranking_view.py
-          --ignore=tests/test_run1_exit_flush.py
-          --ignore=tests/test_testwindow.py
-          --ignore=tests/test_update_periodic.py
+          tests/test_puzzle_deluxe_opportunistic.py
+          tests/test_puzzle_event_flow.py
+          tests/test_puzzle_glue.py
+          tests/test_puzzle_hardening.py
+          tests/test_puzzle_safety.py
+          tests/test_deluxe.py
+          tests/test_solver.py
+          tests/test_solver_optimality.py
+          tests/test_trained_solver.py
+          tests/test_click_tracker.py
+          tests/test_cursor_broker.py
+          tests/test_cursor_client.py
+          tests/test_fishing_chat.py
+          tests/test_fishing_click_recheck.py
+          tests/test_fishing_whitelist.py
+          tests/test_fishingbot_logic.py
+          tests/test_refill.py
 
       - name: Portable EXE bauen (PyInstaller --onefile)
         run: python -m PyInstaller --clean --noconfirm --distpath dist_onefile Metin2FishBot_onefile.spec
