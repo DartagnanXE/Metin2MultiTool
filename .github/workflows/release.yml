@@ -1,0 +1,96 @@
+name: release
+
+# Baut die portable Windows-EXE (PyInstaller --onefile, identisch zu build.bat)
+# und veroeffentlicht sie als GitHub-Release. Der In-App-Updater (updater.py)
+# zieht das Asset 'Metin2MultiTool-Portable.exe' von /releases/latest.
+#
+# Trigger: manuell (workflow_dispatch) ODER Push eines Tags 'v*'.
+# Der Tag/Titel/die Notes ergeben sich aus version.py + CHANGELOG.md.
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write # noetig fuer 'gh release create/upload/edit'
+
+jobs:
+  build-release:
+    runs-on: windows-latest
+    timeout-minutes: 30 # harter Backstop: nie in den 6-h-Default-Timeout laufen
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python 3.13 einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+          cache: pip
+
+      - name: Abhaengigkeiten installieren
+        run: |
+          python -m pip install --upgrade pip
+          pip install --prefer-binary -r requirements.txt
+          pip install --prefer-binary pytest pytest-timeout
+
+      # Executable-Gate: die reinen Logik-Tests (identisch zu dem, was lokal
+      # headless gruen ist). Die GUI-/App-Controller-Tests sind ausgeschlossen,
+      # weil sie auf dem Runner einen Event-Loop starten und HAENGEN (bekannt
+      # seit v1.5.0 -> tests.yml lief 6 h in den Timeout). --timeout killt jeden
+      # Einzeltest > 90 s, timeout-minutes killt den Job spaetestens nach 30 min.
+      - name: Tests (Logik-Gate, GUI-Haenger ausgeschlossen)
+        run: >
+          python -m pytest tests -q -p no:cacheprovider
+          --timeout=90 --timeout-method=thread
+          --ignore=tests/test_anon_model_wiring.py
+          --ignore=tests/test_app_controller.py
+          --ignore=tests/test_config.py
+          --ignore=tests/test_gui_smoke.py
+          --ignore=tests/test_run1_ranking_view.py
+          --ignore=tests/test_run1_exit_flush.py
+          --ignore=tests/test_testwindow.py
+          --ignore=tests/test_update_periodic.py
+
+      - name: Portable EXE bauen (PyInstaller --onefile)
+        run: python -m PyInstaller --clean --noconfirm --distpath dist_onefile Metin2FishBot_onefile.spec
+
+      - name: Asset benennen + Version/Notes vorbereiten
+        id: prep
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f dist_onefile/Metin2FishBot.exe || { echo "::error::PyInstaller hat dist_onefile/Metin2FishBot.exe nicht erzeugt"; exit 1; }
+          # Updater matcht exakt asset.name == 'Metin2MultiTool-Portable.exe'
+          cp dist_onefile/Metin2FishBot.exe Metin2MultiTool-Portable.exe
+          VER=$(python -c "import version; print(version.__version__)")
+          echo "tag=v${VER}" >> "$GITHUB_OUTPUT"
+          # Release-Notes = CHANGELOG-Abschnitt der aktuellen Version
+          awk -v h="## [${VER}]" 'index($0,h){f=1;next} /^## \[/{f=0} f' CHANGELOG.md > notes.md
+          if [ ! -s notes.md ]; then echo "Metin2MultiTool v${VER}" > notes.md; fi
+          echo "----- Release-Notes (${VER}) -----"
+          cat notes.md
+
+      - name: Release veroeffentlichen (idempotent)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.prep.outputs.tag }}"
+          TITLE="${TAG} — Deluxe-SOFORT + Angel-Wasser-Fix + ms-Klick-Tracker"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG existiert -> Asset ersetzen + sicher veroeffentlicht halten"
+            gh release upload "$TAG" Metin2MultiTool-Portable.exe --clobber
+            gh release edit "$TAG" --draft=false --title "$TITLE" --notes-file notes.md
+          else
+            echo "Release $TAG neu anlegen + veroeffentlichen"
+            gh release create "$TAG" \
+              --target "$GITHUB_SHA" \
+              --title "$TITLE" \
+              --notes-file notes.md \
+              Metin2MultiTool-Portable.exe
+          fi
+          echo "===== Veroeffentlichtes Release ====="
+          gh release view "$TAG" --json tagName,isDraft,isPrerelease,assets \
+            -q '"tag=" + .tagName, "draft=" + (.isDraft|tostring), "prerelease=" + (.isPrerelease|tostring), "assets=" + ([.assets[].name]|join(","))'
