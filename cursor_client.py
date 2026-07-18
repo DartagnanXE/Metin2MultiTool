@@ -69,8 +69,16 @@ class CursorClient:
         self.needs_activation = needs_activation
 
     # -- High-Level-Aktionen -----------------------------------------------
-    def click(self, cx, cy, button='left'):
+    def click(self, cx, cy, button='left', tag='other'):
         sx, sy = self._to_screen(cx, cy)
+        # DEBUG-Tracking (reines Logging, veraendert den Klick NICHT): die
+        # BILDSCHIRM-Koordinate (sx,sy) mit Pfad-Label protokollieren. Soft +
+        # absturzsicher -- die Burst-Sequenz unten bleibt byte-identisch.
+        try:
+            import click_tracker
+            click_tracker.record_click(button, sx, sy, tag=tag)
+        except Exception:
+            pass
         self._run([lambda: self._inp.moveTo(sx, sy),
                    lambda: self._inp.click(button=button)])
 
@@ -205,8 +213,10 @@ class LeasedInput:
     def set_pause(self, value):
         self._c.mouse_pause = value
 
-    def click(self, x, y, button='left'):
-        self._c.click(x, y, button=button)
+    def click(self, x, y, button='left', tag='other'):
+        # ``tag`` (DEBUG-Klick-Tracker) additiv durchreichen -- Default 'other'
+        # haelt bestehende Aufrufe byte-identisch.
+        self._c.click(x, y, button=button, tag=tag)
 
     def key(self, key):
         self._c.key(key)
@@ -252,10 +262,11 @@ class LeasedScreenCursor:
             pts = pts + [pts[0]]
         self._c.drag(pts, button=button)
 
-    def click(self, x=None, y=None, button='left'):
+    def click(self, x=None, y=None, button='left', tag='other'):
         cx, cy = (self._last if x is None or y is None
                   else (int(x), int(y)))
-        self._c.click(cx, cy, button=button)
+        # ``tag`` (DEBUG-Klick-Tracker) additiv durchreichen (Default 'other').
+        self._c.click(cx, cy, button=button, tag=tag)
 
 
 class LeasedPydirectinput(LeasedScreenCursor):
