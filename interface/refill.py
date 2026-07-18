@@ -280,17 +280,33 @@ def quickslot_is_empty(screenshot_bgr, slot_1to8, radius=QUICKSLOT_PROBE_RADIUS,
         return False
 
 
-def tab_click(inp, calib, offset_x, offset_y, page):
+def tab_click(inp, calib, offset_x, offset_y, page, tag='refill'):
     """Click an inventory page tab (I..IV) via the injected input api.
 
     Defensive (wie der ganze Refill-Pfad): ein fehlender Tab-Punkt oder ein
     Input-Fehler darf den Scan NIE abreissen -- still no-op statt Exception.
+
+    ``tag`` (DEBUG-Klick-Tracker, Angel-Lauf): Tab-Klicks sind reine UI-Klicks
+    (Inventar-Reiter) -- sie bewegen den Char NICHT. Im Multiclient laufen sie
+    ueber ``CursorClient.click`` und wuerden ohne Tag als ``tag='other'``
+    faelschlich als STRAY-CLICK erscheinen. Mit ``tag='refill'`` erkennt der
+    Tracker sie als gegateten UI-Klick. Das rohe ``pydirectinput`` (Single-
+    Client) kennt kein ``tag`` -> defensiver Fallback ohne das kwarg (Klick
+    byte-identisch; dieser Pfad ist ohnehin nicht getrackt).
     """
     try:
         pt = ((calib or {}).get('tabs', {}) or {}).get(page)
-        if pt:
-            inp.click(x=int(offset_x + pt[0]), y=int(offset_y + pt[1]),
-                      button='left')
+        if not pt:
+            return
+        x = int(offset_x + pt[0])
+        y = int(offset_y + pt[1])
+        try:
+            inp.click(x=x, y=y, button='left', tag=tag)
+        except TypeError:
+            # Backend ohne tag-kwarg (rohes pydirectinput) -> Alt-Aufruf. Die
+            # TypeError entsteht beim Argument-Binding VOR der Klick-Ausfuehrung
+            # -> kein Doppelklick.
+            inp.click(x=x, y=y, button='left')
     except Exception:
         pass
 

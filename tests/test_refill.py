@@ -321,5 +321,54 @@ class TestQuickslotEmptyDetection(unittest.TestCase):
                             'unused slot %d should read empty' % slot)
 
 
+class TestTabClickTag(unittest.TestCase):
+    """``tab_click`` gibt dem DEBUG-Klick-Tracker den Tag ``'refill'`` mit.
+
+    Die Inventar-Reiter-Klicks des Koeder-Nachlegens sind reine UI-Klicks (sie
+    bewegen den Char NICHT). Im Multiclient laufen sie ueber ``CursorClient.click``
+    und wuerden ohne Tag als ``tag='other'`` faelschlich als STRAY-CLICK erscheinen.
+    Mit ``tag='refill'`` erkennt der Tracker sie als gegateten UI-Klick. Rohes
+    ``pydirectinput`` (Single-Client) kennt kein ``tag`` -> defensiver Fallback
+    ohne das kwarg (Klick byte-identisch, dieser Pfad ist ohnehin ungetrackt).
+    """
+
+    _CALIB = {'tabs': {'I': (10, 20)}}
+
+    def test_tag_refill_passed_to_tagging_backend(self):
+        calls = []
+
+        class _Backend:      # Leased-Backend: akzeptiert tag (wie LeasedScreenCursor)
+            def click(self, x=None, y=None, button='left', tag='other'):
+                calls.append((x, y, button, tag))
+
+        refill.tab_click(_Backend(), self._CALIB, 100, 50, 'I')
+        self.assertEqual(len(calls), 1)
+        x, y, button, tag = calls[0]
+        self.assertEqual((x, y, button), (110, 70, 'left'))  # offset(100,50)+pt(10,20)
+        self.assertEqual(tag, 'refill')
+
+    def test_raw_backend_without_tag_still_clicks(self):
+        # Rohes pydirectinput akzeptiert kein tag-kwarg -> TypeError -> Fallback
+        # ohne tag; der Klick MUSS trotzdem GENAU EINMAL erfolgen (kein Doppelklick).
+        calls = []
+
+        class _RawPdi:
+            def click(self, x=None, y=None, button='left'):
+                calls.append((x, y, button))
+
+        refill.tab_click(_RawPdi(), self._CALIB, 100, 50, 'I')
+        self.assertEqual(calls, [(110, 70, 'left')])
+
+    def test_missing_tab_point_no_click(self):
+        calls = []
+
+        class _Backend:
+            def click(self, **kw):
+                calls.append(kw)
+
+        refill.tab_click(_Backend(), {'tabs': {}}, 0, 0, 'IV')
+        self.assertEqual(calls, [])
+
+
 if __name__ == '__main__':
     unittest.main()
