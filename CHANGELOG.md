@@ -3,6 +3,16 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.6.1] — 2026-07-18
+
+### Produktion: Test-Buttons aus der Live-UI entfernt
+
+- Die zwei Schaltflächen „Testfenster" / „Inv.-Testfenster" (Fake-„METIN2"-
+  Trockenlauf) sind **aus der Produktions-Oberfläche entfernt**. Das Tool läuft
+  direkt live an echte Nutzer — dort gehören keine Test-/Trockenlauf-Buttons hin.
+  Die zugrundeliegenden Module bleiben bestehen, sind aus der UI aber nicht mehr
+  erreichbar.
+
 ## [1.6.0] — 2026-07-18
 
 ### Fisch-Puzzle: Deluxe-Strategie Monte-Carlo-optimiert („SOFORT"-Modus)

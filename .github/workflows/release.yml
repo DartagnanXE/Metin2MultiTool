@@ -93,7 +93,7 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${{ steps.prep.outputs.tag }}"
-          TITLE="${TAG} — Deluxe-SOFORT + Angel-Wasser-Fix + ms-Klick-Tracker"
+          TITLE="Metin2MultiTool ${TAG}"
           if gh release view "$TAG" >/dev/null 2>&1; then
             echo "Release $TAG existiert -> Asset ersetzen + sicher veroeffentlicht halten"
             gh release upload "$TAG" Metin2MultiTool-Portable.exe --clobber
