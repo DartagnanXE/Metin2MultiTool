@@ -71,9 +71,13 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          test -f dist_onefile/Metin2FishBot.exe || { echo "::error::PyInstaller hat dist_onefile/Metin2FishBot.exe nicht erzeugt"; exit 1; }
+          # Spec: name=APP_NAME='Metin2MultiTool' -> dist_onefile/Metin2MultiTool.exe.
+          # Glob-Fallback, falls APP_NAME je wieder wechselt (genau eine .exe erwartet).
+          BUILT=$(ls -1 dist_onefile/*.exe 2>/dev/null | head -1)
+          test -n "$BUILT" || { echo "::error::PyInstaller hat keine EXE in dist_onefile/ erzeugt"; ls -la dist_onefile/ || true; exit 1; }
+          echo "Gebaute EXE: $BUILT"
           # Updater matcht exakt asset.name == 'Metin2MultiTool-Portable.exe'
-          cp dist_onefile/Metin2FishBot.exe Metin2MultiTool-Portable.exe
+          cp "$BUILT" Metin2MultiTool-Portable.exe
           VER=$(python -c "import version; print(version.__version__)")
           echo "tag=v${VER}" >> "$GITHUB_OUTPUT"
           # Release-Notes = CHANGELOG-Abschnitt der aktuellen Version
