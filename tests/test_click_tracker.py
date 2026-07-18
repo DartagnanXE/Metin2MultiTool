@@ -302,6 +302,58 @@ class TestCursorClientTagPassthrough(unittest.TestCase):
         self.assertIn(('click', 'left'), inp.log)
 
 
+class TestRefillTagClassification(unittest.TestCase):
+    """Koeder-/Inventar-Refill-Klicks (``tag='refill'``) sind gegatete UI-Klicks
+    (bewegen den Char nicht) -> NIE STRAY. Ein echter ungegateter Welt-Linksklick
+    (``tag='other'``) bleibt STRAY."""
+
+    def setUp(self):
+        self.cap = _Capture()
+        self.addCleanup(self.cap.close)
+
+    def test_refill_left_click_is_not_stray(self):
+        t = _fresh()
+        t.mark_tick(state=0, offset_x=0, offset_y=0)
+        t.record('left', 110, 70, tag='refill')
+        self.assertEqual(self.cap.stray_lines(), [])
+        self.assertIn('tag=refill', self.cap.text)
+
+    def test_ungated_world_left_click_still_stray(self):
+        t = _fresh()
+        t.mark_tick(state=0, offset_x=0, offset_y=0)
+        t.record('left', 400, 300, tag='other')
+        self.assertTrue(self.cap.stray_lines())
+
+
+class TestSuppressedLogging(unittest.TestCase):
+    """``record_suppressed`` schreibt eine greppbare ``SUPPRESSED: <grund>``-Zeile
+    (der ANGEL-FIX hat einen Welt-Klick verhindert). Reines Logging, wirft nie."""
+
+    def setUp(self):
+        self.cap = _Capture()
+        self.addCleanup(self.cap.close)
+
+    def test_suppressed_line_emitted_with_reason(self):
+        t = _fresh()
+        t.mark_tick(state=3, offset_x=100, offset_y=50, detected_end=True)
+        t.record_suppressed(400, 237, tag='minigame', reason='minigame-weg')
+        txt = self.cap.text
+        self.assertIn('SUPPRESSED: minigame-weg', txt)
+        self.assertIn('tag=minigame', txt)
+        self.assertIn('screen=400,237', txt)
+        self.assertIn('client=300,187', txt)   # screen - gespeicherter Offset
+
+    def test_disabled_emits_nothing(self):
+        t = _fresh()
+        t.set_enabled(False)
+        t.record_suppressed(1, 1)
+        self.assertEqual(self.cap.lines, [])
+
+    def test_module_shim_is_safe(self):
+        # Modul-Ebene: record_suppressed wirft nie (auch ohne configure/mark_tick).
+        click_tracker.record_suppressed(5, 6, tag='minigame', reason='minigame-weg')
+
+
 class TestNeverRaises(unittest.TestCase):
     def test_record_without_configure_is_safe(self):
         t = click_tracker.ClickTracker()

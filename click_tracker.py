@@ -168,6 +168,50 @@ class ClickTracker:
         except Exception:
             pass
 
+    # -- Kern: einen UNTERDRUECKTEN Klick protokollieren ------------------
+    def record_suppressed(self, screen_x, screen_y, tag='minigame',
+                          reason='minigame-weg'):
+        """Protokolliert einen UNTERDRUECKTEN (nicht ausgefuehrten) Klick.
+
+        Der ANGEL-FIX hat den Minispiel-Fischklick VERHINDERT, weil das Minispiel
+        im frischen Frame KLAR weg war (sonst waere der Linksklick in die Welt
+        gefallen -> Char laeuft ins Wasser). Eigene, greppbare Zeile
+        ``SUPPRESSED: <grund>`` -- REINES Logging, wirft nie.
+        """
+        if not self._enabled:
+            return
+        try:
+            now_ms = time.perf_counter() * 1000.0
+            wall = self._wall_ms()
+            tag = str(tag or 'minigame')
+            reason = str(reason or '')
+            sx, sy = int(screen_x), int(screen_y)
+            client = None
+            if self._offset is not None:
+                client = (sx - self._offset[0], sy - self._offset[1])
+            dt_ms = (None if self._tick_perf_ms is None
+                     else now_ms - self._tick_perf_ms)
+            self._emit_suppressed(now_ms, wall, tag, sx, sy, client, dt_ms,
+                                  reason)
+        except Exception:
+            pass
+
+    def _emit_suppressed(self, now_ms, wall, tag, sx, sy, client, dt_ms, reason):
+        if _debuglog is None:
+            return
+        client_str = ('%d,%d' % client) if client is not None else '?'
+        dt_str = ('%.0f' % dt_ms) if dt_ms is not None else '?'
+        state = self._state if self._state is not None else '-'
+        try:
+            # Prominente, greppbare WARN-Zeile -- der Fix hat aktiv eingegriffen.
+            _debuglog.warning(
+                'SUPPRESSED: %s | STATE %s | tag=%s screen=%d,%d client=%s '
+                'dt_ms=%s t_ms=%.1f detected_end=%s | wall=%s'
+                % (reason, state, tag, sx, sy, client_str, dt_str, now_ms,
+                   self._detected_end, wall))
+        except Exception:
+            pass
+
     # -- OFFSET_STALE: gespeicherter Offset vs. live Fensterposition ------
     def _check_offset_stale(self, button, now_ms):
         """Vergleicht den gespeicherten Offset mit der aus ``GetWindowRect`` live
@@ -309,6 +353,14 @@ def record_click(button, screen_x, screen_y, tag='other'):
     """Modul-Shim fuer :meth:`ClickTracker.record`. Wirft nie."""
     try:
         tracker.record(button, screen_x, screen_y, tag=tag)
+    except Exception:
+        pass
+
+
+def record_suppressed(screen_x, screen_y, tag='minigame', reason='minigame-weg'):
+    """Modul-Shim fuer :meth:`ClickTracker.record_suppressed`. Wirft nie."""
+    try:
+        tracker.record_suppressed(screen_x, screen_y, tag=tag, reason=reason)
     except Exception:
         pass
 

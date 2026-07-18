@@ -68,6 +68,7 @@ def set_refill_backend(backend):
 import cv2 as cv  # noqa: E402  (nach dem Input-Backend-Block; bewusst)
 from time import time, sleep
 import random
+import os
 from windowcapture import WindowCapture
 from hsvfilter import HsvFilter
 from i18n import t
@@ -723,6 +724,80 @@ class FishingBot(FishingDetectMixin):
         except Exception:
             pass
 
+    # -- ANGEL-FIX: Welt-Klick am Minispiel-Ende verhindern ----------------
+    def _minigame_recheck_gone(self):
+        """True gdw. das Minispiel (Uhr) UNMITTELBAR vor dem Fischklick auf einem
+        FRISCHEN Screenshot KLAR nicht mehr aktiv ist.
+
+        Hintergrund: ``detected_end`` stammt vom Screenshot am Tick-ANFANG; der
+        physische Klick faellt ~0,1-0,3 s spaeter (PAUSE + moveTo). Endet das
+        Minispiel genau in diesem Fenster, traefe der Linksklick die Wasser-
+        flaeche dahinter -> der Char laeuft ins Wasser. Darum hier ein zweiter,
+        taufrischer Blick mit DERSELBEN Uhr-NCC-Logik + Schwelle (>0.9) wie
+        ``detect_minigame``/``detected_end``.
+
+        FAIL-SAFE ('im Zweifel klicken'): NUR ein eindeutig berechnetes
+        'Uhr-Score <= 0.9' liefert True (Klick unterdruecken). Ausgeschalteter
+        Schalter, fehlender/leerer Screenshot, nicht auswertbarer NCC (ok=False,
+        z.B. fehlende Vorlage/Formabweichung) ODER jede Exception -> False (normal
+        klicken). So kann der Re-Check einen legitimen Fang NIE faelschlich
+        verhindern. Wirft nie.
+        """
+        # Schalter M2FB_MINIGAME_RECHECK: Default AN ('1'); '0'/off/false/no =>
+        # alter Zustand (Re-Check aus -> immer klicken).
+        try:
+            val = os.environ.get('M2FB_MINIGAME_RECHECK', '').strip().lower()
+        except Exception:
+            val = ''
+        if val in ('0', 'off', 'false', 'no'):
+            return False
+        # Frischen Screenshot holen -- scheitert das, im Zweifel klicken.
+        try:
+            screenshot = self.wincap.get_screenshot()
+        except Exception:
+            return False
+        if screenshot is None:
+            return False
+        # Denselben Uhr-Crop bilden wie runHack (detect_end_img) und mit DERSELBEN
+        # NCC-Logik/Schwelle bewerten. ok=False (Form-/Typ-/Vorlagen-Problem) ist
+        # UNSICHER -> klicken; nur ein sauber berechneter Score <= 0.9 heisst 'weg'
+        # (Spiegel zu detect_minigame: dort ist 'aktiv' == max_val > 0.9).
+        try:
+            x0 = self.FISH_WINDOW_POSITION[0]
+            y0 = self.FISH_WINDOW_POSITION[1]
+            x1 = x0 + self.FISH_WINDOW_SIZE[0]
+            y1 = y0 + self.FISH_WINDOW_SIZE[1]
+            crop = screenshot[y0:y1, x0:x1]
+            ok, max_val, _ = _match_template_max(crop, self.needle_img_clock)
+        except Exception:
+            return False
+        if not ok:
+            return False
+        return max_val <= 0.9
+
+    def _deliver_minigame_click(self, mouse_x, mouse_y):
+        """Stellt den Minispiel-Fischklick zu -- ABER mit dem ANGEL-FIX-Re-Check
+        (:meth:`_minigame_recheck_gone`) UNMITTELBAR davor: ist das Minispiel im
+        frischen Frame KLAR weg, wird der Klick UNTERDRUECKT (gar nicht gesendet)
+        und als ``SUPPRESSED: minigame-weg`` geloggt; sonst normal geklickt.
+
+        Byte-identisch zum Altverhalten, wenn der Schalter aus ist ODER das
+        Minispiel noch aktiv/unsicher ist (dann klickt es exakt wie zuvor).
+        Rueckgabe: True = geklickt, False = unterdrueckt.
+        """
+        if self._minigame_recheck_gone():
+            # Klick UNTERDRUECKT: Uhr weg -> ein Klick fiele in die Welt.
+            if click_tracker is not None:
+                click_tracker.record_suppressed(mouse_x, mouse_y,
+                                                tag='minigame',
+                                                reason='minigame-weg')
+            _flog(3, 'Minispiel-Fischklick UNTERDRUECKT: Uhr im frischen Frame '
+                     'weg (Welt-Klick verhindert)', x=mouse_x, y=mouse_y)
+            return False
+        _input.click(mouse_x, mouse_y, tag='minigame')
+        _flog(3, t('fishing.fish_clicked'), x=mouse_x, y=mouse_y)
+        return True
+
     def runHack(self):
         screenshot = self.wincap.get_screenshot()
 
@@ -911,7 +986,11 @@ class FishingBot(FishingDetectMixin):
                     mouse_x = int(pos_x + self.FISH_WINDOW_POSITION[0] + self.wincap.offset_x)
                     mouse_y = int(pos_y + self.FISH_WINDOW_POSITION[1] + self.wincap.offset_y)
 
-                    _input.click(mouse_x, mouse_y, tag='minigame')
-                    _flog(3, t('fishing.fish_clicked'), x=mouse_x, y=mouse_y)
+                    # ANGEL-FIX: UNMITTELBAR vor dem physischen Fischklick nochmal
+                    # auf einem FRISCHEN Screenshot pruefen, ob das Minispiel noch
+                    # aktiv ist. Ist die Uhr weg, wuerde der Linksklick die Welt
+                    # dahinter treffen -> Char laeuft ins Wasser. Fail-safe: im
+                    # Zweifel klicken (siehe _minigame_recheck_gone).
+                    self._deliver_minigame_click(mouse_x, mouse_y)
 
         return crop_img
