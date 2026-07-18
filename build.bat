@@ -3,11 +3,11 @@ REM ===================================================================
 REM  Metin2 Fishing Bot - Build (Doppelklick genuegt)
 REM
 REM  1) Abhaengigkeiten installieren (gepinnte requirements.txt)
-REM  2) PyInstaller-Build -> dist_onefile\Metin2FishBot.exe
+REM  2) PyInstaller-Build -> dist_onefile\Metin2MultiTool.exe
 REM     (Portable, EINE Datei; --onefile, upx=False, PE-Metadaten;
 REM      siehe Metin2FishBot_onefile.spec)
 REM
-REM  Ergebnis: EINE portable Metin2FishBot.exe zum Weitergeben (Doppelklick,
+REM  Ergebnis: EINE portable Metin2MultiTool.exe zum Weitergeben (Doppelklick,
 REM  keine Installation).
 REM ===================================================================
 cd /d "%~dp0"
@@ -27,13 +27,13 @@ if exist dist_onefile rmdir /s /q dist_onefile
 echo [3/3] PyInstaller-Build (Portable, --onefile, upx=False, PE-Metadaten)
 %PY% -m PyInstaller --clean --noconfirm --distpath dist_onefile Metin2FishBot_onefile.spec || goto :err
 
-if not exist "dist_onefile\Metin2FishBot.exe" (
-    echo *** FEHLER: dist_onefile\Metin2FishBot.exe wurde nicht erzeugt.
+if not exist "dist_onefile\Metin2MultiTool.exe" (
+    echo *** FEHLER: dist_onefile\Metin2MultiTool.exe wurde nicht erzeugt.
     goto :err
 )
 
 echo.
-echo FERTIG. Portable liegt hier:  dist_onefile\Metin2FishBot.exe
+echo FERTIG. Portable liegt hier:  dist_onefile\Metin2MultiTool.exe
 echo Diese EINE Datei an die Nutzer weitergeben (Doppelklick, keine Installation).
 echo (Als Admin starten. Spiel in 800x600, nicht Vollbild.)
 echo Diagnose landet in:  puzzle_debug.log  (neben der EXE)
