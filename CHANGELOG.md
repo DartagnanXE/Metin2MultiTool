@@ -3,6 +3,28 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.6.0] — 2026-07-18
+
+### Fisch-Puzzle: Deluxe-Strategie Monte-Carlo-optimiert („SOFORT"-Modus)
+
+- **Deluxe-/Gold-Box „SOFORT"** statt festem Reservat: Die Box wird früh aufs
+  (fast) leere Brett gesetzt (**max. 1× pro Brett**). Monte-Carlo (N=200 000)
+  belegt den besten praktikablen Truhenwert (**2,23** vs. 2,10 ohne Box), maximiert
+  die 10er-Truhe (30 %) und vermeidet Müll-Truhen. Das alte 2×3-Reservat-Freihalten
+  trieb die schlechteste Truhe hoch (8 → 14 %) und ist **komplett entfernt** (inkl.
+  Solver-Reservat-Parameter + toter Methoden).
+
+### Angel: „Char läuft ins Wasser"-Bug entschärft + ausführliches Klick-Tracking
+
+- **Fix:** Unmittelbar vor dem Minispiel-Fischklick ein frischer Uhr-Re-Check — ist
+  das Minispiel schon vorbei, wird der Klick unterdrückt (er fiele sonst in die
+  Wasserfläche → Char läuft los). Fail-safe: jeder Zweifel → normal klicken (ein
+  Fang wird nie fälschlich verhindert). Schalter `M2FB_MINIGAME_RECHECK`.
+- **Debug:** Millisekunden-genauer Klick-Tracker (`click_tracker.py`) markiert
+  `STRAY-CLICK`s (Welt-Klicks mit Zeitstempel/Koordinate/Offset-Check) — damit
+  betroffene User den Vorfall reproduzierbar melden können. Schalter
+  `M2FB_CLICK_TRACKER`.
+
 ## [1.4.2] — 2026-06-20
 
 ### Energiesplitter: Dolch-Kauf-Verifikation robust + schnell (Fixes)
