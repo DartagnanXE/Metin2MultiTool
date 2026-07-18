@@ -18,13 +18,13 @@ als puzzle.py. Es buendelt:
   * :func:`find_free_2x3`      -- erstes freies, top-links verankertes 2x3-Loch
                                   im 4x6-Brett (oder ``None``).
   * :data:`DELUXE_FORM`        -- die 6 belegten Zellen relativ zum Anker.
-
-Force-Deluxe (V3-Reservat-Strategie, optionaler Aufsatz) ergaenzt:
-  * :data:`RESERVAT_ANCHOR` / :func:`reservat_2x3` -- das feste, unten-rechts
-    verankerte 2x3-Reservat (6 Zellen), in das der Deluxe-Stein gesetzt wird.
-  * :func:`reservat_is_empty`  -- sind alle 6 Reservat-Zellen frei?
   * :func:`read_deluxe_count`  -- Stack-Zahl der DELUXE-Box per Inventar-OCR
                                   (>= 1 -> Box vorhanden). STRIKT defensiv -> 0.
+
+Der Modus 'Deluxe SOFORT' (``force_deluxe=True``, siehe puzzle.py) setzt die
+Gold-/Deluxe-Box FRUEH auf das erste freie 2x3 (``find_free_2x3``), hoechstens
+1x pro Brett. Die fruehere V3-Reservat-Strategie (ein festes 2x3 freihalten) ist
+per Monte-Carlo widerlegt und entfernt.
 
 Brettkonvention identisch zu puzzle.set_puzzle_state / trained_solver:
 ``board[i][j]``, i=Zeile 0..3, j=Spalte 0..5, truthy=belegt.
@@ -95,52 +95,6 @@ def find_free_2x3(board):
     except (IndexError, TypeError):
         return None
     return None
-
-
-# ===========================================================================
-# FORCE-DELUXE (V3-Reservat-Strategie)
-# ===========================================================================
-# Die V3-Strategie reserviert EIN festes 2x3-Feld auf dem Brett und laesst den
-# Solver NUR die 18 anderen Zellen fuellen; den Deluxe-Stein (Magenta 2x3) setzt
-# der Bot dann ins reservierte Loch. Das maximiert die grossen 25+-Boxen (mehr
-# Steine landen, bevor die Box voll ist), kostet dafuer mehr kleine 1-10-Boxen
-# und mehr Box-Verbrauch. Strategie-Zahlen (Monte-Carlo):
-#   V1 (aktuell):           1-10=20.8%  11-24=71.0%  25+=8.3%   E[Boxen]=15.36
-#   V3 (Force Deluxe):      1-10=30.1%  11-24=55.4%  25+=14.5%  E[Boxen]=16.86
-#
-# Reservat unten-RECHTS: Anker (2,3) -> Zellen (2..3) x (3..5). So bleibt der
-# top-links-row-major-Scan von find_free_2x3 / dem Solver fuer die freien 18
-# Zellen ungestoert (er fuellt zuerst oben-links), und das Reservat ist das
-# LETZTE freie 2x3 -- genau dort setzt _place_deluxe (find_free_2x3) den Stein,
-# sobald die 18 anderen Zellen voll sind.
-RESERVAT_ANCHOR = (2, 3)
-
-
-def reservat_2x3():
-    """Die 6 Zellen ``(row, col)`` des V3-Reservats als ``frozenset``.
-
-    Verankert an :data:`RESERVAT_ANCHOR` (2,3), unten-rechts: die Zellen
-    {(2,3),(2,4),(2,5),(3,3),(3,4),(3,5)}. Format ``(Zeile, Spalte)`` passt zu
-    ``Tetris.insert_piece(x=Zeile, y=Spalte)`` und zum row-major-``board[i][j]``
-    sowie zur Bitmaske in ``trained_solver`` (``_idx(r, c)=r*COLS+c``)."""
-    ar, ac = RESERVAT_ANCHOR
-    return frozenset((ar + dr, ac + dc) for (dr, dc) in DELUXE_FORM)
-
-
-def reservat_is_empty(board):
-    """True, wenn ALLE 6 Reservat-Zellen auf ``board`` leer (falsy) sind.
-
-    Defensiv: kein/zu kleines/kaputtes Brett -> ``False`` (nicht leer -> der
-    Aufrufer oeffnet die Deluxe-Box dann nicht; nie Crash)."""
-    if not board:
-        return False
-    try:
-        for (r, c) in reservat_2x3():
-            if board[r][c]:
-                return False
-        return True
-    except (IndexError, TypeError):
-        return False
 
 
 def read_deluxe_count(screenshot_bgr, center=(503, 271)):

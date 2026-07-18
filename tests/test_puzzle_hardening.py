@@ -75,7 +75,7 @@ class TestFinishFix(unittest.TestCase):
         bot._discard_streak = streak
         captured = {}
 
-        def fake_choose(board_arg, piece, finish=False, reservat=None):
+        def fake_choose(board_arg, piece, finish=False):
             captured['finish'] = finish
             return None
 

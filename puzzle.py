@@ -226,14 +226,15 @@ class PuzzleBot(PuzzleDetectMixin):
     verify_placements = True
     board_plausibility = True
 
-    # -- Force Deluxe (V3-Reservat-Strategie, opt-in) ---------------------
-    # force_deluxe: reserviert ein festes 2x3-Feld (deluxe.reservat_2x3) und
-    # laesst den trainierten Solver NUR die 18 anderen Zellen fuellen; der
-    # Deluxe-Stein (Magenta 2x3) fuellt das Reservat. Maximiert grosse 25+-Boxen
-    # (siehe deluxe.py + UI-Hilfetext). NUR wirksam, wenn solver_mode=='trained'
-    # UND mindestens 1 Deluxe-Box im Inventar liegt -- sonst laeuft der normale
-    # trained-Modus (kein Reservat). Default AUS -> Verhalten byte-stabil.
-    # Wird von run_loop.apply_puzzle_config aus der Config gesetzt.
+    # -- Force Deluxe ('Deluxe SOFORT', opt-in) ---------------------------
+    # force_deluxe: setzt die Gold-/Deluxe-Box (Magenta 2x3) FRUEH auf das (fast)
+    # leere Brett -- auf das erste freie 2x3-Loch (deluxe.find_free_2x3), MAX 1x
+    # pro Brett (_deluxe_used_this_board). Der trainierte Solver fuellt sonst
+    # normal (KEIN Reservat mehr). Monte-Carlo-Optimum (N=200k): frueh + einmal
+    # maximiert die beste "1-10"-Truhe; spaeter/mehrfach schadet. NUR wirksam,
+    # wenn solver_mode=='trained' UND mind. 1 Deluxe-Box im Inventar liegt --
+    # sonst laeuft der normale trained-Modus. Default AUS -> Verhalten byte-
+    # stabil. Wird von run_loop.apply_puzzle_config aus der Config gesetzt.
     force_deluxe = False
 
     # Referenz-BGR-Zentroide der 6 Steintypen fuer den 'multi'-Modus
@@ -282,10 +283,11 @@ class PuzzleBot(PuzzleDetectMixin):
     _box_reopen_tries = 0             # so oft schon wegen leerer Box neu geoeffnet
     _game_open_tries = 0             # Selbststart-Versuche im laufenden Tick (Cap)
 
-    # -- Opportunistische Deluxe-Nutzung (Laufzeit-Zustand; SPIELEN bleibt) -
+    # -- 'Deluxe SOFORT' (force_deluxe=True; Laufzeit-Zustand; SPIELEN bleibt) -
     _awaiting_deluxe = False          # gerade die Deluxe-Box geoeffnet? (Magenta erwartet)
     _deluxe_miss_streak = 0           # Deluxe geoeffnet, aber KEIN Magenta -> Zaehler
     _deluxe_disabled = False          # nach zu vielen Fehlversuchen fuer den Lauf aus
+    _deluxe_used_this_board = False   # in DIESEM Brett schon ein Deluxe gesetzt? (max 1x)
 
     state = 0
 
@@ -316,10 +318,11 @@ class PuzzleBot(PuzzleDetectMixin):
         self._empty_getpiece_streak = 0
         self._box_reopen_tries = 0
         self._game_open_tries = 0
-        # Opportunistische Deluxe-Nutzung pro Lauf zuruecksetzen (SPIELEN bleibt).
+        # 'Deluxe SOFORT'-Laufzustand pro Lauf zuruecksetzen (SPIELEN bleibt).
         self._awaiting_deluxe = False
         self._deluxe_miss_streak = 0
         self._deluxe_disabled = False
+        self._deluxe_used_this_board = False
         # Offset auf den Klassen-Default zuruecksetzen; die Integration setzt
         # danach den aus dem Detection-Modus aufgeloesten Offset (falls
         # abweichend). Garantiert einen wohldefinierten Startwert pro Lauf.
@@ -624,7 +627,7 @@ class PuzzleBot(PuzzleDetectMixin):
                          extra='keine der 6 BGR-Ranges getroffen -> new_piece=None')
         return None
 
-    # -- Force Deluxe (V3-Reservat) ---------------------------------------
+    # -- Force Deluxe ('Deluxe SOFORT') -----------------------------------
 
     def _deluxe_count(self):
         """Rohe Anzahl der Deluxe-Boxen im Slot ``PUZZLE_DELUXE_BOX`` (>=0).
@@ -702,32 +705,60 @@ class PuzzleBot(PuzzleDetectMixin):
         Box veraendert den Bestand). Wirft nie."""
         self._fd_avail_cache = None
 
-    def _non_reservat_full(self):
-        """``True``, wenn die 18 Nicht-Reservat-Zellen ALLE belegt sind.
+    def _should_open_deluxe(self):
+        """``True``, wenn JETZT (State 0) die DELUXE-Box geoeffnet werden soll.
 
-        Prueft das interne ``tetris.board`` gegen ``deluxe.reservat_2x3()``: jede
-        Zelle, die NICHT zum Reservat gehoert, muss belegt sein. Genau dann ist
-        der Solver mit den 18 Zellen fertig und der Deluxe-Stein kann ins Reservat
-        gesetzt werden. Defensiv -> ``False`` (nicht voll -> Box bleibt zu)."""
+        Modus 'Deluxe SOFORT' (``force_deluxe=True``): die Gold-/Deluxe-Box wird
+        FRUEH auf ein freies 2x3-Loch gesetzt, hoechstens EINMAL pro Brett
+        (Monte-Carlo-Optimum, N=200k: Deluxe sofort aufs (fast) leere Brett =
+        bester praktikabler Wert, maximiert die 10er-Truhe; spaeter/mehrfach
+        schadet). REINE Entscheidung OHNE Seiteneffekt (testbar) -- das Setzen des
+        Ein-pro-Brett-Flags und der Box-Klick passieren im Aufrufer (State 0).
+
+        Alle Bedingungen muessen zutreffen:
+          * ``force_deluxe`` an,
+          * ``solver_mode == 'trained'`` (nur 'KI optimiert'),
+          * NICHT fuer den Lauf abgeschaltet (``_deluxe_disabled`` nach zu vielen
+            leeren Box-Oeffnungen),
+          * in DIESEM Brett noch KEIN Deluxe gesetzt (``_deluxe_used_this_board``),
+          * aktuell ein freies 2x3-Loch auf dem Brett (``deluxe.find_free_2x3``).
+
+        Reaktiv OHNE Box-Zahl-OCR (die las den Slot unzuverlaessig als 0 -> Deluxe
+        nie genutzt); ist die Box doch leer, faengt ``_register_deluxe_result``
+        (State 4) das ab. Wirft nie -> ``False``."""
         try:
-            reservat = deluxe.reservat_2x3()
-            board = self.tetris.board
-            for i in range(4):
-                for j in range(6):
-                    if (i, j) not in reservat and not board[i][j]:
-                        return False
-            return True
+            if not getattr(self, 'force_deluxe', False):
+                return False
+            if getattr(self, 'solver_mode', '') != 'trained':
+                return False
+            if getattr(self, '_deluxe_disabled', False):
+                return False
+            if getattr(self, '_deluxe_used_this_board', False):
+                return False
+            return deluxe.find_free_2x3(self.tetris.board) is not None
         except Exception:
             return False
 
-    def _open_deluxe_box_and_place(self):
-        """Oeffnet die DELUXE-Box und setzt den Magenta-Stein ins Reservat.
+    def _reset_deluxe_board_flag(self):
+        """Gibt fuer das NAECHSTE Brett wieder genau EINEN Deluxe frei.
 
-        Aufrufkontext (State 0): Force-Deluxe ist aktiv, die 18 Nicht-Reservat-
-        Zellen sind voll und das Reservat ist leer -> jetzt die Deluxe-Box
-        anklicken (``deluxe_box_screen_point``). Der dadurch erscheinende
-        Magenta-2x3-Stein wird ueber den bestehenden Stein-Pfad (Farb-Erkennung
-        Typ 7 -> ``_place_deluxe`` -> erstes freies 2x3 = das Reservat) gesetzt.
+        Beim Brett-ABSCHLUSS (State 9, Truhe eingesammelt) gerufen: setzt das
+        Ein-pro-Brett-Flag zurueck, sodass 'Deluxe SOFORT' auf dem neuen Brett
+        erneut (genau einmal) greift. Noetig, weil ``tetris.board`` beim ersten
+        State 0 eines neuen Bretts noch den VOLLEN Vorgaenger-Zustand traegt
+        (frisch gelesen wird es erst in State 5) -- ein 'Brett leer'-Test taugt
+        daher nicht, ein explizites Flag schon. Wirft nie."""
+        self._deluxe_used_this_board = False
+
+    def _open_deluxe_box_and_place(self):
+        """Oeffnet die DELUXE-Box (Modus 'Deluxe SOFORT').
+
+        Aufrufkontext (State 0): ``_should_open_deluxe`` hat True geliefert
+        (Force-Deluxe aktiv, 'trained', in diesem Brett noch nicht genutzt, es
+        liegt ein freies 2x3-Loch) -> jetzt die Deluxe-Box anklicken
+        (``deluxe_box_screen_point``). Der dadurch erscheinende Magenta-2x3-Stein
+        wird ueber den bestehenden Stein-Pfad (Farb-Erkennung Typ 7 ->
+        ``_place_deluxe`` -> erstes freies 2x3) gesetzt.
 
         Hier wird NUR die Box geoeffnet und der Cache invalidiert (der Bestand
         sinkt); die eigentliche Platzierung laeuft danach durch die normale
@@ -1063,14 +1094,12 @@ class PuzzleBot(PuzzleDetectMixin):
             # Platzierung genullt, greift also NICHT in normales Warten ein.
             streak = getattr(self, '_discard_streak', 0)
             finish = False
-            # KEIN festes Reservat mehr: die Deluxe-Nutzung ist jetzt
-            # OPPORTUNISTISCH (State 0 oeffnet die Deluxe-Box, sobald irgendwo ein
-            # freies 2x3-Loch liegt UND eine Box da ist) statt ein fixes Feld zu
-            # reservieren. Die alte Reservat-Strategie blieb haengen, sobald die
-            # Box-Zahl-OCR 0 las (Reservat nie befuellt) -> der Solver fuellt jetzt
-            # immer normal, Deluxe schnappt sich Loecher proaktiv davor.
+            # KEIN Reservat: der Solver fuellt IMMER normal die beste Lage. Die
+            # Gold-/Deluxe-Box wird davor separat 'sofort' aufs freie 2x3 gesetzt
+            # (State 0, max 1x/Brett). Die alte Reservat-Strategie (festes 2x3
+            # freihalten) ist per Monte-Carlo widerlegt (mehr Muell-Truhen).
             a = trained_solver.choose_placement(self.tetris.board, piece,
-                                                finish=finish, reservat=None)
+                                                finish=finish)
             if a is None:
                 self._discard_streak = streak + 1
                 log.event(self.state,
@@ -1240,28 +1269,30 @@ class PuzzleBot(PuzzleDetectMixin):
 
             if time() - self.timer_action > timep:
 
-                # OPPORTUNISTISCHE Deluxe-Nutzung -- REAKTIV, OHNE Box-Zahl-OCR
-                # (Nutzer-Vorgabe): liegt JETZT ein freies 2x3-Loch, dann NICHT
-                # einen Zufallsstein anfordern, sondern die Deluxe-Box EINFACH
-                # OEFFNEN -- sie ist "fast immer" voll. Der Magenta-2x3-Stein
-                # fuellt das Loch deterministisch (6 Zellen). KEINE pro-Zyklus-
-                # Box-Zahl-Lesung mehr (war unzuverlaessig -> las leeren Slot als 0
-                # -> Deluxe nie genutzt; und kostete Speed). Ist die Box doch leer,
-                # faengt das ``_register_deluxe_result`` (State 4) reaktiv ab:
-                # kein Magenta -> nachlegen (falls aktiv) bzw. Deluxe abschalten.
-                if (getattr(self, 'force_deluxe', False)
-                        and self.solver_mode == 'trained'
-                        and not getattr(self, '_deluxe_disabled', False)):
+                # 'Deluxe SOFORT' (force_deluxe=True) -- REAKTIV, OHNE Box-Zahl-OCR:
+                # liegt JETZT ein freies 2x3-Loch UND wurde in DIESEM Brett noch
+                # kein Deluxe gesetzt, dann NICHT einen Zufallsstein anfordern,
+                # sondern die Deluxe-Box EINFACH OEFFNEN (sie ist "fast immer"
+                # voll). Der Magenta-2x3-Stein fuellt das Loch deterministisch (6
+                # Zellen). MAX 1x PRO BRETT (Monte-Carlo: frueh + einmal = Optimum,
+                # spaeter/mehrfach schadet) ueber ``_deluxe_used_this_board``. Ist
+                # die Box doch leer, faengt ``_register_deluxe_result`` (State 4)
+                # das reaktiv ab: kein Magenta -> Deluxe abschalten.
+                if self._should_open_deluxe():
                     hole = deluxe.find_free_2x3(self.tetris.board)
-                    if hole is not None:
-                        log.event(self.state, t('puzzle.deluxe_try_open'),
-                                  hole=hole,
-                                  misses=getattr(self, '_deluxe_miss_streak', 0))
-                        self._awaiting_deluxe = True
-                        self._open_deluxe_box_and_place()
-                        self.state = 1
-                        self.timer_action = time()
-                        return None
+                    log.event(self.state, t('puzzle.deluxe_try_open'),
+                              hole=hole,
+                              misses=getattr(self, '_deluxe_miss_streak', 0))
+                    # Ein Deluxe PRO BRETT: Flag JETZT setzen. Zurueckgesetzt beim
+                    # Brett-Abschluss (State 9) -> jedes neue Brett bekommt genau
+                    # eins. (tetris.board traegt beim ersten State 0 eines neuen
+                    # Bretts noch den vollen Vorgaenger -> Flag statt 'Brett leer'.)
+                    self._deluxe_used_this_board = True
+                    self._awaiting_deluxe = True
+                    self._open_deluxe_box_and_place()
+                    self.state = 1
+                    self.timer_action = time()
+                    return None
 
                 if self.detect_end_game(crop_image):
                     if not self.try_to_put_chest():
@@ -1445,6 +1476,9 @@ class PuzzleBot(PuzzleDetectMixin):
             if time() - self.timer_action > 2:
                 log.event(self.state, t('puzzle.puzzle_solved_collect_reward'))
                 self.end = False
+                # Brett fertig -> 'Deluxe SOFORT' fuer das neue Brett wieder
+                # freigeben (max 1x pro Brett).
+                self._reset_deluxe_board_flag()
                 self.press_comfirm_cake()
                 self.timer_action = time()
                 self.state = 0

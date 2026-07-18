@@ -366,7 +366,7 @@ class RunLoop:
         self.puzzlebot.color_patch = puzzle['color_patch']
         self.puzzlebot.solver_mode = puzzle['solver_mode']
         self.puzzlebot.step_delay = puzzle['step_delay']
-        # Force Deluxe (V3-Reservat): nur wirksam bei solver_mode=='trained' +
+        # Force Deluxe ('Deluxe SOFORT'): nur wirksam bei solver_mode=='trained' +
         # vorhandener Deluxe-Box (der PuzzleBot prueft das selbst). Default aus.
         self.puzzlebot.force_deluxe = puzzle.get('force_deluxe', False)
         # Haertung (puzzle_safety): additiv mit .get-Defaults -> fehlende Keys in

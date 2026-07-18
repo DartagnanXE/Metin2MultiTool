@@ -81,7 +81,7 @@ class TestEnumCoercion(unittest.TestCase):
 
 
 class TestForceDeluxe(unittest.TestCase):
-    """Force-Deluxe (V3-Reservat): reines bool, Default aus, robust gecoerct."""
+    """Force-Deluxe ('Deluxe SOFORT'): reines bool, Default aus, robust gecoerct."""
 
     def test_default_is_false(self):
         cfg = config.validate(config.DEFAULTS)

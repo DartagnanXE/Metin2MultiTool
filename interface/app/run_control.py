@@ -56,9 +56,10 @@ class RunControlMixin:
         self._cfg = self.controller.update_config('puzzle', 'solver_mode', value)
 
     def _on_force_deluxe_toggle(self):
-        """Schreibt den Force-Deluxe-Schalter (V3-Reservat) in die Config.
+        """Schreibt den Force-Deluxe-Schalter ('Deluxe SOFORT') in die Config.
 
-        Reines bool. Nur wirksam bei 'KI optimiert' + vorhandener Deluxe-Box
+        Reines bool. Setzt die Gold-/Deluxe-Box frueh aufs (fast) leere Brett,
+        max 1x pro Brett. Nur wirksam bei 'KI optimiert' + vorhandener Deluxe-Box
         (der PuzzleBot prueft das zur Laufzeit selbst); der Schalter persistiert
         die Wahl unabhaengig davon."""
         self._cfg = self.controller.update_config(

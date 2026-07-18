@@ -1,7 +1,16 @@
 # -*- coding: utf-8 -*-
-"""Tests fuer die OPPORTUNISTISCHE Deluxe-Nutzung (loest die starre Reservat-
-Strategie ab) + den Magenta-Miss-Deckel (gegen Endlosschleife bei falsch-positiver
-Box-Zahl-OCR).
+"""Tests fuer den Modus 'Deluxe SOFORT' (``force_deluxe=True``) + den Magenta-
+Miss-Deckel (gegen Endlosschleife bei leerer Deluxe-Box).
+
+'Deluxe SOFORT' setzt die Gold-/Deluxe-Box FRUEH (leeres/fast leeres Brett) auf
+ein freies 2x3-Loch, hoechstens EINMAL pro Brett (Monte-Carlo-Optimum, N=200k:
+Deluxe sofort aufs leere Brett = bester praktikabler Wert; spaeter/mehrfach
+schadet). Frueher (bis v1.4) griff die Deluxe-Nutzung OPPORTUNISTISCH bei JEDEM
+2x3-Loch ohne Limit -- das ist hier auf 'max 1x/Brett' verschaerft. Der Kern-
+Deckel: das explizite Flag ``_deluxe_used_this_board`` (gesetzt beim Einsatz,
+zurueckgesetzt beim Brett-Abschluss), weil ``tetris.board`` beim ersten State 0
+eines neuen Bretts noch den VOLLEN Vorgaenger-Zustand traegt (frisch gelesen erst
+in State 5) -- ein 'Brett leer'-Test taugt daher nicht.
 
 Headless: bare ``__new__``-Instanz + Mocks (kein Fenster), wie test_puzzle_glue.
 """
@@ -20,6 +29,31 @@ def _bare(**attrs):
     b._awaiting_deluxe = False
     b._deluxe_miss_streak = 0
     b._deluxe_disabled = False
+    for k, v in attrs.items():
+        setattr(b, k, v)
+    return b
+
+
+def _empty_board():
+    return [[0] * 6 for _ in range(4)]
+
+
+def _full_board():
+    return [[1] * 6 for _ in range(4)]
+
+
+def _sofort_bot(board=None, **attrs):
+    """Bare Bot, vorbereitet fuer die 'Deluxe SOFORT'-Entscheidung.
+
+    Default: alle Bedingungen ERFUELLT (force_deluxe an, 'trained', nicht
+    abgeschaltet, in diesem Brett noch nicht genutzt, leeres Brett = freies 2x3).
+    Einzelne ``attrs`` ueberschreiben gezielt eine Bedingung fuer den Negativ-Test."""
+    b = _bare()
+    b.force_deluxe = True
+    b.solver_mode = 'trained'
+    b._deluxe_disabled = False
+    b._deluxe_used_this_board = False
+    b.tetris = type('T', (), {'board': _empty_board() if board is None else board})()
     for k, v in attrs.items():
         setattr(b, k, v)
     return b
@@ -91,6 +125,67 @@ class DeluxeGuardTest(unittest.TestCase):
         self.assertTrue(b._deluxe_disabled)      # abgeschaltet, NICHT nachgelegt
         # Der Bot wird dabei NICHT gestoppt (botting bleibt unberuehrt).
         self.assertFalse(getattr(b, 'botting', False))
+
+
+class DeluxeSofortTest(unittest.TestCase):
+    """'Deluxe SOFORT': frueh auf ein freies 2x3, MAX 1x pro Brett.
+
+    Prueft die reine State-0-Entscheidung ``_should_open_deluxe`` (ohne
+    Seiteneffekt) + den Ein-pro-Brett-Deckel ueber ``_deluxe_used_this_board``
+    und dessen Reset beim Brett-Abschluss (``_reset_deluxe_board_flag``)."""
+
+    # 1. Leeres Brett + Box-Modus an -> Deluxe wird ausgeloest.
+    def test_triggers_on_empty_board(self):
+        b = _sofort_bot(board=_empty_board())
+        self.assertTrue(b._should_open_deluxe())
+
+    # 2. Schon ein Deluxe in diesem Brett -> KEIN zweiter (auch mit freiem 2x3).
+    def test_no_second_deluxe_same_board(self):
+        b = _sofort_bot(board=_empty_board(), _deluxe_used_this_board=True)
+        self.assertFalse(b._should_open_deluxe())
+
+    # 3. Neues Brett (Flag-Reset beim Abschluss) -> Deluxe wieder moeglich.
+    def test_new_board_reenables_after_reset(self):
+        b = _sofort_bot(board=_empty_board(), _deluxe_used_this_board=True)
+        self.assertFalse(b._should_open_deluxe())
+        b._reset_deluxe_board_flag()                 # State 9 / Brett-Abschluss
+        self.assertFalse(b._deluxe_used_this_board)
+        self.assertTrue(b._should_open_deluxe())
+
+    # 4. force_deluxe=False -> NIE ein Deluxe (byte-stabiles Altverhalten).
+    def test_off_never_triggers(self):
+        b = _sofort_bot(board=_empty_board(), force_deluxe=False)
+        self.assertFalse(b._should_open_deluxe())
+
+    # Gate: nur bei 'KI optimiert' (solver_mode == 'trained').
+    def test_requires_trained_solver(self):
+        b = _sofort_bot(board=_empty_board(), solver_mode='standard')
+        self.assertFalse(b._should_open_deluxe())
+
+    # Gate: nach zu vielen leeren Box-Oeffnungen abgeschaltet -> kein Deluxe.
+    def test_disabled_blocks(self):
+        b = _sofort_bot(board=_empty_board(), _deluxe_disabled=True)
+        self.assertFalse(b._should_open_deluxe())
+
+    # Kein freies 2x3 (volles Brett) -> kein Deluxe, auch wenn sonst alles passt.
+    def test_no_free_2x3_no_trigger(self):
+        b = _sofort_bot(board=_full_board())
+        self.assertFalse(b._should_open_deluxe())
+
+    # Genau EIN Deluxe pro Brett-Zyklus (Trigger -> Flag -> Reset -> Trigger).
+    def test_exactly_one_per_board_cycle(self):
+        b = _sofort_bot(board=_empty_board())
+        self.assertTrue(b._should_open_deluxe())     # Brett 1: erlaubt
+        b._deluxe_used_this_board = True             # State 0 setzt das Flag
+        self.assertFalse(b._should_open_deluxe())    # kein zweiter im selben Brett
+        b._reset_deluxe_board_flag()                 # Brett fertig (State 9)
+        self.assertTrue(b._should_open_deluxe())     # Brett 2: wieder erlaubt
+
+    # Defensiv: kaputtes/fehlendes tetris -> False, nie Crash.
+    def test_defensive_on_bad_tetris(self):
+        b = _sofort_bot(board=_empty_board())
+        b.tetris = None
+        self.assertFalse(b._should_open_deluxe())
 
 
 if __name__ == '__main__':
