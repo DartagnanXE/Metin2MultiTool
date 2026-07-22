@@ -372,6 +372,7 @@ def make_leased_backend(idx, hwnd, acquire, release, stop_check=None,
 # -- lazy Defaults (echte Abhaengigkeiten erst zur Laufzeit) ----------------
 def _lazy_pdi():
     import pydirectinput
+    pydirectinput.FAILSAFE = False  # transientes (0,0)-Cursor-Lesen darf die Session nicht killen (siehe fishingbot.py)
     return pydirectinput
 
 

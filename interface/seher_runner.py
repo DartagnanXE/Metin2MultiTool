@@ -40,6 +40,7 @@ from seher import detect, geometry as G
 # -- soft imports (live deps; module stays importable headless) -------------
 try:  # pragma: no cover - nur auf dem Windows-Build vorhanden
     import pydirectinput
+    pydirectinput.FAILSAFE = False  # transientes (0,0)-Cursor-Lesen darf die Session nicht killen (siehe fishingbot.py)
 except Exception:  # pragma: no cover
     pydirectinput = None
 

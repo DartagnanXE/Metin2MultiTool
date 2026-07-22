@@ -370,5 +370,79 @@ class TestTabClickTag(unittest.TestCase):
         self.assertEqual(calls, [])
 
 
+@unittest.skipUnless(_HAS_DEPS, 'numpy/PIL fehlen')
+class TestQuickslotProbeStats(unittest.TestCase):
+    """``quickslot_probe_stats`` liest EXAKT die Pixel, die ``quickslot_is_empty``
+    bewertet -- Diagnose-Fenster fuer den 'legt nicht nach obwohl leer'-Report."""
+
+    @staticmethod
+    def _frame(fill):
+        return np.full((601, 800, 3), fill, dtype=np.uint8)
+
+    def test_flat_dark_slot_stats_cross_empty_thresholds(self):
+        # Ein leerer (flach-dunkler) Slot: mean/std unter den Schwellen, keine
+        # hellen Pixel -> und quickslot_is_empty sagt True (Konsistenz).
+        frame = self._frame(9)
+        mean, std, bright = refill.quickslot_probe_stats(frame, 2)
+        self.assertLess(mean, refill.QUICKSLOT_DARK_MEAN)
+        self.assertLess(std, refill.QUICKSLOT_FLAT_STD)
+        self.assertEqual(bright, 0)
+        self.assertTrue(refill.quickslot_is_empty(frame, 2))
+
+    def test_bright_icon_stats_flag_occupied(self):
+        # Heller Icon-Block -> viele helle Pixel + hohe Streuung -> belegt.
+        frame = self._frame(9)
+        cx, cy = refill.QUICKSLOT_XY[2]
+        frame[cy - 7:cy + 7, cx - 7:cx + 7, :] = 200
+        mean, std, bright = refill.quickslot_probe_stats(frame, 2)
+        self.assertGreaterEqual(bright, refill.QUICKSLOT_MAX_BRIGHT_PX)
+        self.assertFalse(refill.quickslot_is_empty(frame, 2))
+
+    def test_degenerate_inputs_return_none(self):
+        # None / falsche Form / degenerierter Patch -> None (nicht messbar),
+        # gespiegelt zu quickslot_is_empty -> False (nie nachlegen im Zweifel).
+        self.assertIsNone(refill.quickslot_probe_stats(None, 2))
+        self.assertIsNone(refill.quickslot_probe_stats(
+            np.zeros((10, 10), np.uint8), 2))
+        self.assertIsNone(refill.quickslot_probe_stats(
+            self._frame(9)[:50, :50], 8))
+
+
+_KEYBIND_SHOT = os.path.join(_HERE, 'fixtures', 'refill',
+                             'quickslot_keybind_empty_slot2.png')
+
+
+@unittest.skipUnless(_HAS_DEPS and os.path.isfile(_KEYBIND_SHOT),
+                     'numpy/PIL oder Keybind-Fixture fehlen')
+class TestQuickslotKeybindOverlay(unittest.TestCase):
+    """Regression: seit dem Metin2-Patch liegt die TASTEN-ZIFFER auf jedem
+    Quickslot -- auch auf leeren. Das hob am leeren Bait-Slot std ~7->16 und
+    bright 0->2 und riss die alte Schwelle (std<14) -> leerer Slot als BELEGT
+    gelesen -> nie nachgelegt (Live-Report 2026-07-22). Echter Fehler-Frame."""
+
+    @staticmethod
+    def _client():
+        img = np.asarray(Image.open(_KEYBIND_SHOT).convert('RGB'))
+        if img.shape[0] > 615:            # Vollfenster -> Client (Titel/Rand weg)
+            img = img[31:, 1:]
+        return img[:, :, ::-1].copy()     # ->BGR
+
+    def test_empty_bait_slot2_reads_empty(self):
+        # DER Fehlerfall: Slot 2 (bait_key=2) ist leer, trotz Tasten-Overlay.
+        frame = self._client()
+        self.assertTrue(
+            refill.quickslot_is_empty(frame, 2),
+            'leerer Bait-Slot mit Tasten-Ziffer muss als LEER erkannt werden')
+
+    def test_occupied_slots_still_read_occupied(self):
+        # Die anderen Slots sind bei diesem Nutzer echt belegt (Skills/Items) ->
+        # duerfen NICHT faelschlich als leer gelten (kein Fehl-Refill).
+        frame = self._client()
+        for slot in (1, 3, 4, 5, 6, 7, 8):
+            self.assertFalse(
+                refill.quickslot_is_empty(frame, slot),
+                'belegter Slot %d darf nicht als leer gelten' % slot)
+
+
 if __name__ == '__main__':
     unittest.main()

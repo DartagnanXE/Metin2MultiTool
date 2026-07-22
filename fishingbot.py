@@ -1,5 +1,14 @@
 import pydirectinput
 pydirectinput.PAUSE = 0.1  # KEYBOARD needs this hold to register in-game; 0.05 was too short for keys (fishing didn't cast). = pydirectinput default (what v1.1.0 used). Mouse-only flows (scan) lower it per-op to 0.05.
+# Fail-Safe AUS: pydirectinput wirft sonst FailSafeException, sobald der Cursor
+# beim Klick auch nur EINMAL als (0,0) gelesen wird (transient bei Szenenwechsel/
+# Fokusverlust/Dialog) -> ein einziges solches Lesen killt die GANZE Session
+# ("Stop due to exception", Live-Crash-Report 2026-07-22). Der Bot hat mit F6
+# einen eigenen Not-Aus; der Ecken-Not-Aus ist fuer von Hand laufende Skripte
+# gedacht, nicht fuer einen Bot, der die Maus bewusst ueber den ganzen Screen
+# fuehrt. pydirectinput ist prozess-global -> hier gesetzt (fruehester Importeur
+# im Angel-Prozess) wirkt es modulweit fuer alle Klick-/Tastenpfade.
+pydirectinput.FAILSAFE = False
 import cv2 as cv
 
 # DEBUG-Klick-Tracker (reines Diagnose-Logging; veraendert KEINEN Klick). Soft-
@@ -164,6 +173,23 @@ class FishingBot(FishingDetectMixin):
     # (Template der Knopf-Leiste), innerhalb dieses Zeitfensters.
     GOLDEN_CONFIRM_WAIT_S = 10.0
 
+    # Absolute Obergrenze (Sekunden ab dem Options-Klick), bis zu der ueberhaupt
+    # auf Bestaetigungs-Dialoge geachtet wird -- Backstop, falls je ein Dialog
+    # klebt (sonst koennte die Fenster-Verlaengerung unten endlos verlaengern).
+    GOLDEN_CONFIRM_MAX_S = 25.0
+    # Mindestabstand zwischen zwei OK-Klicks. Der Server tauscht Dialog 1 -> 2
+    # nicht instant; ohne Cooldown wuerde der Loop 60x/s auf denselben Dialog
+    # klicken und im Moment des Schliessens einmal in die Welt treffen.
+    GOLDEN_CONFIRM_CLICK_COOLDOWN_S = 1.0
+    # Wie lange nach der LETZTEN Modal-Evidenz (Popup ODER erkannter Dialog) noch
+    # keine Weltklicks gesendet werden. BEWUSST kurz: die Sperre haengt an
+    # TATSAECHLICHER Evidenz pro Frame, nicht am generoesen Klick-Fenster -- sonst
+    # wuerde ein spurioeser/klebender daily-False-Positive (reine schwarze Ecke:
+    # Lade-/Teleport-/DC-Screen; detect_daily_reward ist absichtlich simpel) das
+    # Angeln 10-25s blockieren. Die Grace ueberbrueckt nur die Server-Luecke
+    # Options-Klick -> Dialog-erscheint und den Frame-Flacker zwischen Dialogen.
+    GOLDEN_SUPPRESS_GRACE_S = 3.0
+
     # set position of the fish windows
     # this value can be diferent by the sizes of the game window
 
@@ -254,6 +280,14 @@ class FishingBot(FishingDetectMixin):
     # den Bestaetigungs-Dialog gewartet wird. 0.0 = nichts scharf.
     _golden_confirm_until = 0.0
 
+    # Absolute Deadline (time()) fuer das Bestaetigungs-Fenster (Backstop gegen
+    # endlose Verlaengerung) + Zeitpunkt des letzten OK-Klicks (Cooldown).
+    _golden_confirm_hard = 0.0
+    _last_confirm_click = 0.0
+    # Weltklick-Sperre bis (time()): an tatsaechlicher Modal-Evidenz + kurzer
+    # Grace, NICHT am Klick-Fenster (siehe GOLDEN_SUPPRESS_GRACE_S). 0.0 = frei.
+    _golden_suppress_until = 0.0
+
     # Angel-Whitelist (opt-in). Default AUS -> angelt ALLES -> byte-stabil.
     #   * whitelist_enabled: nur True schaltet die Pruefung scharf.
     #   * whitelist_states: {DE-Name: KEEP|REMOVE|CAMPFIRE} aus der Inventar-
@@ -292,6 +326,12 @@ class FishingBot(FishingDetectMixin):
     # Baiten in State 0). 0.0 = "noch nie geprueft" -> erste Pruefung sofort.
     _last_bait_check = 0.0
     _BAIT_REFILL_INTERVAL = 5.0
+    # Diagnose-Drossel (getrennt vom Pruef-Throttle): gezielte Debug-Zeilen fuers
+    # Nachlegen (aktiv-aber-blockiert / Slot als belegt gelesen), damit ein
+    # "legt nicht nach obwohl leer"-Report am naechsten Log ablesbar ist, ohne
+    # den Loop zuzuspammen. 0.0 = noch nie diagnostiziert.
+    _last_bait_diag = 0.0
+    _BAIT_DIAG_INTERVAL = 30.0
 
     # Globales Stop-Signal (vom RunLoop injiziert). Default = NIE-gesetztes
     # NULL_SIGNAL -> die Refill-Naps blockieren wie bisher, ein Stop bricht sie
@@ -522,6 +562,14 @@ class FishingBot(FishingDetectMixin):
         Wirft nie -- ein Vision-/Input-Fehler darf den Angel-Loop nie kippen.
         """
         if not self._bait_refill_active():
+            # Der Nutzer WILL nachlegen (Schalter an), aber es ist blockiert
+            # (Engine nicht importiert / kein Fenster-Capture) -> gedrosselt
+            # melden, sonst haengt der Bot stumm mit leerem Slot. Bewusst still,
+            # wenn das Nachlegen einfach ausgeschaltet ist (kein Spam).
+            if self.bait_refill_enabled:
+                self._bait_diag('bait-refill AN, aber inaktiv',
+                                engine=(_refill is not None),
+                                wincap=(self.wincap is not None))
             return
         now = time()
         too_soon = (self._last_bait_check > 0
@@ -532,8 +580,19 @@ class FishingBot(FishingDetectMixin):
         try:
             slot = self._bait_slot()
             if slot is None:
+                self._bait_diag('bait-refill: bait_key ist kein Quickslot',
+                                bait_key=self.bait_key)
                 return
             if not _refill.quickslot_is_empty(screenshot, slot):
+                # Slot gilt als BELEGT -> nicht nachlegen. Beim Report "leer, legt
+                # trotzdem nicht nach" verraet die gemessene (mean/std/bright) am
+                # Slot-Pixel, ob der Punkt fuers Fenster falsch sitzt oder die
+                # Schwellen nicht greifen (gedrosselt, kein Spam).
+                stats = _refill.quickslot_probe_stats(screenshot, slot)
+                if stats is not None:
+                    self._bait_diag('bait-refill: Slot als belegt gelesen',
+                                    slot=slot, mean=round(stats[0], 1),
+                                    std=round(stats[1], 1), bright=stats[2])
                 return   # Koeder noch da -> nichts tun (haeufigster Fall)
 
             _flog(self.state, t('fishing.bait_refill_empty_slot'))
@@ -580,6 +639,20 @@ class FishingBot(FishingDetectMixin):
                       budget=int(self._BAIT_REFILL_BUDGET))
         except Exception:
             # Niemals den Angel-Loop kippen.
+            pass
+
+    def _bait_diag(self, message, **fields):
+        """Gedrosselte Diagnose-Zeile fuers Koeder-Nachlegen (alle
+        ``_BAIT_DIAG_INTERVAL`` s hoechstens eine). Reines Logging -- wirft nie,
+        aendert nichts am Verhalten. Nutzt denselben _flog-Kanal wie der Rest."""
+        try:
+            now = time()
+            if (self._last_bait_diag > 0
+                    and now - self._last_bait_diag < self._BAIT_DIAG_INTERVAL):
+                return
+            self._last_bait_diag = now
+            _flog(self.state, message, **fields)
+        except Exception:
             pass
 
     def _notify_bait_empty(self):
@@ -845,27 +918,54 @@ class FishingBot(FishingDetectMixin):
             _input.click(mouse_x, mouse_y, tag='daily')
             # Bestaetigungs-Fenster SCHARF schalten statt blind zu klicken: es
             # kommt erst mit der Server-Antwort (der alte Sofort-Klick feuerte
-            # vorher ins Leere -> Dialog blieb offen). Solange das Options-
-            # Fenster noch steht, verlaengert sich das Zeitfenster pro Frame.
-            self._golden_confirm_until = time() + self.GOLDEN_CONFIRM_WAIT_S
-            if time() - getattr(self, '_last_daily_log', 0) > 3:
-                self._last_daily_log = time()
+            # vorher ins Leere -> Dialog blieb offen). _until = pro-Dialog-Fenster
+            # (wird bei JEDEM gefundenen Dialog verlaengert), _hard = absolute
+            # Obergrenze als Backstop gegen endlose Verlaengerung.
+            now = time()
+            # Harte Deadline NUR an der steigenden Flanke einer Episode setzen
+            # (nicht jeden Frame neu) -- sonst haelt ein klebender daily-Zustand
+            # (dauerhaft schwarze Ecke) den Backstop endlos am Leben. Absolut ab
+            # dem ERSTEN daily-Frame der Episode; _until darauf gedeckelt.
+            if now >= getattr(self, '_golden_confirm_hard', 0.0):
+                self._golden_confirm_hard = now + self.GOLDEN_CONFIRM_MAX_S
+            self._golden_confirm_until = min(now + self.GOLDEN_CONFIRM_WAIT_S,
+                                             self._golden_confirm_hard)
+            # Weltklick-Sperre an ECHTER Evidenz (Popup steht diesen Frame) + Grace.
+            self._golden_suppress_until = now + self.GOLDEN_SUPPRESS_GRACE_S
+            if now - getattr(self, '_last_daily_log', 0) > 3:
+                self._last_daily_log = now
                 _flog(self.state, t('fishing.golden_tuna_clicked'),
                       field=field, x=mouse_x, y=mouse_y)
         elif time() < getattr(self, '_golden_confirm_until', 0.0):
-            # Optionen geklickt, Fenster zu -> auf den Bestaetigungs-Dialog
-            # warten und OK erst klicken, wenn er WIRKLICH im Frame steht.
-            # Geklickt wird die GEFUNDENE Knopf-Mitte (der Dialog wandert je
-            # nach Textlaenge/Position). Retry-sicher: steht er im naechsten
-            # Frame noch, wird erneut geklickt; danach laeuft das Fenster ab.
+            # Auf den Bestaetigungs-Dialog warten und OK erst klicken, wenn er
+            # WIRKLICH im Frame steht (Template der Knopf-Leiste). Der Dialog
+            # wandert je nach Textlaenge -> geklickt wird die GEFUNDENE Mitte.
+            # WICHTIG (User-Report 2026-07-22): der Server schickt teils MEHRERE
+            # Dialoge nacheinander (Buff-/Ergebnis-Meldung), egal ob ein Buff
+            # faellt -> nach jedem OK-Klick wird das Fenster VERLAENGERT (bis zur
+            # harten Deadline), damit auch der 2./3. Dialog abgeraeumt wird statt
+            # offen zu bleiben (offener Dialog = Bot klickt in die Welt = Char
+            # laeuft vor). Cooldown verhindert 60 Klicks/s auf denselben Dialog.
             found, _score, point = self.detect_golden_confirm(screenshot)
-            if found and point is not None:
+            now = time()
+            cooldown_ok = (now - getattr(self, '_last_confirm_click', 0.0)
+                           > self.GOLDEN_CONFIRM_CLICK_COOLDOWN_S)
+            if found:
+                # Dialog steht diesen Frame -> Weltklick-Sperre (an ECHTER
+                # Evidenz) auffrischen, unabhaengig vom Cooldown des OK-Klicks.
+                self._golden_suppress_until = now + self.GOLDEN_SUPPRESS_GRACE_S
+            if found and point is not None and cooldown_ok:
                 ox, oy = self.wincap.offset_x, self.wincap.offset_y
                 ok_x = int(ox + point[0])
                 ok_y = int(oy + point[1])
                 _input.click(ok_x, ok_y, tag='confirm')
-                if time() - getattr(self, '_last_confirm_log', 0) > 3:
-                    self._last_confirm_log = time()
+                self._last_confirm_click = now
+                # Fenster verlaengern -- aber nie ueber die harte Deadline hinaus.
+                self._golden_confirm_until = min(
+                    now + self.GOLDEN_CONFIRM_WAIT_S,
+                    getattr(self, '_golden_confirm_hard', now))
+                if now - getattr(self, '_last_confirm_log', 0) > 3:
+                    self._last_confirm_log = now
                     _flog(self.state, t('fishing.golden_tuna_confirmed',
                                         x=ok_x, y=ok_y))
 
@@ -955,7 +1055,18 @@ class FishingBot(FishingDetectMixin):
 
         # make the click
 
-        if (time() - self.timer_mouse) > 0.3 and self.state == 3 and detected_end:
+        # Waehrend ein Golden-Tuna-Modal (Popup ODER Bestaetigungsdialog) steht,
+        # KEINE Minispiel-/Weltklicks: der Fischklick traefe sonst HINTER den
+        # Dialog in die Welt -> ungewollte Vorwaertsbewegung (User-Report
+        # 2026-07-22). Die Sperre haengt an TATSAECHLICHER Modal-Evidenz + kurzer
+        # Grace (_golden_suppress_until), NICHT am generoesen Klick-Fenster --
+        # sonst blockt ein spurioeser daily-False-Positive (schwarze Ecke) das
+        # Angeln 10-25s. Das Confirm-Fenster (_golden_confirm_until) raeumt
+        # parallel die Dialoge per OK-Klick ab.
+        in_golden_confirm = time() < getattr(self, '_golden_suppress_until', 0.0)
+
+        if (time() - self.timer_mouse) > 0.3 and self.state == 3 \
+                and detected_end and not in_golden_confirm:
             
             # Detect the fish            
 

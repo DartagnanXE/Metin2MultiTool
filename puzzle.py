@@ -1,5 +1,6 @@
 import pydirectinput
 pydirectinput.PAUSE = 0.05  # fast, but down->up MUST stay held >~1 frame or the game IGNORES the key/click (PAUSE=0 = 0ms hold = not registered); 0.05 = ~3 frames
+pydirectinput.FAILSAFE = False  # sonst killt ein transientes (0,0)-Cursor-Lesen die Session (siehe fishingbot.py)
 
 # Eingabe-Treiber-Seam (Multiclient). Default = das echte pydirectinput
 # (Single-Client byte-identisch). Der Worker injiziert ein

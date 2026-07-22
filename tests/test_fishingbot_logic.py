@@ -416,6 +416,10 @@ class _FakeRefill:
     def quickslot_is_empty(self, screenshot, slot, **_kw):
         return self._empty
 
+    def quickslot_probe_stats(self, screenshot, slot, **_kw):
+        # Occupied fingerprint (dark-but-textured worm stack) by default.
+        return (25.0, 46.0, 38)
+
     def quickslot_screen(self, slot, ox=0, oy=0):
         return (300 + ox, 580 + oy)
 
@@ -424,6 +428,84 @@ class _FakeRefill:
         if self._raise:
             raise RuntimeError('boom')
         return self._result
+
+
+class TestBaitRefillDiagnostics(unittest.TestCase):
+    """Die Diagnose-Zeilen fuers Nachlegen (Live-Bug 'legt nicht nach obwohl
+    leer'): sichtbar machen, WARUM nicht nachgelegt wird, ohne den Loop
+    zuzuspammen (30s-Drossel)."""
+
+    def _bot(self, enabled=True):
+        bot = _bare_bot()
+        bot.bait_refill_enabled = enabled
+        bot.bait_key = '2'
+        bot.bait_refill_db = object()
+        bot.bait_refill_calib = None
+        bot.on_bait_empty = None
+        bot._last_bait_check = 0.0
+        bot._last_bait_diag = 0.0
+        bot.botting = True
+        bot.state = 0
+        bot.wincap = _StubCapture()
+        return bot
+
+    def _run_capture(self, bot, fake, clock=None):
+        logs = []
+        patchers = [
+            mock.patch.object(fishingbot, '_flog',
+                              lambda st, msg, **f: logs.append((msg, f))),
+            mock.patch.object(fishingbot, 'pydirectinput', mock.Mock()),
+        ]
+        if fake is None:
+            patchers.append(mock.patch.object(fishingbot, '_refill', None))
+        else:
+            patchers.append(mock.patch.object(fishingbot, '_refill', fake))
+        if clock is not None:
+            patchers.append(mock.patch.object(fishingbot, 'time', clock))
+        for p in patchers:
+            p.start()
+        try:
+            bot._maybe_refill_bait(object())
+        finally:
+            for p in patchers:
+                p.stop()
+        return logs
+
+    def test_enabled_but_inactive_engine_is_logged(self):
+        bot = self._bot(enabled=True)
+        logs = self._run_capture(bot, fake=None)   # _refill None -> inactive
+        self.assertTrue(any('inaktiv' in m for m, _f in logs))
+
+    def test_disabled_stays_silent(self):
+        bot = self._bot(enabled=False)
+        logs = self._run_capture(bot, fake=None)
+        self.assertEqual(logs, [])                  # kein Spam, wenn absichtlich aus
+
+    def test_occupied_slot_logs_measured_stats(self):
+        bot = self._bot(enabled=True)
+        fake = _FakeRefill(empty=False)
+        logs = self._run_capture(bot, fake)
+        hit = [f for m, f in logs if 'belegt' in m]
+        self.assertEqual(len(hit), 1)
+        self.assertEqual(hit[0]['slot'], 2)
+        self.assertIn('mean', hit[0])
+        self.assertIn('bright', hit[0])
+
+    def test_diagnostic_is_throttled(self):
+        bot = self._bot(enabled=True)
+        fake = _FakeRefill(empty=False)
+
+        class _Clock:
+            def __init__(self): self.t = 1000.0
+            def __call__(self): return self.t
+
+        clk = _Clock()
+        first = self._run_capture(bot, fake, clock=clk)
+        clk.t += 1.0                                # < 30s Drossel
+        bot._last_bait_check = 0.0                  # Pruef-Throttle umgehen
+        second = self._run_capture(bot, fake, clock=clk)
+        self.assertTrue(any('belegt' in m for m, _f in first))
+        self.assertFalse(any('belegt' in m for m, _f in second))
 
 
 class TestBaitRefillTrigger(unittest.TestCase):

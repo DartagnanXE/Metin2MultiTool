@@ -43,6 +43,7 @@ from i18n import t
 
 try:  # Eingabe-Treiber (Windows-only; in Tests gestubbt)
     import pydirectinput as _input
+    _input.FAILSAFE = False  # transientes (0,0)-Cursor-Lesen darf die Session nicht killen (siehe fishingbot.py)
 except Exception:  # pragma: no cover - nur ohne Windows-Treiber
     _input = None
 

@@ -43,6 +43,7 @@ import inventory_discard as discard
 try:  # pragma: no cover - present only on the Windows build/runtime
     import pydirectinput
     pydirectinput.PAUSE = 0.05  # down->up needs a hold (~3 frames) or the game ignores the click; 0 = not registered
+    pydirectinput.FAILSAFE = False  # transientes (0,0)-Cursor-Lesen darf die Session nicht killen (siehe fishingbot.py)
 except Exception:  # pragma: no cover
     pydirectinput = None
 

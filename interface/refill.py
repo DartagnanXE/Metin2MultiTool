@@ -222,21 +222,33 @@ def two_click_place(api, x1, y1, x2, y2, settle=DRAG_SETTLE, sleep=None):
     _click(x2, y2)        # auf den Box-Slot setzen
 
 
-# Empty-slot probe tunables (calibrated on live_capture.png, 800x601 CLIENT).
-# An EMPTY slot is not merely dark -- it is DARK *and* FLAT (uniform background,
-# no icon highlights). An OCCUPIED slot -- even a dark, thin reddish bait icon
-# like the "47" worm stack -- always carries BRIGHT pixels (icon highlights /
-# white stack digits) and high local contrast. The old test (patch mean < 42)
-# wrongly flagged the worm slot as empty (its patch mean was only ~25, barely
-# above a truly empty ~9), so the bot refilled CONSTANTLY. We instead require
-# all three empty signals to agree, with wide margins measured on the live frame:
-#   empty patch:  mean ~9,  std ~7,   bright(>70) px = 0
-#   worm patch:   mean ~25, std ~46,  bright(>70) px ~38
+# Empty-slot probe tunables. An EMPTY slot is DARK *and* FLAT (uniform
+# background) *and* free of bright "icon ink"; an OCCUPIED slot -- even a dark,
+# thin reddish bait icon like the "47" worm stack -- carries BRIGHT pixels (icon
+# highlights / white stack digits) AND high local contrast. All three empty
+# signals must agree (AND), so a false EMPTY (-> wrong refill) needs an occupied
+# slot that is at once dark, flat and ink-free -- effectively indistinguishable
+# from empty; the AND stays conservative in the safe direction.
+#
+# Thresholds sit in the MIDDLE of the empty/occupied gap MEASURED across every
+# real frame we have (live_capture.png worm slot + user keybind frame + FischOCR
+# fishing frames), not hugged to one capture:
+#   empty  slots : mean 9..10 | std 7..16 | bright 0..2
+#   occupied     : mean 25..113 | std 46..97 | bright 38..308
+# -> std gap 16->46 (mid ~31), bright gap 2->38, mean gap 10->25.
+#
+# WICHTIG (2026-07-22, Live-Report): Metin2 rendert seit einem Patch die TASTEN-
+# ZIFFER ("2") auf JEDEN Quickslot -- auch auf den leeren. Dieses kleine Overlay
+# hob am leeren Bait-Slot std von ~7 auf ~16 und bright von 0 auf 2 und riss so
+# die alte, zu enge Schwelle (std<14, bright<4) -> der Bot las den leeren Slot
+# als BELEGT und legte NIE nach. Die neuen Schwellen (std<30, bright<20) tolerieren
+# das Ziffer-Overlay mit Marge und bleiben weit unter dem Occupied-Minimum (std 46,
+# bright 38). Regressions-Frame: tests/fixtures/refill/quickslot_keybind_empty_slot2.png.
 QUICKSLOT_PROBE_RADIUS = 11   # half-size of the sampled square (px)
 QUICKSLOT_DARK_MEAN = 45      # slot mean grayscale must be below this to be empty
-QUICKSLOT_FLAT_STD = 14       # ... and contrast (std) below this (flat background)
+QUICKSLOT_FLAT_STD = 30       # ... and contrast (std) below this (flat bg + key-digit overlay)
 QUICKSLOT_BRIGHT_VALUE = 70   # a pixel brighter than this counts as "icon ink"
-QUICKSLOT_MAX_BRIGHT_PX = 4   # ... and fewer than this many bright px present
+QUICKSLOT_MAX_BRIGHT_PX = 20  # ... and fewer than this many bright px (tolerates the key digit)
 
 
 def quickslot_is_empty(screenshot_bgr, slot_1to8, radius=QUICKSLOT_PROBE_RADIUS,
@@ -257,27 +269,47 @@ def quickslot_is_empty(screenshot_bgr, slot_1to8, radius=QUICKSLOT_PROBE_RADIUS,
     OCCUPIED -> do NOT refill) whenever numpy/the image is unavailable, the
     patch is degenerate, or anything raises. In doubt we never refill.
     """
-    if _np is None or screenshot_bgr is None:
+    stats = quickslot_probe_stats(screenshot_bgr, slot_1to8, radius=radius,
+                                  bright_value=bright_value)
+    if stats is None:
         return False
+    mean, std, bright_px = stats
+    is_dark = mean < float(dark_mean)
+    is_flat = std < float(flat_std)
+    return is_dark and is_flat and bright_px < int(max_bright_px)
+
+
+def quickslot_probe_stats(screenshot_bgr, slot_1to8,
+                          radius=QUICKSLOT_PROBE_RADIUS,
+                          bright_value=QUICKSLOT_BRIGHT_VALUE):
+    """``(mean, std, bright_px)`` des Slot-Patches -- oder ``None``, wenn nicht
+    messbar (kein numpy/Bild, falsche Form, degenerierter Patch).
+
+    Reines Diagnose-Fenster in EXAKT dieselben Pixel, die
+    :func:`quickslot_is_empty` bewertet. Zweck: bei "Bot legt nicht nach, obwohl
+    leer" die tatsaechlich am Slot-Pixel gemessenen Werte loggen -- so ist sofort
+    sichtbar, ob (a) der Slot-Punkt fuer das Fenster des Nutzers falsch sitzt
+    (mean/std passen nicht zum leeren Hintergrund) oder (b) die Schwellen nicht
+    greifen. Wirft nie."""
+    if _np is None or screenshot_bgr is None:
+        return None
     try:
         cx, cy = QUICKSLOT_XY[int(slot_1to8)]
         arr = _np.asarray(screenshot_bgr)
         if arr.ndim != 3 or arr.shape[2] < 3:
-            return False
+            return None
         h, w = arr.shape[0], arr.shape[1]
         r = max(1, int(radius))
         y0, y1 = max(0, cy - r), min(h, cy + r)
         x0, x1 = max(0, cx - r), min(w, cx + r)
         if y1 <= y0 or x1 <= x0:
-            return False
+            return None
         patch = arr[y0:y1, x0:x1, :3].astype(_np.float32)
         gray = patch.mean(axis=2)
-        bright_px = int((gray > float(bright_value)).sum())
-        is_dark = float(gray.mean()) < float(dark_mean)
-        is_flat = float(gray.std()) < float(flat_std)
-        return is_dark and is_flat and bright_px < int(max_bright_px)
+        return (float(gray.mean()), float(gray.std()),
+                int((gray > float(bright_value)).sum()))
     except Exception:
-        return False
+        return None
 
 
 def tab_click(inp, calib, offset_x, offset_y, page, tag='refill'):
