@@ -276,5 +276,34 @@ class TestProbeOnRealShots(unittest.TestCase):
             self.assertEqual(res[1], 0, key)
 
 
+_DRIFT_SHOT = os.path.join(_REPO_ROOT, 'tests', 'fixtures', 'refill',
+                           'quickslot_keybind_empty_slot2.png')
+
+
+@unittest.skipUnless(np is not None and Image is not None
+                     and os.path.isfile(_DRIFT_SHOT),
+                     'drift regression shot not present')
+class TestProbeVerticalDriftRegression(unittest.TestCase):
+    """Regression: Live-Report 2026-07-22 (Auto-Cleanup). Auf DIESEM echten
+    Nutzer-Frame (Inventar OFFEN, Seite IV aktiv) lagen die inaktiven Tabs
+    II/III dy=+4 px tiefer als kalibriert -> fielen aus dem alten +-3-Suchradius
+    -> probe_open las das OFFENE Inventar als ZU -> Scan + Grill brachen ab.
+    Der breitere Radius (6) muss den Frame jetzt als OFFEN lesen, ohne die
+    Closed-Szenen faelschlich zu oeffnen (siehe TestProbeOnRealShots)."""
+
+    def test_user_open_inventory_with_vertical_drift_reads_open(self):
+        res = open_probe.probe_open(
+            _load_client_bgr(_DRIFT_SHOT), DEFAULT_CALIBRATION)
+        self.assertIsNotNone(res)
+        self.assertTrue(res[0], 'drift frame must read OPEN, dists=%r' % (res[2],))
+        # Seite IV aktiv -> genau die drei inaktiven Tabs (I/II/III) matchen.
+        self.assertEqual(res[1], 3)
+
+    def test_shift_radius_covers_at_least_four_px_drift(self):
+        # Der Radius muss das gemessene Drift (+4) abdecken -- Guard gegen ein
+        # versehentliches Zuruecksetzen auf 3.
+        self.assertGreaterEqual(open_probe.TAB_SHIFT_RADIUS, 5)
+
+
 if __name__ == '__main__':
     unittest.main()

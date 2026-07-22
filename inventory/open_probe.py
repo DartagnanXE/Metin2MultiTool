@@ -57,9 +57,16 @@ except Exception:  # pragma: no cover
 TAB_PATCH_BOX = (-14, 24, -5, 13)
 
 #: Dense +-px shift search when matching a patch against its template; absorbs
-#: the measured per-session client offset (+-1 px between the reference shots,
-#: e.g. an 800x600 vs 801x602 client).
-TAB_SHIFT_RADIUS = 3
+#: the per-session client offset. Anfangs 3 (+-1 px zwischen den Referenz-Shots
+#: angenommen), aber ein Live-Report (2026-07-22, Auto-Cleanup) zeigte ein
+#: VERTIKALES Drift von +4 px: die inaktiven Tabs II/III lagen dy=+4 tiefer als
+#: kalibriert (Fenster-Dekorations-/Client-Hoehe variiert je Windows-Theme/DPI),
+#: fielen aus dem +-3-Radius -> Probe las das OFFENE Inventar als ZU -> Scan +
+#: Grill brachen ab ("Inventar liess sich nicht oeffnen"). 6 deckt das Drift mit
+#: Marge; FALSE-OPEN bleibt aus, weil die naechste Landschafts-/Szenen-MAD auch
+#: mit dem breiteren Suchfenster >= 32 bleibt (Schwelle 15) -- verifiziert an den
+#: Angel-Szenen-Frames. Cross-Tab-Match ausgeschlossen (Tabs ~39 px auseinander).
+TAB_SHIFT_RADIUS = 6
 
 #: Accept threshold for "this tab matches its INACTIVE template" (mean abs diff
 #: over the RGB patch, 0..255). The tab row is SLIGHTLY TRANSPARENT, so the
