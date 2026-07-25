@@ -3,6 +3,54 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.6.4] — 2026-07-25
+
+### Angel: „Char läuft vor" — der Nachzügler-Klick am Rundenende
+
+- **Fix:** Am Ende fast jeder Angel-Runde feuerte der Bot einen zweiten Klick auf
+  praktisch dieselbe Stelle. Gemessen über 10 Runden aus zwei Live-Logs: der
+  letzte Klick springt im Median nur **4,6 px** gegenüber seinem Vorgänger, alle
+  übrigen **48,6 px** (Faktor 10,5); 8 von 10 Runden enden mit ≤ 10 px Abstand bei
+  0,42–0,59 s. Der Fisch hängt zu dem Zeitpunkt schon am Haken — die Uhr wird
+  während der Fang-Animation aber weitergezeichnet, also greift der bestehende
+  Uhr-Re-Check nicht. Der Nachzügler trifft keinen Fisch mehr, fällt durch das
+  Overlay auf das Gelände und löst Klick-to-Move aus → der Char läuft vor.
+- **Echo-Sperre:** Ein Minispiel-Klick wird unterdrückt, wenn er ≤ 12 px vom
+  zuletzt *zugestellten* Klick entfernt liegt **und** ≤ 1,5 s danach kommt. Das
+  Zeitfenster ist begrenzt, damit ein wirklich ruhender Fisch weiter nachgeklickt
+  wird. Not-Schalter: `M2FB_ECHO_GUARD=0` stellt das alte Verhalten her.
+- **Debug-Log sagt jetzt WARUM geklickt wird:** jede Klick-Zeile führt den
+  Erkennungs-Pfad (`ruht` / `vorhalt`), die Vorlagen-Konfidenz, Geschwindigkeit,
+  Abstand und Alter des Bezugspunkts sowie Abstand/Zeit zum vorherigen Klick.
+  Dazu eine Bilanz-Zeile pro Runde (wie viele Klicks über welchen Pfad, wie viele
+  unterdrückt). Unterdrückte Klicks werden mit Grund geloggt.
+
+## [1.6.3] — 2026-07-22
+
+### Inventar: Auto-Cleanup brach ab, obwohl das Inventar offen war
+
+- **Fix:** Die Prüfung „ist das Inventar offen?" suchte die Reiter I–IV nur in
+  einem Radius von 3 px. Je nach Fenster-Dekoration sitzen die Reiter 4 px tiefer
+  → das **offene** Inventar wurde als **geschlossen** gelesen, Scan und Braten
+  brachen mit „Inventar liess sich nicht öffnen" ab. Suchradius auf 6 px erhöht;
+  ein geschlossener Beutel wird weiterhin sicher als geschlossen erkannt.
+
+## [1.6.2] — 2026-07-22
+
+### Angel: Absturz, Goldener Thunfisch, Köder-Nachlegen
+
+- **Fix (Absturz):** `pydirectinput.FAILSAFE` stand projektweit auf dem Default
+  `True` — ein transientes „Cursor bei (0,0)"-Lesen beendete die ganze Session mit
+  einer Ausnahme. Fail-Safe an allen Eingabe-Einstiegen abgeschaltet (der Bot hat
+  mit F6 einen eigenen Not-Aus).
+- **Fix (Goldener Thunfisch):** Der Server schickt teils mehrere
+  Bestätigungs-Dialoge. Das Klick-Fenster wird jetzt nach jedem OK verlängert
+  (mit harter Deadline), und solange ein Dialog steht, werden keine Minispiel-
+  klicks gesendet — die fielen sonst hinter den Dialog in die Welt.
+- **Fix (Köder):** Metin2 legt seit einem Client-Patch die Tastenziffer auf jeden
+  Quickslot. Das kleine Overlay ließ den leeren Köder-Slot als „belegt" lesen →
+  es wurde nie nachgelegt. Schwellen an den gemessenen Werten neu gesetzt.
+
 ## [1.6.1] — 2026-07-18
 
 ### Produktion: Test-Buttons aus der Live-UI entfernt

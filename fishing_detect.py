@@ -125,12 +125,28 @@ class FishingDetectMixin:
     auf :class:`fishingbot.FishingBot`. Reines Verhalten, per MRO eingemischt.
     """
 
+    def _note_detect(self, grund, conf=None, dist=None, velo=None,
+                     ref_alter=None):
+        """Merkt sich, WARUM ``detect`` gerade so entschieden hat -- reine
+        Diagnose fuer die Klick-Zeile im Debug-Log, KEINE Verhaltensaenderung.
+
+        Wirft nie: schlaegt das Setzen fehl, fehlen im Log nur die Zusatzfelder.
+        """
+        try:
+            self._last_detect_info = {
+                'grund': grund, 'conf': conf, 'dist': dist,
+                'velo': velo, 'ref_alter': ref_alter,
+            }
+        except Exception:
+            pass
+
     def detect(self, haystack_img):
 
         # match the needle_image with the hasytack image (robust: ein abweichendes
         # Capture darf KEINEN cv2-Crash ausloesen -> dann "kein Fisch" (None)).
         ok, max_val, max_loc = _match_template_max(haystack_img, self.needle_img)
         if not ok:
+            self._note_detect('vorlage-fehlt')
             return None
 
         # needle_image's dimensions
@@ -160,6 +176,10 @@ class FishingDetectMixin:
                 velo = dist/(time() - self.fish_last_time)
 
                 if velo == 0.0:
+                    # Fund liegt EXAKT auf dem Bezugspunkt -> Ziel ruht.
+                    self._note_detect('ruht', conf=max_val, dist=dist,
+                                      velo=velo,
+                                      ref_alter=time() - self.fish_last_time)
                     return (pos_x, pos_y, True)
                 elif velo >= 150:
 
@@ -174,14 +194,26 @@ class FishingDetectMixin:
                     cv.line(haystack_img, (int(pos_x), int(pos_y)),
                             (destiny_x, destiny_y), (0, 255, 0),  thickness=3)
 
+                    # Vorhalt: es wird BEWUSST FISH_VELO_PREDICT px neben dem
+                    # Fund geklickt, in Richtung des Versatzes zum Bezugspunkt.
+                    self._note_detect('vorhalt', conf=max_val, dist=dist,
+                                      velo=velo,
+                                      ref_alter=time() - self.fish_last_time)
                     return (destiny_x, destiny_y, False)
 
             # get the fish position and the time
 
+            hatte_bezug = bool(self.fish_last_time)
             self.fish_pos_x = pos_x
             self.fish_pos_y = pos_y
             self.fish_last_time = time()
+            # Fund da, aber kein Klick: entweder erster Fund dieser Runde oder
+            # Totbereich (0 < velo < 150). Bezugspunkt wurde nachgezogen.
+            self._note_detect('totbereich' if hatte_bezug else 'erster-fund',
+                              conf=max_val)
+            return None
 
+        self._note_detect('kein-fisch', conf=max_val)
         return None
 
     def detect_minigame(self, haystack_img):

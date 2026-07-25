@@ -126,8 +126,36 @@ class FishingBot(FishingDetectMixin):
     fish_last_time = None
     botting = False
 
+    # Zuletzt ZUGESTELLTER Minispiel-Klick (Screen-Koordinaten) + Zeitpunkt --
+    # Basis der Echo-Sperre. None = in dieser Runde noch nicht geklickt.
+    _last_click_pos = None
+    _last_click_time = 0.0
+    # Diagnose: letzte detect()-Begruendung + Klick-Bilanz der laufenden Runde.
+    _last_detect_info = None
+    _click_stats = None
+
     FISH_RANGE = 74
     FISH_VELO_PREDICT = 30
+
+    # ECHO-KLICK-SPERRE (User-Report 2026-07-25 "der Char laeuft vor").
+    # BEFUND aus zwei Live-Logs, 10 vollstaendige Runden ausgemessen: der LETZTE
+    # Klick jeder Runde springt im Median nur 4,6 px gegenueber dem vorherigen --
+    # alle uebrigen Klicks springen im Median 48,6 px (Faktor 10,5). 8/10 Runden
+    # enden mit einem Sprung <= 10 px, zeitlicher Abstand 0,42-0,59 s, und 0,2-1,2 s
+    # spaeter meldet der Bot "Minigame finished".
+    # DEUTUNG: Der Fisch haengt da bereits am Haken. Die Uhr rendert waehrend der
+    # Fang-Animation weiter (Konfidenz 0,99) -> ``detected_end`` bleibt True und der
+    # Uhr-Re-Check (:meth:`_minigame_recheck_gone`) greift NICHT. Der Nachzuegler
+    # trifft keinen Fisch mehr, faellt durchs Overlay in die Welt -> Klick-to-Move.
+    # SCHWELLEN: Abstand allein trennt NICHT sauber (legitime Zwischen-Spruenge
+    # gehen bis 3,2 px runter, verdaechtige End-Echos bis 10 px hoch) -- deshalb
+    # Abstand UND kurzes Zeitfenster. Die Fehlerrichtung ist asymmetrisch und
+    # rechtfertigt die Ueberlappung: ein faelschlich unterdrueckter Klick kostet nur
+    # Frames (der naechste feuert, sobald der Fisch sich > Radius bewegt), ein
+    # faelschlich erlaubter kostet einen Weltklick. Das Fenster ist begrenzt, damit
+    # ein wirklich ruhender Fisch weiterhin nachgeklickt wird.
+    FISH_ECHO_RADIUS_PX = 12
+    FISH_ECHO_WINDOW_S = 1.5
 
     # BAIT_POSITION = (473, 750)
     # FISH_POSITION = (440, 750)
@@ -373,6 +401,21 @@ class FishingBot(FishingDetectMixin):
         # 0.5-0.9 = Uhr da, aber Schwelle zu hoch; ~0 = Capture/Position falsch).
         _flog(3, t('fishing.minigame_confidence',
                    conf='{:.2f}'.format(self._best_minigame_conf)))
+        # Klick-Bilanz der Runde: EINE Zeile, die zeigt wie viele Klicks ueber
+        # welchen Erkennungs-Pfad kamen und wie viele die Sperren abgefangen
+        # haben. Damit ist im Log sofort sichtbar, ob die Echo-Sperre greift.
+        try:
+            stats = getattr(self, '_click_stats', None)
+            if stats:
+                _flog(3, 'Klick-Bilanz dieser Runde',
+                      **{k: str(v) for k, v in sorted(stats.items())})
+        except Exception:
+            pass
+        self._click_stats = {}
+        # Echo-Sperre rundenweise zuruecksetzen: der erste Klick der NAECHSTEN
+        # Runde darf nie wegen der vorigen unterdrueckt werden (das Zeitfenster
+        # allein wuerde meist reichen, der Reset macht es unabhaengig davon).
+        self._last_click_pos = None
         if self._bite_seen_this_cycle:
             self._casts_without_bite = 0
         else:
@@ -848,6 +891,81 @@ class FishingBot(FishingDetectMixin):
             return False
         return max_val <= 0.9
 
+    def _click_diag(self, mouse_x, mouse_y):
+        """Zusatzfelder fuer die Klick-Zeile im Debug-Log: WARUM dieser Punkt
+        (Erkennungs-Pfad aus :meth:`detect`), wie sicher die Vorlage sass, wie
+        schnell/weit das Ziel gegen den Bezugspunkt lag, wie alt dieser
+        Bezugspunkt schon ist -- und wie weit/lange der zuletzt ZUGESTELLTE Klick
+        entfernt liegt (macht das Echo-Muster direkt im Log sichtbar).
+
+        grund-Werte: ``ruht`` (Fund exakt auf dem Bezugspunkt), ``vorhalt``
+        (bewusst FISH_VELO_PREDICT px daneben geklickt), ``totbereich`` /
+        ``erster-fund`` / ``kein-fisch`` / ``vorlage-fehlt`` (keine Klick-Pfade).
+
+        Reine Diagnose -- wirft nie; im Fehlerfall fehlen nur die Felder.
+        """
+        out = {}
+        try:
+            info = getattr(self, '_last_detect_info', None) or {}
+            out['grund'] = info.get('grund', '?')
+            for key, fmt in (('conf', '{:.2f}'), ('velo', '{:.0f}'),
+                             ('dist', '{:.1f}'), ('ref_alter', '{:.2f}')):
+                val = info.get(key)
+                if val is not None:
+                    out[key] = fmt.format(val)
+            last = self._last_click_pos
+            if last is not None:
+                dx = mouse_x - last[0]
+                dy = mouse_y - last[1]
+                out['abstand_vorher'] = '{:.1f}'.format((dx * dx + dy * dy) ** 0.5)
+                out['t_vorher'] = '{:.2f}'.format(time() - self._last_click_time)
+        except Exception:
+            pass
+        return out
+
+    def _count_click(self, key):
+        """Zaehlt die Klick-Entscheidungen der laufenden Runde (Bilanz-Zeile in
+        :meth:`_on_cycle_end`). Wirft nie."""
+        try:
+            stats = getattr(self, '_click_stats', None)
+            if not isinstance(stats, dict):
+                stats = {}
+                self._click_stats = stats
+            stats[key] = stats.get(key, 0) + 1
+        except Exception:
+            pass
+
+    def _is_echo_click(self, mouse_x, mouse_y):
+        """True gdw. dieser Klick ein Nachzuegler auf die zuletzt geklickte Stelle
+        ist: Abstand <= ``FISH_ECHO_RADIUS_PX`` UND hoechstens
+        ``FISH_ECHO_WINDOW_S`` seit dem letzten zugestellten Klick.
+
+        Schalter ``M2FB_ECHO_GUARD``: Default AN ('1'); '0'/off/false/no => alter
+        Zustand (Sperre aus -> immer klicken).
+
+        FAIL-SAFE: jede Unsicherheit (kein Vorgaenger, Fenster abgelaufen, defekte
+        Werte, Exception) -> False = klicken. Die Sperre kann einen echten Fang
+        damit nie verhindern, sondern hoechstens einen Klick um Frames verzoegern.
+        Wirft nie.
+        """
+        try:
+            val = os.environ.get('M2FB_ECHO_GUARD', '').strip().lower()
+        except Exception:
+            val = ''
+        if val in ('0', 'off', 'false', 'no'):
+            return False
+        try:
+            last = self._last_click_pos
+            if last is None:
+                return False
+            if (time() - self._last_click_time) > self.FISH_ECHO_WINDOW_S:
+                return False
+            dx = mouse_x - last[0]
+            dy = mouse_y - last[1]
+            return (dx * dx + dy * dy) <= self.FISH_ECHO_RADIUS_PX ** 2
+        except Exception:
+            return False
+
     def _deliver_minigame_click(self, mouse_x, mouse_y):
         """Stellt den Minispiel-Fischklick zu -- ABER mit dem ANGEL-FIX-Re-Check
         (:meth:`_minigame_recheck_gone`) UNMITTELBAR davor: ist das Minispiel im
@@ -858,6 +976,22 @@ class FishingBot(FishingDetectMixin):
         Minispiel noch aktiv/unsicher ist (dann klickt es exakt wie zuvor).
         Rueckgabe: True = geklickt, False = unterdrueckt.
         """
+        # Diagnose VOR dem Zustellen bilden -- danach ist der Bezugspunkt schon
+        # ueberschrieben und der Abstand zum Vorgaenger waere 0.
+        diag = self._click_diag(mouse_x, mouse_y)
+        # ZUERST die billige Echo-Pruefung (kein Screenshot noetig): der Fisch haengt
+        # dann schon am Haken, die Uhr laeuft aber weiter -> der Uhr-Re-Check unten
+        # wuerde diesen Klick durchlassen.
+        if self._is_echo_click(mouse_x, mouse_y):
+            if click_tracker is not None:
+                click_tracker.record_suppressed(mouse_x, mouse_y,
+                                                tag='minigame',
+                                                reason='echo-klick')
+            _flog(3, 'Minispiel-Fischklick UNTERDRUECKT: Echo auf die zuletzt '
+                     'geklickte Stelle (Nachzuegler nach dem Fang -> Welt-Klick '
+                     'verhindert)', x=mouse_x, y=mouse_y, **diag)
+            self._count_click('unterdrueckt-echo')
+            return False
         if self._minigame_recheck_gone():
             # Klick UNTERDRUECKT: Uhr weg -> ein Klick fiele in die Welt.
             if click_tracker is not None:
@@ -865,10 +999,14 @@ class FishingBot(FishingDetectMixin):
                                                 tag='minigame',
                                                 reason='minigame-weg')
             _flog(3, 'Minispiel-Fischklick UNTERDRUECKT: Uhr im frischen Frame '
-                     'weg (Welt-Klick verhindert)', x=mouse_x, y=mouse_y)
+                     'weg (Welt-Klick verhindert)', x=mouse_x, y=mouse_y, **diag)
+            self._count_click('unterdrueckt-uhr-weg')
             return False
         _input.click(mouse_x, mouse_y, tag='minigame')
-        _flog(3, t('fishing.fish_clicked'), x=mouse_x, y=mouse_y)
+        self._last_click_pos = (mouse_x, mouse_y)
+        self._last_click_time = time()
+        _flog(3, t('fishing.fish_clicked'), x=mouse_x, y=mouse_y, **diag)
+        self._count_click('geklickt-' + str(diag.get('grund', '?')))
         return True
 
     def runHack(self):
