@@ -3,6 +3,48 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.6.5] — 2026-07-28
+
+### Whitelist: „Ayu" wurde trotz Deaktivierung gefangen
+
+- **Fix:** Der Whitelist-Filter konnte den Ayu nie greifen. Ursache war keine
+  Logik-, sondern eine stille **Erkennungslücke**: dem Zeichen-Atlas der Chat-OCR
+  fehlte der Buchstabe `y`. Der Name wurde als `A?u` gelesen → Ähnlichkeit 0,67
+  gegen die geforderten 0,72 → `UNKNOWN`. Und weil die Whitelist im Zweifel
+  bewusst **behält** (lieber ein unerwünschter Fang als ein abgebrochener
+  gewünschter), wurde der Fisch normal eingeholt.
+- Am Screenshot des Users nachgemessen: vorher `UNKNOWN`, jetzt `Ayu` mit
+  Trefferwert **1,000** — sowohl über die neue Ganzwort-Vorlage als auch über den
+  Zeichen-Atlas allein. Rein additiv: **kein einziges** bestehendes Template hat
+  sich verändert.
+- Von 44 fangbaren Namen sind damit 42 sicher lesbar. Offen bleiben nur `Blondes`
+  und `Braunes Haarfärbemittel` (Großbuchstabe `B` fehlt im Atlas, die beiden
+  liegen zu dicht beieinander) — beide degradieren sicher auf „behalten".
+
+### Inventar: Köder wurde nicht mehr gefunden, Bot stoppte bei vollem Beutel
+
+- **Fix:** Der Bot lief alle vier Inventarseiten ab und meldete „kein Köder im
+  Inventar → Bot gestoppt", obwohl 192 Würmer auf Seite I lagen. Das Raster war
+  um 13 px verrutscht (`(637,231)` statt `(633,244)`), sodass jeder Slot-
+  Ausschnitt die Lücke zwischen zwei Zellen traf: **0 von 45** Slots erkannt.
+- Ursache war, dass ein einmal falscher Raster-Lock sich **selbst bestätigte**:
+  der Cache-Pfad prüft den wiederverwendeten Lock nur gegen seinen eigenen
+  zuletzt gespeicherten Trefferzähler. Der Fehl-Lock reproduzierte den bei jedem
+  Scan, bestand die Hürde und wurde erneut festgeschrieben — der Kalt-Sweep, der
+  ihn repariert hätte, lief nie wieder an. Da der Lock zusätzlich als
+  `grid_lock.json` gespeichert wird, überlebte der Fehler jeden Neustart
+  („seit einer Weile").
+- Der Cache-Pfad probiert jetzt zusätzlich das Kalibrier-Raster, sobald der
+  gecachte Ursprung weiter als der Refine-Radius davon abliegt, und nimmt das
+  **strikt bessere**. Am Screenshot des Users: Fehl-Lock Fit 26 / 0 erkannt →
+  korrigiert auf Fit 42 / 42 erkannt, Köder gefunden, in 207 ms. Ein legitim
+  verschobenes Inventarfenster behält seinen Lock (nur ein *besserer* Zähler
+  gewinnt), und ein gesunder Lock löst die Zusatzprüfung gar nicht erst aus —
+  gleiche Laufzeit wie bisher.
+- **Zusätzliches Sicherheitsnetz:** Erkennt der Köder-Nachschub auf *keiner*
+  Seite auch nur ein Item, sieht aber belegte Slots, verwirft er den Raster-Lock
+  und scannt genau einmal neu, statt den Bot zu stoppen.
+
 ## [1.6.4] — 2026-07-25
 
 ### Angel: „Char läuft vor" — der Nachzügler-Klick am Rundenende

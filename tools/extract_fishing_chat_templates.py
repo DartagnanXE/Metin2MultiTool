@@ -78,6 +78,7 @@ _FISH_ITEM_SOURCES = {
     'Karpfen.png': ('fish', 'Karpfen'),
     'Aal.png': ('fish', 'Aal'),
     'Schwarzes Haarfärbemittel.png': ('item', 'Schwarzes Haarfärbemittel'),
+    'Ayu.png': ('fish', 'Ayu'),
 }
 
 # Discriminator: which reference's word[4] yields each branch glyph.
@@ -109,6 +110,11 @@ _GLYPH_SOURCES = {
     'Aal.png': 'Es sieht aus, als hätte Aal angebissen.',
     'Schwarzes Haarfärbemittel.png':
         'Es sieht aus, als hinge Schwarz Haarfärbemittel am Haken.',
+    # 2026-07-28 vom User geliefert: schliesst die letzte gemeldete Luecke 'y'.
+    # Ohne 'y' las die Zeichen-OCR "A?u" -> Aehnlichkeit 0.67 < 0.72-Gate ->
+    # UNKNOWN -> die Whitelist konnte Ayu NIE abbrechen (Fisch wurde trotz
+    # Deaktivierung gefangen).
+    'Ayu.png': 'Es sieht aus, als hätte Ayu angebissen.',
     'nichterkannt.png':
         'Etwas hat angebissen, aber du kannst nicht erkennen, was es ist.',
     'nochnichtsnurköderbefestigt.png':

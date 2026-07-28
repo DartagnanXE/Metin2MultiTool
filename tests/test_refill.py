@@ -88,6 +88,51 @@ class TestFindOrder(unittest.TestCase):
                          ('empty',))
 
 
+def _state_slot(state, name=None):
+    return types.SimpleNamespace(state=state, name=name, row=0, col=0)
+
+
+class TestGridMislockDetection(unittest.TestCase):
+    """REGRESSION (2026-07-28): der Bot lief alle 4 Inventarseiten ab und meldete
+    "kein Koeder im Inventar" -> Bot gestoppt, obwohl 192 Wuermer auf Seite I
+    lagen. Log-Signatur: ``I:[-]+?45 II:[-]+?45 III:[-]+?45 IV:[-]+?45`` -- kein
+    einziger Slot erkannt, aber 45 belegte pro Seite. Das ist ein verschobenes
+    Raster (jeder Slot-Ausschnitt trifft die Luecke zwischen zwei Zellen), kein
+    leerer Beutel. :func:`refill._looks_like_grid_mislock` erkennt genau diese
+    Signatur, damit der Refill den Raster-Lock verwirft und EINMAL neu scannt."""
+
+    def _pages(self, slots):
+        return _inv({p: list(slots) for p in refill.PAGE_ORDER})
+
+    def test_all_unknown_is_a_mislock(self):
+        self.assertTrue(refill._looks_like_grid_mislock(
+            self._pages([_state_slot('unknown')] * 45)))
+
+    def test_genuinely_empty_bag_is_not_a_mislock(self):
+        # Ein echt leerer Beutel liefert 'empty', nicht 'unknown' -> kein
+        # unnoetiger Zweit-Scan.
+        self.assertFalse(refill._looks_like_grid_mislock(
+            self._pages([_state_slot('empty')] * 45)))
+
+    def test_any_recognised_item_rules_out_a_mislock(self):
+        # Sobald IRGENDEIN Item erkannt wurde, sitzt das Raster richtig -- dann
+        # ist "kein Koeder" die Wahrheit und kein Zweit-Scan noetig.
+        self.assertFalse(refill._looks_like_grid_mislock(
+            self._pages([_state_slot('item', 'Carp')]
+                        + [_state_slot('unknown')] * 44)))
+
+    def test_a_few_unknowns_are_normal_noise(self):
+        # Nicht-Fisch-Items (Traenke/Ruestung) sind regulaer 'unknown' -- ein
+        # paar davon duerfen den Zweit-Scan NICHT ausloesen.
+        self.assertFalse(refill._looks_like_grid_mislock(
+            self._pages([_state_slot('unknown')] * 2
+                        + [_state_slot('empty')] * 43)))
+
+    def test_broken_input_is_safe(self):
+        for bad in (None, types.SimpleNamespace(), types.SimpleNamespace(pages=None)):
+            self.assertFalse(refill._looks_like_grid_mislock(bad))
+
+
 class _Recorder:
     def __init__(self):
         self.events = []

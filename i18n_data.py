@@ -448,6 +448,7 @@ TRANSLATIONS = {
     'inventory.db_built': {'en': 'Inventory DB built with {count} item reference(s)', 'de': 'Inventar-DB mit {count} Item-Referenz(en) gebaut'},
     'inventory.grid_locked': {'en': 'Inventory grid locked at origin {origin} pitch {pitch} (fit {fit})', 'de': 'Inventar-Raster fixiert bei Ursprung {origin} Schritt {pitch} (Fit {fit})'},
     'inventory.grid_align': {'en': 'Grid {mode}-aligned in {ms} ms', 'de': 'Raster {mode}-fixiert in {ms} ms'},
+    'inventory.grid_stale_lock': {'en': 'Stale grid lock {old} (fit {old_fit}) discarded -> calibration grid {new} fits better (fit {new_fit})', 'de': 'Veralteter Raster-Lock {old} (Fit {old_fit}) verworfen -> Kalibrier-Raster {new} passt besser (Fit {new_fit})'},
     'inventory.scan_page_failed': {'en': 'Inventory scan: page {page} capture/switch failed: {detail}', 'de': 'Inventar-Scan: Seite {page} Aufnahme/Wechsel fehlgeschlagen: {detail}'},
     'inventory.scan_page_no_image': {'en': 'Inventory scan: page {page} returned no image - skipped', 'de': 'Inventar-Scan: Seite {page} lieferte kein Bild - übersprungen'},
     'inventory.scan_page_wrong_tab': {'en': 'Inventory scan: expected page {page} but tab {got} is open - retrying', 'de': 'Inventar-Scan: erwartete Seite {page}, aber Reiter {got} ist offen - neuer Versuch'},

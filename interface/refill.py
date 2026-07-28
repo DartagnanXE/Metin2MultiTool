@@ -152,6 +152,40 @@ def summarize_inventory(inv, pages=PAGE_ORDER):
     return ' '.join(parts)
 
 
+def _looks_like_grid_mislock(inv, pages=PAGE_ORDER, min_unknown=10):
+    """``True``, wenn der Scan auf KEINER Seite auch nur EIN Item erkannt hat,
+    aber viele belegte-aber-unklassifizierte Slots sah.
+
+    Das ist die Signatur eines verschobenen Rasters (``I:[-]+?45 II:[-]+?45
+    ...``): bei einem echt leeren Beutel sind die Slots ``empty``, nicht
+    ``unknown``, und bei einem korrekt gerasteten vollen Beutel wird praktisch
+    immer mindestens ein Item erkannt. Rein lesend, wirft nie -> ``False`` im
+    Zweifel (dann bleibt es beim bisherigen Verhalten).
+
+    ABGRENZUNG zu :func:`interface.inventory_io._is_all_unknown` (aehnliche
+    Signatur, ANDERE Deutung -- bitte NICHT zusammenlegen): jenes prueft eine
+    QUOTE und wertet die Lage als "Inventar wurde zugeklappt", inklusive "gar
+    keine Seiten gescannt" -> True. Beides waere hier falsch: der Refill hat das
+    Inventar per Open-Probe schon als offen verifiziert, und ein leerer Scan darf
+    keinen Zweit-Scan ausloesen. Darum absolute Untergrenze statt Quote und
+    ``False`` bei leerem Scan. Liegt der Fall doch mal anders (Inventar schliesst
+    mitten im Scan), kostet der Irrtum genau EINEN zusaetzlichen Scan -- das
+    Ergebnis bleibt 'empty' wie bisher."""
+    try:
+        page_map = getattr(inv, 'pages', {}) or {}
+        unknown = 0
+        for page in pages:
+            for s in page_map.get(page) or ():
+                st = getattr(s, 'state', None)
+                if st == 'item':
+                    return False           # irgendwas wurde erkannt -> kein Mislock
+                if st == 'unknown':
+                    unknown += 1
+        return unknown >= int(min_unknown)
+    except Exception:
+        return False
+
+
 def plan_refill(inv, names):
     """Decide the next refill action from a scan.
 
@@ -415,13 +449,41 @@ def refill_from_inventory(item_names, target_xy, *, inp, wincap, db,
             if not _napped(0.2):
                 aborted['stop'] = True
 
-        inv = scan_inventory(
-            capture_fn=wincap.get_screenshot,
-            switch_page_fn=_switch_page,
-            db=db, calib=calib)
+        def _scan():
+            return scan_inventory(
+                capture_fn=wincap.get_screenshot,
+                switch_page_fn=_switch_page,
+                db=db, calib=calib)
+
+        inv = _scan()
         if aborted['stop'] or stop():
             return 'stopped'
         loc = find_first(inv, item_names)
+
+        # SELBSTHEILUNG bei einem Raster-Fehl-Lock: kein einziger Slot auf KEINER
+        # Seite erkannt, obwohl belegte Slots gesehen wurden -- das ist kein
+        # leerer Beutel, sondern ein verschobenes Raster (jeder Slot-Ausschnitt
+        # trifft die Luecke zwischen zwei Zellen). Passiert real, wenn ein alter
+        # Lock aus ``grid_lock.json`` nicht mehr passt. Einmalig den Session-Lock
+        # verwerfen und neu scannen (dann laeuft der Kalt-Sweep). Kostet nur im
+        # Fehlerfall; ein wirklich leerer Beutel hat auch keine unknown-Slots und
+        # loest das hier nie aus.
+        if loc is None and _looks_like_grid_mislock(inv):
+            try:
+                from inventory.grid import reset_align_cache
+                reset_align_cache()
+                from debuglog import log as _dbg
+                _dbg.event('refill', 'Kein Slot erkannt, aber belegte Slots '
+                                     'gesehen -> Raster-Lock verworfen, Scan '
+                                     'wird wiederholt')
+            except Exception:
+                pass
+            if not (aborted['stop'] or stop()):
+                inv = _scan()
+                loc = find_first(inv, item_names)
+        if aborted['stop'] or stop():
+            return 'stopped'
+
         if loc is None:
             # DIAGNOSE: was hat der Scan ueberhaupt gefunden? Eine present-aber-
             # 'unknown' klassifizierte Box (z.B. Stack-Zahl wirft das Template-

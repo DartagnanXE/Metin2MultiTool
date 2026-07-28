@@ -49,6 +49,7 @@ _CROPS = [
     'Karpfen.png',
     'Aal.png',
     'Schwarzes Haarfärbemittel.png',
+    'Ayu.png',
 ]
 
 

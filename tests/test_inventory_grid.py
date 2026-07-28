@@ -365,6 +365,121 @@ class TestAutoAlignSessionCache(unittest.TestCase):
             G._auto_align_cold = orig
 
 
+class TestStaleLockSelfCorrection(unittest.TestCase):
+    """REGRESSION (2026-07-28, vom User gemeldet): "der Bot findet den Koeder
+    nicht mehr, geht alle 4 Inventarseiten durch und findet nichts".
+
+    Ursache: der Cache-Pfad prueft einen wiederverwendeten Lock NUR gegen SICH
+    SELBST (:func:`grid._cache_reuse_ok` vergleicht mit dem zuletzt GESPEICHERTEN
+    Zaehler). Ein einmal falsch gerasteter Lock reproduziert seinen eigenen
+    Zaehler bei jedem Scan, besteht die Huerde und wird erneut festgeschrieben --
+    und weil ``interface.inventory_runner`` ihn als ``grid_lock.json``-Sidecar
+    persistiert, ueberlebt der Fehl-Lock jeden Neustart. Der Kalt-Sweep, der ihn
+    korrigieren wuerde, laeuft nie wieder. Am echten Nutzer-Screenshot gemessen:
+    Fehl-Lock (637,231) -> 0 von 45 Slots erkannt, obwohl 192 Wuermer auf Seite I
+    lagen; Kalibrier-Raster (633,244) -> 42 Slots erkannt.
+
+    Gegenmittel: :func:`grid._prefer_calibration_if_better` probiert zusaetzlich
+    das Kalibrier-Raster, sobald der gecachte Ursprung weiter als der Refine-
+    Radius davon abliegt, und nimmt das STRIKT bessere."""
+
+    def setUp(self):
+        self.db = ItemDB.from_bundled()
+        if not self.db.references():
+            self.skipTest('bundled icons / numpy unavailable')
+        G.reset_align_cache()
+
+    def tearDown(self):
+        G.reset_align_cache()
+
+    # VOLLER Beutel -- der Fehler braucht ihn: nur dann findet der grobe Scorer
+    # am FALSCHEN Raster noch genug Treffer, um die Haelfte-Huerde von
+    # _cache_reuse_ok zu bestehen (auf einem duennen Beutel kollabiert er auf 0
+    # und der Kalt-Sweep repariert den Lock ohnehin von allein). Genau so lag der
+    # Beutel im Nutzer-Screenshot: 42 von 45 Slots belegt.
+    def _page(self, origin):
+        refs = self.db.references()
+        layout = [{'ref': refs[(i * 3) % len(refs)], 'number': (i % 2 == 0)}
+                  for i in range(COLS * ROWS)]
+        return synth.synth_page(layout, origin=origin, pitch=(32, 32),
+                                canvas_pad=60)[0]
+
+    def _calib(self, tl):
+        return {'grid': {'tl': list(tl),
+                         'br': [tl[0] + (COLS - 1) * 32, tl[1] + (ROWS - 1) * 32],
+                         'cols': COLS, 'rows': ROWS}, 'tolerance': 18}
+
+    def _seed(self, page, calib, origin, count):
+        """Sidecar-Zustand des Users nachbauen: ein Lock, der nicht zum Bild passt."""
+        key = G._cache_key(calib, page)
+        G.import_align_cache({
+            'key': [list(key[0]), list(key[1]), key[2], key[3], list(key[4])],
+            'origin': list(origin), 'pitch': [32, 32], 'count': int(count)})
+
+    # Fehl-Lock 8px zu hoch: der grobe Scorer haelt dort noch ~6 Treffer -- genug,
+    # um die Haelfte-Huerde zu bestehen (prev=9) und damit den Kalt-Sweep, der
+    # den Lock reparieren wuerde, dauerhaft zu verhindern.
+    STALE = (60, 52)
+    TRUE = (60, 60)
+
+    def test_stale_lock_is_discarded_for_the_calibration_grid(self):
+        page = self._page(self.TRUE)
+        calib = self._calib(self.TRUE)
+        self._seed(page, calib, self.STALE, 9)
+        lat = G.auto_align(page, self.db, calib)
+        self.assertEqual(lat.origin, self.TRUE)
+        self.assertEqual(G.aligned_match_count(page, self.db, lat), COLS * ROWS,
+                         'nach der Korrektur muessen alle Items wieder gefunden '
+                         'werden')
+
+    def test_without_the_guard_the_stale_lock_would_survive(self):
+        # Beweist, dass der Test den ECHTEN Fehler faengt: ohne den Schutz
+        # ueberlebt derselbe Fehl-Lock (self-confirming loop).
+        page = self._page(self.TRUE)
+        calib = self._calib(self.TRUE)
+        self._seed(page, calib, self.STALE, 9)
+        orig = G._prefer_calibration_if_better
+        G._prefer_calibration_if_better = lambda *a, **k: a[-1]
+        try:
+            lat = G.auto_align(page, self.db, calib)
+        finally:
+            G._prefer_calibration_if_better = orig
+        self.assertNotEqual(lat.origin, self.TRUE,
+                            'ohne Schutz muesste der Fehl-Lock ueberleben -- '
+                            'sonst prueft der Test nichts')
+
+    def test_legitimately_moved_panel_keeps_its_lock(self):
+        # GEGENPROBE: das Inventarfenster wurde wirklich verschoben (Raster bei
+        # (60,60), Kalibrierung veraltet bei (40,40)) und der gecachte Lock ist
+        # der RICHTIGE. Er darf NICHT zur Kalibrierung zurueckgerissen werden.
+        page = self._page((60, 60))
+        calib = self._calib((40, 40))
+        self._seed(page, calib, (60, 60), 9)
+        lat = G.auto_align(page, self.db, calib)
+        self.assertEqual(lat.origin, (60, 60))
+
+    def test_healthy_lock_costs_no_extra_probe(self):
+        # Der gesunde Normalfall (Lock liegt im Refine-Fenster der Kalibrierung)
+        # darf die Zusatz-Probe NICHT ausloesen -> keine Mehrkosten pro Scan.
+        page = self._page((60, 60))
+        calib = self._calib((60, 60))
+        self._seed(page, calib, (60, 61), 9)
+        calls = [0]
+        orig = G._refine_around
+
+        def spy(*a, **k):
+            calls[0] += 1
+            return orig(*a, **k)
+
+        G._refine_around = spy
+        try:
+            G.auto_align(page, self.db, calib)
+        finally:
+            G._refine_around = orig
+        self.assertEqual(calls[0], 1,
+                         'gesunder Lock: genau EINE Refine-Probe wie bisher')
+
+
 class TestAlignCachePersistence(unittest.TestCase):
     """export_align_cache / import_align_cache round-trip + safety (headless).
 

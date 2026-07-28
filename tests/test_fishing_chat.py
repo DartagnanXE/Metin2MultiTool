@@ -15,6 +15,7 @@ die korrekte Klassifikation. Dateiname == Ground Truth:
   * ``Karpfen``             -> Fisch, Name "Karpfen"
   * ``Aal``                 -> Fisch, Name "Aal"
   * ``Schwarzes Haarfärbemittel`` -> Item, Name "Schwarzes Haarfärbemittel"
+  * ``Ayu``                 -> Fisch, Name "Ayu"
   * ``nichterkannt``        -> NIETE (kein Name)
   * ``nochnichtsnurköderbefestigt`` -> KEIN_BISS (kind == NONE)
 
@@ -56,6 +57,7 @@ _EXPECTED = {
     'Karpfen.png': (fc.FISH, 'Karpfen'),
     'Aal.png': (fc.FISH, 'Aal'),
     'Schwarzes Haarfärbemittel.png': (fc.ITEM, 'Schwarzes Haarfärbemittel'),
+    'Ayu.png': (fc.FISH, 'Ayu'),
     'nichterkannt.png': (fc.NIETE, None),
     'nochnichtsnurköderbefestigt.png': (fc.NONE, None),
 }
@@ -456,7 +458,6 @@ class TestCatchableNameCoverage(unittest.TestCase):
     # Glyph zeigt (dann via tools/synthesize_chat_reference.py + Extractor
     # nachtrainieren und hier streichen).
     KNOWN_GAPS = {
-        'Ayu': "Atlas-Glyph 'y' fehlt -> 3-Buchstaben-Name unter sim-Gate",
         'Blondes Haarfärbemittel': "Großbuchstabe 'B' fehlt -> Margin vs. Braunes <0.10",
         'Braunes Haarfärbemittel': "Großbuchstabe 'B' fehlt -> Margin vs. Blondes <0.10",
     }
@@ -496,13 +497,60 @@ class TestCatchableNameCoverage(unittest.TestCase):
             + '\nChat-Screenshot liefern + via tools/synthesize_chat_reference.py '
               'nachtrainieren, oder (mit Grund) zu KNOWN_GAPS hinzufuegen.')
 
-    def test_user_reported_three_fish_covered(self):
+    def test_user_reported_fish_covered(self):
         # Harter Regression-Anker fuer genau die vom User gemeldeten Faenge.
         if not self.atlas:
             self.skipTest('kein Glyphen-Atlas gebuendelt')
-        for name in ('Karpfen', 'Aal', 'Schwarzes Haarfärbemittel'):
+        for name in ('Karpfen', 'Aal', 'Schwarzes Haarfärbemittel', 'Ayu'):
             self.assertTrue(self._recognisable(name),
                             '%s nicht mehr ueber Atlas+Fuzzy erkennbar' % name)
+
+
+@unittest.skipUnless(_shots_present(), 'numpy/PIL oder FischOCR-Screenshots fehlen')
+class TestAyuWhitelistRegression(unittest.TestCase):
+    """END-TO-END-Anker fuer den 2026-07-28 gemeldeten Bug: "Ayu wird trotz
+    Deaktivierung im Menue gefangen".
+
+    Ursache war KEIN Whitelist-Logikfehler, sondern eine stille Erkennungs-
+    Luecke: dem Glyphen-Atlas fehlte 'y', die Zeichen-OCR las "A?u" -> Fuzzy-
+    Aehnlichkeit 0.67 < :data:`fishing_chat.NAME_FUZZY_MIN_SIM` (0.72) ->
+    ``UNKNOWN`` -> die Whitelist behaelt im Zweifel IMMER (by design) -> der
+    Fisch wurde gefangen. Dieser Test faehrt den ECHTEN Screenshot des Users
+    durch die volle Kette Screenshot -> read_hook -> whitelist.decide."""
+
+    def setUp(self):
+        fc.reset_template_cache()
+        fc.reset_known_names_cache()
+        self.bgr = _load_bgr(os.path.join(_FISCH_DIR, 'Ayu.png'))
+
+    def test_ayu_is_read_confidently(self):
+        res = fc.read_hook(self.bgr)
+        self.assertEqual(res.kind, fc.FISH)
+        self.assertEqual(res.name, 'Ayu')
+        self.assertTrue(res.confident,
+                        'unsicher gelesen -> Whitelist koennte nie abbrechen')
+
+    def test_client_frame_without_titlebar_also_works(self):
+        # Live-Capture ist der CLIENT-Bereich (800x601, ohne Titelleiste) --
+        # der Auto-Anker an den unteren Rand muss BEIDE Geometrien treffen.
+        client = self.bgr[31:632, 1:801]
+        res = fc.read_hook(client)
+        self.assertEqual((res.kind, res.name, res.confident),
+                         (fc.FISH, 'Ayu', True))
+
+    def test_deactivated_ayu_aborts_the_minigame(self):
+        import fishing_whitelist as wl
+        res = fc.read_hook(self.bgr)
+        self.assertEqual(wl.decide(res, states={'Ayu': wl.REMOVE}, enabled=True),
+                         wl.ABORT)
+        # Gegenprobe: aktiv/Lagerfeuer werden weiterhin normal geangelt.
+        for state in (wl.KEEP, wl.CAMPFIRE):
+            self.assertEqual(
+                wl.decide(res, states={'Ayu': state}, enabled=True),
+                wl.KEEP_FISHING)
+        # Und bei ausgeschalteter Whitelist bleibt alles beim Alten.
+        self.assertEqual(wl.decide(res, states={'Ayu': wl.REMOVE},
+                                   enabled=False), wl.KEEP_FISHING)
 
 
 if __name__ == '__main__':

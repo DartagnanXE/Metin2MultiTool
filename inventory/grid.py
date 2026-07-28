@@ -339,6 +339,52 @@ def _refine_around(image_bgr, db, calib, center,
     return best_lat, best_count
 
 
+def _prefer_calibration_if_better(image_bgr, db, calib, base, prev_lat, refined):
+    """ANTI-STALE-Lock: probiert ZUSAETZLICH das Kalibrier-Raster und nimmt das
+    STRIKT bessere von beiden. Gibt ``refined`` unveraendert zurueck, wenn der
+    zusaetzliche Test nicht noetig ist oder nichts Besseres findet. Wirft nie.
+
+    WARUM (realer Bug, 2026-07-28): der Cache-Pfad prueft einen wiederverwendeten
+    Lock NUR gegen sich selbst -- :func:`_cache_reuse_ok` vergleicht den frisch
+    verfeinerten Zaehler mit dem ZULETZT GESPEICHERTEN. Ein einmal falsch
+    gerasteter Lock reproduziert seinen eigenen (mittelmaessigen) Zaehler bei
+    jedem Scan, besteht die Haelfte-Huerde und wird per :func:`_store_lattice`
+    erneut als Referenz festgeschrieben -- eine sich selbst bestaetigende
+    Schleife. Da :mod:`interface.inventory_runner` den Lock zusaetzlich als
+    Sidecar (``grid_lock.json``) speichert, ueberlebt der Fehl-Lock jeden
+    Neustart: der Kalt-Sweep, der ihn korrigieren wuerde, laeuft nie wieder.
+    Gemessen an einem Nutzer-Screenshot: Fehl-Lock (637,231) -> grober Fit 26,
+    aber 0 von 45 Slots scharf erkannt (Bot meldete "kein Koeder im Inventar",
+    obwohl 192 Wuermer auf Seite I lagen); Kalibrier-Raster (633,244) -> Fit 42
+    und 42 Slots erkannt. Der grobe Scorer trennt hier also sauber -- er wurde
+    nur nie gefragt.
+
+    KOSTEN-DISZIPLIN: Die Zusatz-Probe laeuft NUR, wenn der gecachte Ursprung
+    weiter als :data:`AUTO_ALIGN_CACHE_REFINE` von der Kalibrierung entfernt ist.
+    Liegt er innerhalb, ueberdeckt das Refine-Fenster die Kalibrierung ohnehin
+    schon -> der gesunde Normalfall bleibt unveraendert und kostenlos.
+
+    STABILITAET: Nur ein STRIKT hoeherer Trefferzaehler gewinnt. Bei Gleichstand
+    (z.B. leerer Beutel: beide 0) bleibt der gecachte Lock -- ein legitim
+    verschobenes Inventarfenster wird also nicht grundlos zurueckgerissen.
+    """
+    try:
+        if refined is None or base is None or prev_lat is None:
+            return refined
+        bx, by = base.origin
+        px, py = prev_lat.origin
+        if abs(bx - px) + abs(by - py) <= AUTO_ALIGN_CACHE_REFINE:
+            return refined                   # Kalibrierung liegt schon im Fenster
+        alt = _refine_around(image_bgr, db, calib, base.origin)
+        if alt is not None and alt[1] > refined[1]:
+            _log('inventory.grid_stale_lock', old=prev_lat.origin,
+                 old_fit=refined[1], new=alt[0].origin, new_fit=alt[1])
+            return alt
+        return refined
+    except Exception:
+        return refined
+
+
 def auto_align(image_bgr, db, calib, radius=AUTO_ALIGN_RADIUS,
                row_reach=AUTO_ALIGN_ROW_REACH):
     """Re-lock the grid for THIS image, REUSING the cached lock when possible.
@@ -414,6 +460,8 @@ def auto_align(image_bgr, db, calib, radius=AUTO_ALIGN_RADIUS,
     if cached is not None:
         prev_lat, prev_count = cached
         refined = _refine_around(image_bgr, db, calib, prev_lat.origin)
+        refined = _prefer_calibration_if_better(image_bgr, db, calib, base,
+                                                prev_lat, refined)
         if refined is not None and _cache_reuse_ok(refined[1], prev_count):
             lat, cnt = refined
             _store_lattice(key, lat, cnt)
