@@ -177,5 +177,12 @@ dist_v117/
 # gegen Datei-Lock der laufenden EXE) -> deckt dist_v130, dist_v131, ... ab.
 dist_v*/
 
+# Release-Kopie der EXE im Repo-Wurzelverzeichnis. Jedes Release erzeugt sie neu
+# (die EXE MUSS beim Upload exakt so heissen -- updater.PORTABLE_ASSET_NAME),
+# danach ist sie Wegwerfprodukt. dist/ ist bereits ignoriert, diese Kopie lag
+# aber daneben und waere bei einem 'git add .' als ~87 MB Binary im Verlauf
+# gelandet.
+Metin2MultiTool-Portable.exe
+
 # Autopilot-Session-Scaffolding (nicht versionieren)
 .autopilot/
