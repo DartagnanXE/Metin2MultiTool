@@ -16,7 +16,8 @@ and ``F1 F2 F3 F4`` (slots 5-8) -- nothing else. The configured bait key both
 selects the slot to drag INTO and is the key fishing presses to bait the rod.
 """
 
-from inventory.constants import DEFAULT_CALIBRATION, INPUT_SETTLE_S
+from inventory.constants import (DEFAULT_CALIBRATION, INPUT_SETTLE_S,
+                                 MATCH_THRESHOLD)
 from inventory.grid import lattice_from_calibration
 
 try:  # pragma: no cover - numpy present in production
@@ -39,6 +40,11 @@ QUICKSLOT_XY = {
     1: (332, 582), 2: (364, 582), 3: (396, 582), 4: (428, 582),
     5: (471, 582), 6: (503, 582), 7: (535, 582), 8: (567, 582),
 }
+
+# Obergrenze der Match-Distanz fuer ein Item, das der Bot ANFASSEN darf (siehe
+# find_first). Bewusst der "sicherer Treffer"-Wert des Matchers -- die
+# grosszuegigere margin-primary-Ausnahme gilt nur fuer die Anzeige.
+REFILL_MAX_DISTANCE = MATCH_THRESHOLD
 
 # Item names eligible for each refill (recognised by the inventory engine).
 BAIT_NAMES = ('Worm',)
@@ -112,16 +118,44 @@ def find_first(inv, names, pages=PAGE_ORDER):
     """First slot holding one of ``names``, in PAGE order then row-major.
 
     Returns ``(page, row, col)`` or ``None``. This is the documented refill
-    order: inventory pages I->IV, each slot 1..45 top-to-bottom. Pure: works on
-    any object exposing ``pages -> {page: [SlotResult]}``.
+    order: inventory pages I->IV, each slot 1..45 top-to-bottom. Works on any
+    object exposing ``pages -> {page: [SlotResult]}``.
+
+    STRENGER ALS DIE ANZEIGE: ein Slot, der nur ueber die margin-primary-
+    Ausnahme als erkannt gilt (Distanz zwischen ``MATCH_THRESHOLD`` und
+    ``MARGIN_PRIMARY_MAX_DIST``), wird hier NICHT angefasst. Real gemessen
+    (2026-08-05): ein bronzenes Abzeichen lief mit Distanz 29,5 als 'Worm'.
+    Solange der echte Koeder-Stapel existiert, gewinnt der zeilenweise -- ist er
+    aufgebraucht, haette der Bot das Abzeichen in den Koeder-Slot gezogen und
+    weiter ins Leere geworfen, statt ehrlich "kein Koeder mehr" zu melden.
+    Fuer die reine ANZEIGE bleibt die Ausnahme unveraendert; streng ist nur,
+    was der Bot tatsaechlich ANFASST -- dort ist ein Fehlgriff teuer.
     """
     want = set(names)
     page_map = getattr(inv, 'pages', {}) or {}
     for page in pages:
         slots = page_map.get(page) or ()
         for s in slots:
-            if getattr(s, 'state', None) == 'item' and getattr(s, 'name', None) in want:
-                return (page, int(s.row), int(s.col))
+            if getattr(s, 'state', None) != 'item':
+                continue
+            if getattr(s, 'name', None) not in want:
+                continue
+            dist = getattr(s, 'distance', None)
+            if dist is not None and dist > REFILL_MAX_DISTANCE:
+                # Sichtbar verwerfen: sonst sieht der Nutzer nur "kein Koeder
+                # gefunden" und raetselt, obwohl ein Kandidat da war.
+                try:
+                    from debuglog import log as _dbg
+                    _dbg.event('refill', 'Kandidat verworfen (zu unsicher): '
+                               'Seite {} R{}C{} {} Distanz {:.1f} > {:.1f}'
+                               .format(page, getattr(s, 'row', '?'),
+                                       getattr(s, 'col', '?'),
+                                       getattr(s, 'name', '?'), float(dist),
+                                       float(REFILL_MAX_DISTANCE)))
+                except Exception:
+                    pass
+                continue
+            return (page, int(s.row), int(s.col))
     return None
 
 

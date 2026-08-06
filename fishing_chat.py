@@ -744,6 +744,40 @@ def _classify_words(binary, words, templates):
 
 # -- Oeffentliche API ----------------------------------------------------
 
+def _chat_line_words(screenshot_bgr, region=None):
+    """Schneidet die unterste Chat-Zeile aus -> ``(binaerzeile, woerter)``.
+
+    Gemeinsame Vorstufe von :func:`read_hook` und
+    :func:`read_action_feedback` (beide brauchen denselben Crop + dieselbe
+    Wort-Segmentierung). ``(None, [])`` bei jedem Problem -- der Aufrufer
+    faellt dann auf sein eigenes neutrales Ergebnis zurueck.
+    """
+    if screenshot_bgr is None:
+        return None, []
+    arr = np.asarray(screenshot_bgr)
+    if arr.ndim < 2:
+        return None, []
+    h = arr.shape[0]
+    w = arr.shape[1]
+    # Default-Region an den UNTEREN Rand des konkreten Frames ankern (Fix fuer
+    # den ~31px-Titelleisten-Versatz Live-Client vs. Referenz-Shot). Ein
+    # explizit uebergebenes region wird respektiert.
+    if region is None:
+        region = chat_region_for_frame(h, w)
+    x0, y0, x1, y1 = region
+    # Region defensiv in das Bild clampen (abweichende Capture-Groesse).
+    x0 = max(0, min(int(x0), w))
+    x1 = max(0, min(int(x1), w))
+    y0 = max(0, min(int(y0), h))
+    y1 = max(0, min(int(y1), h))
+    if x1 <= x0 or y1 <= y0:
+        return None, []
+    binary = _binary_line(arr[y0:y1, x0:x1])
+    if binary is None:
+        return None, []
+    return binary, _segment_words(binary)
+
+
 def read_hook(screenshot_bgr, region=None, templates=None):
     """Liest die unterste Chat-Zeile des ``screenshot_bgr`` (Fenster-Capture,
     BGR) und liefert ein :class:`HookResult`.
@@ -763,37 +797,88 @@ def read_hook(screenshot_bgr, region=None, templates=None):
     ``kind == NIETE``; nichts Relevantes -> ``kind == NONE``.
     """
     try:
-        if screenshot_bgr is None:
+        binary, words = _chat_line_words(screenshot_bgr, region)
+        if binary is None:
             return HookResult(NONE)
-        arr = np.asarray(screenshot_bgr)
-        if arr.ndim < 2:
-            return HookResult(NONE)
-        h = arr.shape[0]
-        w = arr.shape[1]
-        # Default-Region an den UNTEREN Rand des konkreten Frames ankern (Fix
-        # fuer den ~31px-Titelleisten-Versatz Live-Client vs. Referenz-Shot).
-        # Ein explizit uebergebenes region wird respektiert.
-        if region is None:
-            region = chat_region_for_frame(h, w)
-        x0, y0, x1, y1 = region
-        # Region defensiv in das Bild clampen (abweichende Capture-Groesse).
-        x0 = max(0, min(int(x0), w))
-        x1 = max(0, min(int(x1), w))
-        y0 = max(0, min(int(y0), h))
-        y1 = max(0, min(int(y1), h))
-        if x1 <= x0 or y1 <= y0:
-            return HookResult(NONE)
-        region_img = arr[y0:y1, x0:x1]
-        binary = _binary_line(region_img)
-        words = _segment_words(binary)
         tmpl = templates if templates is not None else _load_templates()
         return _classify_words(binary, words, tmpl)
     except Exception:
         return HookResult(NONE)
 
 
+# -- AKTIONS-RUECKMELDUNG: hat der Client den Tastendruck angenommen? ----
+#
+# Der Client quittiert JEDEN Koeder-Tastendruck in derselben untersten Chat-
+# Zeile, die read_hook ohnehin liest. Am echten Client gemessen (2026-08-06,
+# Score des Diskriminators auf Wort[4]):
+#
+#   "Du hast Wurm als Koeder am Haken befestigt."          -> "Koeder"  1.000
+#   "Du tauschst den aktuellen Koeder gegen Wurm."         -> "Koeder"  1.000
+#   "Du kannst diese Aktion nicht ausfuehren, waehrend
+#    du angelst."                                          -> "nicht"   1.000
+#
+# Damit ist zum ersten Mal MESSBAR, ob eine Aktion gewirkt hat -- vorher hat
+# der Bot gesendet und Erfolg angenommen. Bewusst eine EIGENE Funktion statt
+# read_hook zu erweitern: am read_hook-Vertrag ("kind==FISH/ITEM heisst, es
+# haengt etwas am Haken") haengt der Whitelist-Pfad; der bleibt unberuehrt.
+# 'nicht' faellt in _classify_words in den else-Zweig -> HookResult(NONE), die
+# Biss-Erkennung sieht die Blockade-Meldung also weiterhin als "nichts".
+
+BAITED = 'baited'        # Koeder sitzt (frisch befestigt ODER getauscht)
+BLOCKED = 'blocked'      # Client hat abgelehnt: "... waehrend du angelst."
+
+# Zweit-Merkmal gegen Fehlalarm: die Blockade-Meldung zerfaellt in 9 Segmente.
+# Bewusst LOCKER (>=7) -- eine verpasste Blockade macht wieder blind, ein
+# Fehlalarm kostet nur einen ueberfluessigen Koeder-Tastendruck. Die
+# Fehlerrichtung ist also absichtlich zur sicheren Seite gewaehlt.
+BLOCKED_MIN_WORDS = 7
+
+
+def read_action_feedback(screenshot_bgr, region=None, templates=None):
+    """Sagt, wie der Client auf den letzten Koeder-Tastendruck reagiert hat.
+
+    Liefert ``(rueckmeldung, kennung)``:
+
+      * ``rueckmeldung`` -- :data:`BAITED` (angenommen, Koeder haengt),
+        :data:`BLOCKED` (abgelehnt, weil der Char noch angelt) oder
+        :data:`NONE` (nichts Passendes in der Zeile -- Biss-Meldung,
+        Spieler-Chat, leer).
+      * ``kennung`` -- billiger Fingerabdruck GENAU DIESER Chat-Zeile.
+
+    Die Kennung ist noetig, weil die Chat-Zeile **stehen bleibt**: ohne sie
+    wuerde der Aufrufer dieselbe Ablehnung in jedem Frame und auch noch nach
+    dem naechsten Koeder-Versuch erneut werten und endlos warten. Gleiche
+    Kennung = gleiche Zeile = schon gewertet.
+
+    Gleiche Eingabe wie :func:`read_hook` (Fenster-Capture, BGR). Wirft NIE;
+    jedes Problem endet in ``(NONE, None)``, der Aufrufer angelt dann
+    unveraendert weiter.
+    """
+    try:
+        binary, words = _chat_line_words(screenshot_bgr, region)
+        if binary is None or len(words) <= DISC_WORD_INDEX:
+            return NONE, None
+        # Fingerabdruck: Wortzahl + Tintenmenge + rechte Textkante. Billig und
+        # trennscharf genug -- eine Kollision kostet hoechstens EINE nicht
+        # gewertete Wiederholung, nie eine Fehlreaktion.
+        sig = (len(words), int(binary.sum()), int(words[-1][1]))
+        tmpl = templates if templates is not None else _load_templates()
+        disc_glyph = _crop_word_band(binary, words[DISC_WORD_INDEX])
+        key, score, margin = _best_match(disc_glyph, tmpl.get('disc', {}))
+        if key is None or score < DISC_MIN_SCORE or margin < DISC_MIN_MARGIN:
+            return NONE, sig
+        if key == 'koeder':
+            return BAITED, sig
+        if key == 'nicht' and len(words) >= BLOCKED_MIN_WORDS:
+            return BLOCKED, sig
+        return NONE, sig
+    except Exception:
+        return NONE, None
+
+
 __all__ = [
     'FISH', 'ITEM', 'NIETE', 'NONE', 'UNKNOWN',
+    'BAITED', 'BLOCKED', 'BLOCKED_MIN_WORDS', 'read_action_feedback',
     'CHAT_REGION', 'INK_THRESHOLD', 'WORD_GAP', 'DISC_WORD_INDEX',
     'GLYPH_PREFIX', 'GLYPH_MIN_SCORE', 'NAME_FUZZY_MIN_SIM',
     'NAME_FUZZY_MIN_MARGIN',

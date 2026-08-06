@@ -372,6 +372,43 @@ class FishingBot(FishingDetectMixin):
     # real ~2-3 s); 20 s ist eine reine Sicherheits-Decke.
     _BAIT_REFILL_BUDGET = 20.0
 
+    # -- KOEDER-RUECKMELDUNG (immer aktiv, kein Schalter) ----------------
+    # Bis v1.6.5 hat der Bot den Koeder-Tastendruck gesendet und Erfolg
+    # ANGENOMMEN. Lehnt der Client ab -- "Du kannst diese Aktion nicht
+    # ausfuehren, waehrend du angelst." --, warf er OHNE Koeder aus und meldete
+    # danach "Kein Biss": der Fehler war unsichtbar. Der Client quittiert jeden
+    # Druck in derselben Chat-Zeile, die der Bot ohnehin liest
+    # (fishing_chat.read_action_feedback, am echten Client verifiziert), also
+    # wird die Antwort jetzt gelesen und beantwortet statt ignoriert.
+    _bait_pending_since = 0.0    # >0 -> Druck abgesetzt, Antwort noch offen
+    _bait_ok = 0                 # vom Client bestaetigte Koeder-Druecke
+    _bait_blocked = 0            # abgelehnte ("waehrend du angelst")
+    _bait_blocked_streak = 0     # in Folge -- nur fuer die Warn-Zeile
+    _bait_casts = 0              # Wuerfe insgesamt (Nenner der Bilanz)
+    # Fingerabdruck der zuletzt GEWERTETEN Chat-Zeile. Die Zeile bleibt im Spiel
+    # stehen -- ohne diese Sperre wuerde dieselbe Ablehnung immer wieder zaehlen.
+    _bait_last_feedback_sig = None
+    # So lange nach dem Druck wird auf die Antwort gewartet; danach gilt "keine
+    # Aussage" und der Lauf geht unveraendert weiter -- der Sensor darf den
+    # Angel-Loop nie ausbremsen, nur informieren.
+    _BAIT_FEEDBACK_WINDOW_S = 3.0
+    # Wartezeit nach einer Ablehnung, bevor neu gekoedert wird. Bewusst nicht
+    # "geraten und fertig": nach dem Warten prueft derselbe Sensor erneut, ein zu
+    # kurzer Wert kostet also nur einen weiteren -- protokollierten -- Versuch.
+    _BAIT_RETRY_WAIT_S = 1.5
+    # Nach so vielen abgelehnten Versuchen in Folge einmal deutlich warnen
+    # (haengt der Char dauerhaft im Angel-Zustand, ist das kein Zufall mehr).
+    _BAIT_BLOCKED_WARN_AT = 5
+    # Bilanz-Zeile alle N Wuerfe -> im Log ist laufend ablesbar, ob es sauber
+    # laeuft, ohne dass der Nutzer etwas einschalten oder auswerten muss.
+    _BAIT_BALANCE_EVERY = 25
+    # Wartezeit nach einem Whitelist-Abbruch, bevor neu gekoedert wird. Der ESC
+    # raeumt das Minispiel weg, der Client verlaesst den Angel-Zustand aber nicht
+    # im selben Moment: bis v1.6.5 datierte der Abbruch den Timer so vor, dass
+    # Koeder- UND Wurf-Taste in DERSELBEN Sekunde kamen (real im Log vom
+    # 2026-07-30, 07:31:04) -- genau das Muster, das die Ablehnung ausloest.
+    _ABORT_COOLDOWN_S = 1.0
+
     # This is the filter parameters, this help to find the right image
     hsv_filter = HsvFilter(*FILTER_CONFIG)
 
@@ -479,12 +516,18 @@ class FishingBot(FishingDetectMixin):
                 self._do_mount_cancel(mount.mount_cancel_steps(self.mount_key))
             except Exception:
                 pass
-        # Sofort von vorne, OHNE Vorlauf: auf State 0 + den Timer so vordatieren,
-        # dass der naechste Tick INSTANT neu koedert (kein bait_time-Warten). Bait
-        # -> Cast -> Minispiel laufen dann mit den eingestellten (schnellen) Zeiten.
+        # Von vorne -- aber MIT kurzem Vorlauf. Bis v1.6.5 wurde der Timer hier so
+        # vordatiert, dass der naechste Tick INSTANT neu koederte; real standen
+        # dadurch ESC, Koeder- und Wurf-Taste in DERSELBEN Sekunde (Live-Log
+        # 2026-07-30, 07:31:04), und der Client antwortete mit "Du kannst diese
+        # Aktion nicht ausfuehren, waehrend du angelst" -- der Koeder kam nie an,
+        # der Wurf lief ins Leere ("Kein Biss"). Das Minispiel verschwindet mit
+        # dem ESC sofort, der Angel-Zustand der Figur nicht. Also etwas Luft; ist
+        # sie im Einzelfall zu knapp, faengt _check_bait_feedback es ab und
+        # protokolliert es, statt es wieder zu verschlucken.
         self.state = 0
-        self.timer_action = time() - max(
-            self.bait_time, self.throw_time, self.game_time) - 1.0
+        self.timer_action = time() + self._ABORT_COOLDOWN_S
+        self._bait_pending_since = 0.0   # alter Druck ist mit dem ESC erledigt
         self._on_cycle_end()
         return how
 
@@ -698,6 +741,82 @@ class FishingBot(FishingDetectMixin):
         except Exception:
             pass
 
+    def _check_bait_feedback(self, screenshot):
+        """Liest die Client-Antwort auf den letzten Koeder-Tastendruck.
+
+        Drei Ausgaenge:
+          * BESTAETIGT -- der Koeder haengt; nur zaehlen, Ablauf unveraendert.
+          * ABGELEHNT  -- der Client sagt "waehrend du angelst": es haengt KEIN
+            Koeder. Vor/waehrend des Wurfs (State <= 2) wird deshalb neu
+            gekoedert statt ins Leere zu werfen; laeuft dagegen schon ein
+            Minispiel (State 3), wird NUR protokolliert -- ein laufender Fang
+            darf nie wegen einer Chat-Zeile abgebrochen werden.
+          * keine Aussage -- nach ``_BAIT_FEEDBACK_WINDOW_S`` aufgeben und
+            unveraendert weiterlaufen (der Sensor bremst den Loop nie aus).
+
+        Wirft nie -- ein Lesefehler darf den Angel-Loop nicht kippen.
+        """
+        if self._bait_pending_since <= 0:
+            return
+        now = time()
+        if now - self._bait_pending_since > self._BAIT_FEEDBACK_WINDOW_S:
+            self._bait_pending_since = 0.0
+            return
+        try:
+            feedback, sig = _fc.read_action_feedback(screenshot)
+        except Exception:
+            return
+
+        # Die Chat-Zeile BLEIBT stehen. Ohne diese Sperre wuerde dieselbe
+        # Ablehnung in jedem Frame -- und nach dem naechsten Koeder-Versuch
+        # gleich nochmal -- gewertet: der Bot wartete endlos auf eine Antwort,
+        # die laengst da war. Jede Zeile darf genau EINMAL zaehlen.
+        if feedback == _fc.NONE:
+            return
+        if sig is not None and sig == self._bait_last_feedback_sig:
+            return
+        self._bait_last_feedback_sig = sig
+
+        if feedback == _fc.BAITED:
+            self._bait_pending_since = 0.0
+            self._bait_ok += 1
+            self._bait_blocked_streak = 0
+            return
+        if feedback != _fc.BLOCKED:
+            return          # unbekannte Antwort -> unveraendert weiterlaufen
+
+        self._bait_pending_since = 0.0
+        self._bait_blocked += 1
+        self._bait_blocked_streak += 1
+        if self.state > 2:
+            _flog(self.state, t('fishing.bait_blocked_late'))
+            return
+        # Neu koedern -- aber erst nach einer Wartezeit. timer_action in die
+        # ZUKUNFT setzen heisst: der State-0-Zweig zieht erst nach
+        # _BAIT_RETRY_WAIT_S + bait_time wieder los.
+        self.state = 0
+        self.timer_action = now + self._BAIT_RETRY_WAIT_S
+        _flog(0, t('fishing.bait_blocked_retry'),
+              wartezeit=self._BAIT_RETRY_WAIT_S)
+        if self._bait_blocked_streak >= self._BAIT_BLOCKED_WARN_AT:
+            _flog(0, t('fishing.bait_blocked_repeat'),
+                  anzahl=self._bait_blocked_streak)
+
+    def _log_bait_balance(self):
+        """Gedrosselte Bilanz-Zeile (alle ``_BAIT_BALANCE_EVERY`` Wuerfe).
+
+        Macht ohne Zutun des Nutzers sichtbar, ob die Koeder wirklich sitzen --
+        genau die Zahl, die bisher gefehlt hat. Wirft nie."""
+        try:
+            if (self._BAIT_BALANCE_EVERY <= 0
+                    or self._bait_casts % self._BAIT_BALANCE_EVERY != 0):
+                return
+            _flog(self.state, t('fishing.bait_balance'),
+                  wuerfe=self._bait_casts, bestaetigt=self._bait_ok,
+                  abgelehnt=self._bait_blocked)
+        except Exception:
+            pass
+
     def _notify_bait_empty(self):
         """Ruft den optionalen Popup-Hook (vom RunLoop gesetzt) genau dann, wenn
         wegen leeren Koeders gestoppt wird. None -> nur Log (Entkopplung). Wirft
@@ -801,6 +920,14 @@ class FishingBot(FishingDetectMixin):
         # Selbstdiagnose pro Lauf zuruecksetzen.
         self._bite_seen_this_cycle = False
         self._casts_without_bite = 0
+        # Koeder-Bilanz pro Lauf frisch zaehlen (sonst summierte ein zweiter
+        # Start die Zahlen des ersten auf und die Bilanz waere wertlos).
+        self._bait_pending_since = 0.0
+        self._bait_ok = 0
+        self._bait_blocked = 0
+        self._bait_blocked_streak = 0
+        self._bait_casts = 0
+        self._bait_last_feedback_sig = None
 
         # Tasten (Koeder/Auswerfen) brauchen eine echte Haltezeit, sonst sieht
         # DirectInput sie nie. Ein vorheriger Inventar-Scan kann PAUSE auf 0,05
@@ -1114,6 +1241,12 @@ class FishingBot(FishingDetectMixin):
                   minutes=self.end_time // 60)
             self.botting = False
 
+        # KOEDER-RUECKMELDUNG: hat der Client den letzten Koeder-Tastendruck
+        # angenommen oder abgelehnt? Ohne offenen Druck sofort wieder raus.
+        # Muss VOR der State-Maschine laufen: lehnte der Client ab, stellt die
+        # Pruefung auf State 0 zurueck, bevor hier ins Leere geworfen wird.
+        self._check_bait_feedback(screenshot)
+
         # State to click put the bait in the rod
 
         if self.state == 0:
@@ -1128,6 +1261,9 @@ class FishingBot(FishingDetectMixin):
                 _input.key(self.bait_key)     # keyDown+keyUp atomar (ein Lease)
                 self.state = 1
                 self.timer_action = time()
+                # Ab jetzt die Client-Antwort auf DIESEN Druck erwarten
+                # (_check_bait_feedback wertet sie in den naechsten Frames aus).
+                self._bait_pending_since = self.timer_action
                 # Neuer Wurf -> Whitelist darf diesen Fang frisch bewerten.
                 self._whitelist_decided = False
                 self._whitelist_last_sig = None
@@ -1140,7 +1276,9 @@ class FishingBot(FishingDetectMixin):
                 _input.key(self.cast_key)     # keyDown+keyUp atomar (ein Lease)
                 self.state = 2
                 self.timer_action = time()
+                self._bait_casts += 1
                 _flog(2, t('fishing.cast_out'))
+                self._log_bait_balance()
 
         # Delay to start the clicks
 

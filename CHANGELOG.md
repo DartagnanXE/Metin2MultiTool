@@ -3,6 +3,43 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.6.6] — 2026-08-06
+
+### Der Bot merkt jetzt, wenn das Spiel eine Aktion ablehnt
+
+Bis hierher hat der Bot Tasten gesendet und Erfolg **angenommen**. Lehnte der
+Client ab — „Du kannst diese Aktion nicht ausführen, während du angelst." —,
+warf er ohne Köder aus und meldete kurz darauf „Kein Biss". Der Fehler war
+unsichtbar, und alle drei gemeldeten Probleme (Köder nachlegen, Grillen, die
+Fehlermeldung im Spiel) hingen daran.
+
+- **Neu: Der Client wird gelesen, nicht mehr geraten.** Das Spiel quittiert
+  jeden Köder-Tastendruck in derselben Chat-Zeile, die der Bot ohnehin
+  auswertet. Am echten Client gemessen: „…als Köder am Haken befestigt." und
+  „Du tauschst den aktuellen Köder gegen Wurm." treffen den vorhandenen
+  Erkenner mit Trefferwert **1,000**; für die Ablehnung kam **eine** neue
+  Wortvorlage dazu. Kein Schalter, keine Einstellung — läuft immer mit.
+- **Fix: Nach einem Whitelist-Abbruch wird nicht mehr in derselben Sekunde neu
+  geködert.** Der Abbruch datierte den Timer so vor, dass ESC, Köder- und
+  Wurf-Taste zusammenfielen (real im Log vom 30.07., 07:31:04) — genau das
+  Muster, das die Ablehnung auslöst. Jetzt liegt eine Sekunde dazwischen, und
+  falls das im Einzelfall nicht reicht, fängt der neue Sensor es ab: der Bot
+  wartet und ködert erneut, statt ins Leere zu werfen.
+- **Neu: Köder-Bilanz im Log.** Alle 25 Würfe eine Zeile mit Würfen,
+  bestätigten und abgelehnten Ködern. Damit ist zum ersten Mal ablesbar, ob
+  sauber gefischt wird — ohne dass etwas eingeschaltet oder ausgewertet werden
+  muss.
+- **Fix: Beim Nachlegen greift der Bot nur noch nach sicher erkannten Items.**
+  Ein bronzenes Abzeichen lief mit Trefferabstand 29,5 als „Wurm" — solange der
+  echte Köderstapel existiert, gewinnt der, aber sobald er leer ist, wäre das
+  Abzeichen in den Köderslot gewandert. Für die reine Anzeige bleibt die
+  großzügigere Regel bestehen; streng ist nur, was der Bot wirklich anfasst.
+
+Nebenbei an echten Screenshots belegt (nicht mehr nur plausibel): die Erkennung
+des leeren Köderfelds trennt mit großem Abstand (Streuung 16 gegen 98, helle
+Pixel 2 gegen 113), und die Stapelzahl im Quickslot ist mit der vorhandenen
+Ziffern-Erkennung fehlerfrei lesbar (195/197/199, Sicherheit 0,998).
+
 ## [1.6.5] — 2026-07-28
 
 ### Whitelist: „Ayu" wurde trotz Deaktivierung gefangen
