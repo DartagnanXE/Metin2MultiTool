@@ -225,6 +225,50 @@ testbar (`customtkinter` gibt es nur unter Windows) — ein blind eingebauter
 Auslöser, der ungefragt Fische verbrennt, ist das falsche Risiko für eine
 Testversion. Braucht eine eigene Runde mit Live-Prüfung.
 
+## Nachtrag 2026-08-09 — warum Fänge nach dem Nachlegen nicht mehr gelesen wurden
+
+Live-Report nach v1.6.6: „Nach dem Nachlegen des Köders bleibt der Cursor an der
+Stelle … dadurch wird die Chat-Erkennung der gefangenen Fische blockiert."
+Am mitgelieferten Bild nachgemessen und bestätigt — die Ursache ist aber nicht
+der Mauszeiger, sondern der **Item-Tooltip**, den der Client unter dem Zeiger
+einblendet:
+
+| Größe | Wert |
+| --- | --- |
+| Ablageort des Köder-Drags | `QUICKSLOT_XY[2] = (364, 582)` |
+| Tooltip-Rahmen (gemessen) | y 514 – **592** |
+| Chat-Lesezone | y 579 – 596 |
+| Überlappung | **14 von 18 Zeilen**, inkl. der ganzen Textzeile 582–589 |
+
+Der Tooltip wird nicht nur *darübergelegt*, sondern **mitgelesen**: Auf einem
+LEEREN Chat fand `_chat_line_words` fünf „Wörter" — das war der Tooltip-Text
+(„Beliebter Köder, der Fische …"). Damit war jede Namens- und Köder-Erkennung
+unbrauchbar, solange der Zeiger dort stand.
+
+`_maybe_refill_bait` war der einzige Pfad ohne Cursor-Park; `inventory_runner`,
+`inventory_campfire_runner` und `inventory_discard_runner` parken längst, mit
+exakt dieser Begründung im Kommentar („its glow/tooltip can occlude the slot").
+
+**Zwei Verteidigungslinien gebaut:**
+
+1. `refill.park_cursor` + `CURSOR_PARK_XY = (585, 372)` — nach JEDEM Ausgang des
+   Nachlegens (auch `error`/`stopped`). Nur `moveTo`, nie ein Klick: ein
+   Weltklick ließe die Figur loslaufen. Der Punkt liegt mit doppelter Reserve
+   außerhalb der Lesezone (x 585 > 405 **und** y 372 ≪ 548) und auf keinem Slot.
+2. `fishing_chat.zone_obstructed` — Wortbreite als Overlay-Merkmal. Über alle 13
+   gelabelten Zeilen ist das breiteste echte Wort **66 px**
+   („Spiegelkarpfen"/„Haarfärbemittel"), der Tooltip bildet einen **100 px**-Block;
+   `MAX_WORD_WIDTH = 85` liegt in der Lücke. Verdeckte Frames liefern NONE
+   **ohne** Fingerabdruck, damit ein späterer freier Frame dieselbe Zeile normal
+   werten darf. Restfehler zeigt in die sichere Richtung: ein fälschlich
+   verworfener Frame kostet eine Whitelist-Entscheidung, ein nicht erkanntes
+   Overlay erzeugt einen falschen Namen.
+
+Neu im Log: „Chat-Zeile von einem Spiel-Tooltip verdeckt …" (gedrosselt, 30 s) —
+damit unterscheidet sich „nichts am Haken" künftig von „kann nicht lesen".
+
+Beleg-Bild: `FischOCR/tooltip_verdeckt_chatzeile.png`.
+
 ### Reihenfolge
 
 Stufe 0 und 1 zuerst, und zwar zusammen: erst wenn ein Fehlschlag sichtbar ist,

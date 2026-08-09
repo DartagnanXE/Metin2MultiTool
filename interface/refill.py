@@ -290,6 +290,48 @@ def two_click_place(api, x1, y1, x2, y2, settle=DRAG_SETTLE, sleep=None):
     _click(x2, y2)        # auf den Box-Slot setzen
 
 
+# Neutraler Ablage-Punkt fuer den ZEIGER nach dem Nachlegen (Client-Pixel im
+# 800x601-Client, vor dem Fenster-Offset).
+#
+# WARUM (2026-08-09, am Live-Bild gemessen): Der Drag endet auf dem Quickslot
+# (QUICKSLOT_XY, y=582) und der Zeiger BLEIBT dort stehen. Der Client blendet
+# dann seinen Item-Tooltip ein -- und der klappt NACH OBEN auf, quer ueber die
+# Chat-Zeile: Tooltip-Rahmen y[514,592] gegen die Chat-Lesezone y[579,596], also
+# 14 der 18 Zeilen verdeckt, inklusive der kompletten Textzeile y[582,589]. Der
+# Bot liest ab da den TOOLTIP statt des Chats (gemessen: 5 "Woerter" auf einem
+# LEEREN Chat) -> Fischname und Koeder-Rueckmeldung fallen aus, die Whitelist
+# greift nicht mehr. Jeder andere Runner parkt laengst (inventory_runner,
+# inventory_campfire_runner, inventory_discard_runner) -- nur dieser Pfad nicht.
+#
+# Der Punkt ist ``inventory.hover.tab_park_point(DEFAULT_CALIBRATION)``, hier als
+# Konstante festgehalten, damit refill.py abhaengigkeitsarm bleibt. Er liegt
+# LINKS des Inventar-Panels und OBERHALB der Quickslot-Leiste, also im
+# Weltbereich, wo der Client keine Tooltips zeigt -- und mit doppelter Reserve
+# ausserhalb der Chat-Lesezone (x 585 > 405 UND y 372 << 548). Verankert durch
+# test_bait_feedback.test_park_point_clear_of_chat_zone.
+CURSOR_PARK_XY = (585, 372)
+
+
+def park_cursor(api, offset_x=0, offset_y=0, xy=CURSOR_PARK_XY, sleep=None,
+                settle=INPUT_SETTLE_S):
+    """Zeiger auf den neutralen :data:`CURSOR_PARK_XY` fahren -- NUR ``moveTo``.
+
+    Bewusst KEIN Klick: ein Linksklick in die Welt liesse die Figur loslaufen.
+    Nach dem Verlassen des Slots blendet der Client den Tooltip sofort aus, das
+    kurze ``settle`` gibt ihm einen Frame Zeit, bevor der naechste Screenshot
+    gelesen wird. Defensiv: wirft nie -- ein misslungener Park darf weder den
+    Nachlege-Vorgang noch den Angel-Loop kippen.
+    """
+    if sleep is None:
+        import time
+        sleep = time.sleep
+    try:
+        api.moveTo(int(offset_x) + int(xy[0]), int(offset_y) + int(xy[1]))
+        sleep(settle)
+    except Exception:
+        pass
+
+
 # Empty-slot probe tunables. An EMPTY slot is DARK *and* FLAT (uniform
 # background) *and* free of bright "icon ink"; an OCCUPIED slot -- even a dark,
 # thin reddish bait icon like the "47" worm stack -- carries BRIGHT pixels (icon

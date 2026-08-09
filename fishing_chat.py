@@ -136,6 +136,26 @@ WORD_GAP = 3
 # nie vom linken Crop-Rand beschnitten (im Gegensatz zu Wort[0]).
 DISC_WORD_INDEX = 4
 
+# OVERLAY-WACHE: groesste Breite (px), die ein ECHTES Chat-Wort haben darf.
+#
+# Der Client blendet ueber einem Quickslot einen Item-Tooltip ein, der NACH OBEN
+# in die Chat-Lesezone ragt (Live-Bild 2026-08-09: Tooltip-Rahmen y[514,592]
+# gegen Lesezone y[579,596]). Sein Rahmen und sein Text landen dann in der
+# Binaerzeile und werden als Chat-Woerter segmentiert -- auf einem LEEREN Chat
+# entstanden so 5 Phantom-Woerter. Ohne diese Wache raet der Diskriminator auf
+# Tooltip-Text.
+#
+# Trennmerkmal ist die WORTBREITE: der durchgehende Tooltip-Rahmen bildet EINEN
+# breiten Block, echter Text zerfaellt in schmale Woerter. Gemessen ueber alle 13
+# gelabelten FischOCR-Zeilen: breitestes echtes Wort 66 px ("Spiegelkarpfen",
+# "Haarfaerbemittel"); der Tooltip-Block 100 px. Schwelle in die Mitte dieser
+# Luecke, mit Reserve nach oben fuer Namen, die laenger sind als die gemessenen.
+#
+# Richtung des Restfehlers ist die sichere: ein FALSCH als verdeckt geltender
+# Frame liefert nur NONE (Fang wird normal behandelt, Whitelist greift diesmal
+# nicht) -- ein NICHT erkanntes Overlay dagegen erzeugt einen falschen Namen.
+MAX_WORD_WIDTH = 85
+
 # Match-Schwellen fuer den maskierten Pixel-Vergleich (NCC in [-1,1]). Bewusst
 # streng: lieber UNKNOWN als ein falscher Name.
 DISC_MIN_SCORE = 0.55       # Diskriminator (haette/hinge/du/koeder)
@@ -778,6 +798,36 @@ def _chat_line_words(screenshot_bgr, region=None):
     return binary, _segment_words(binary)
 
 
+def zone_obstructed(words, max_width=MAX_WORD_WIDTH):
+    """True, wenn die Chat-Lesezone von einem Spiel-Overlay verdeckt ist.
+
+    Erkennungsmerkmal ist ein unnatuerlich BREITES "Wort" -- der durchgehende
+    Rahmen eines Item-Tooltips (siehe :data:`MAX_WORD_WIDTH`). Wirft nie; bei
+    unbrauchbarer Eingabe gilt die Zone als frei (dann entscheidet wie bisher
+    allein der Template-Vergleich).
+    """
+    try:
+        return any((end - start) > max_width for start, end in words or ())
+    except Exception:
+        return False
+
+
+def chat_zone_obstructed(screenshot_bgr, region=None):
+    """Diagnose-Variante von :func:`zone_obstructed` direkt auf einem Frame.
+
+    Fuer die Protokollierung gedacht: sagt dem Bot, WARUM eine Lesung leer blieb
+    ("Zone verdeckt" statt "nichts erkannt"), ohne dass der Nutzer raten muss.
+    Wirft nie.
+    """
+    try:
+        binary, words = _chat_line_words(screenshot_bgr, region)
+        if binary is None:
+            return False
+        return zone_obstructed(words)
+    except Exception:
+        return False
+
+
 def read_hook(screenshot_bgr, region=None, templates=None):
     """Liest die unterste Chat-Zeile des ``screenshot_bgr`` (Fenster-Capture,
     BGR) und liefert ein :class:`HookResult`.
@@ -798,7 +848,7 @@ def read_hook(screenshot_bgr, region=None, templates=None):
     """
     try:
         binary, words = _chat_line_words(screenshot_bgr, region)
-        if binary is None:
+        if binary is None or zone_obstructed(words):
             return HookResult(NONE)
         tmpl = templates if templates is not None else _load_templates()
         return _classify_words(binary, words, tmpl)
@@ -858,6 +908,11 @@ def read_action_feedback(screenshot_bgr, region=None, templates=None):
         binary, words = _chat_line_words(screenshot_bgr, region)
         if binary is None or len(words) <= DISC_WORD_INDEX:
             return NONE, None
+        # Verdeckte Zone (Item-Tooltip) NICHT auswerten: der Tooltip-Text wuerde
+        # sonst als Client-Antwort durchgehen. Kein sig -> der naechste freie
+        # Frame darf dieselbe Zeile normal werten.
+        if zone_obstructed(words):
+            return NONE, None
         # Fingerabdruck: Wortzahl + Tintenmenge + rechte Textkante. Billig und
         # trennscharf genug -- eine Kollision kostet hoechstens EINE nicht
         # gewertete Wiederholung, nie eine Fehlreaktion.
@@ -880,6 +935,7 @@ __all__ = [
     'FISH', 'ITEM', 'NIETE', 'NONE', 'UNKNOWN',
     'BAITED', 'BLOCKED', 'BLOCKED_MIN_WORDS', 'read_action_feedback',
     'CHAT_REGION', 'INK_THRESHOLD', 'WORD_GAP', 'DISC_WORD_INDEX',
+    'MAX_WORD_WIDTH', 'zone_obstructed', 'chat_zone_obstructed',
     'GLYPH_PREFIX', 'GLYPH_MIN_SCORE', 'NAME_FUZZY_MIN_SIM',
     'NAME_FUZZY_MIN_MARGIN',
     'chat_region_for_frame',

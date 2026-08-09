@@ -404,6 +404,7 @@ class _FakeRefill:
         self._result = result
         self._raise = raise_on_refill
         self.refill_calls = []
+        self.park_calls = []
 
     def quickslot_index(self, key):
         # Mirror the real mapping enough for the bait key '2' -> slot 2.
@@ -428,6 +429,11 @@ class _FakeRefill:
         if self._raise:
             raise RuntimeError('boom')
         return self._result
+
+    def park_cursor(self, api, ox=0, oy=0, **kw):
+        # Der Zeiger MUSS nach dem Nachlegen vom Quickslot weg -- sonst deckt
+        # der Item-Tooltip die Chat-Zeile zu (Live-Report 2026-08-09).
+        self.park_calls.append((ox, oy))
 
 
 class TestBaitRefillDiagnostics(unittest.TestCase):
@@ -600,6 +606,22 @@ class TestBaitRefillTrigger(unittest.TestCase):
         fake = _FakeRefill(empty=True, result='error')
         self._run(bot, fake)
         self.assertTrue(bot.botting)              # error != empty -> keep fishing
+
+    def test_cursor_is_parked_after_a_successful_refill(self):
+        """Sonst deckt der Item-Tooltip die Chat-Zeile zu (Live-Report 2026-08-09)."""
+        bot = self._bot()
+        fake = _FakeRefill(empty=True, result='dragged')
+        self._run(bot, fake)
+        self.assertEqual(len(fake.park_calls), 1)
+
+    def test_cursor_is_parked_even_when_the_refill_fails(self):
+        """Auch ein abgebrochener Drag kann den Zeiger auf dem Slot zuruecklassen."""
+        for result in ('empty', 'error', 'stopped'):
+            bot = self._bot()
+            fake = _FakeRefill(empty=True, result=result)
+            self._run(bot, fake)
+            self.assertEqual(len(fake.park_calls), 1,
+                             'nicht geparkt nach Ergebnis %r' % result)
 
     def test_engine_exception_swallowed(self):
         bot = self._bot()

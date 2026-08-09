@@ -361,6 +361,11 @@ class FishingBot(FishingDetectMixin):
     _last_bait_diag = 0.0
     _BAIT_DIAG_INTERVAL = 30.0
 
+    # Dieselbe Drossel fuer die Meldung "Chat-Zone verdeckt". Ohne sie sieht ein
+    # zugedeckter Chat im Log genauso aus wie ein leerer -- der Live-Report
+    # "Fische werden nicht mehr ausgelesen" war genau dieser Fall.
+    _last_obstructed_log = 0.0
+
     # Globales Stop-Signal (vom RunLoop injiziert). Default = NIE-gesetztes
     # NULL_SIGNAL -> die Refill-Naps blockieren wie bisher, ein Stop bricht sie
     # nie ab (byte-stabil). Mit echtem Signal pollt jede Refill-Nap es und bricht
@@ -557,6 +562,10 @@ class FishingBot(FishingDetectMixin):
                 _flog(self.state, 'WL-DBG kind=%s name=%r conf=%s'
                       % (kind, sig[1], sig[2]))
             if kind == _fc.NONE:
+                # Leer WEIL nichts am Haken -- oder weil ein Overlay die Zeile
+                # zudeckt? Ohne diese Unterscheidung sieht beides im Log gleich
+                # aus (genau der Live-Report "Fische werden nicht ausgelesen").
+                self._obstructed_diag(screenshot)
                 # Noch nichts Sicheres am Haken -> naechsten Frame abwarten.
                 return False
 
@@ -699,10 +708,20 @@ class FishingBot(FishingDetectMixin):
 
             # Das Inventar ist beim Angeln IMMER offen -> KEIN I-Druck (kein
             # Oeffnen/Schliessen), direkt aus dem offenen Inventar nachlegen.
+            inp = _refill_backend or pydirectinput
             result = _refill.refill_from_inventory(
-                _refill.BAIT_NAMES, target, inp=(_refill_backend or pydirectinput),
+                _refill.BAIT_NAMES, target, inp=inp,
                 wincap=self.wincap, db=self.bait_refill_db, calib=calib,
                 sleep=self._refill_sleep, should_stop=self._refill_should_stop)
+
+            # ZEIGER WEGFAHREN -- in JEDEM Ergebnisfall (auch nach 'error'/
+            # 'stopped'; der Drag kann den Zeiger auch dann auf dem Slot
+            # zurueckgelassen haben). Bleibt er auf dem Quickslot stehen, deckt
+            # der Item-Tooltip des Clients die Chat-Zeile zu und der Bot liest ab
+            # da den Tooltip statt des Chats -- Fischname UND Koeder-Rueckmeldung
+            # fallen aus (Live-Report + Messung 2026-08-09, siehe
+            # refill.CURSOR_PARK_XY).
+            _refill.park_cursor(inp, ox, oy, sleep=self._refill_sleep)
 
             if result == 'dragged':
                 _flog(self.state, t('fishing.bait_refill_done'),
@@ -738,6 +757,31 @@ class FishingBot(FishingDetectMixin):
                 return
             self._last_bait_diag = now
             _flog(self.state, message, **fields)
+        except Exception:
+            pass
+
+    def _obstructed_diag(self, screenshot):
+        """Meldet gedrosselt, dass die Chat-Lesezone gerade VERDECKT ist.
+
+        Ein Item-Tooltip des Clients (Zeiger auf einem Quickslot) klappt nach
+        oben ueber die Chat-Zeile; der Bot liest dann Tooltip-Text statt Chat.
+        Seit dem Zeiger-Park nach dem Nachlegen sollte das nicht mehr vorkommen
+        -- taucht die Zeile trotzdem auf, steht der Zeiger aus einem anderen
+        Grund dort (z. B. der Nutzer hat ihn selbst hingelegt), und der Report
+        laesst sich am Log ablesen statt zu raten. Reines Logging, wirft nie."""
+        try:
+            now = time()
+            if (self._last_obstructed_log > 0
+                    and now - self._last_obstructed_log < self._BAIT_DIAG_INTERVAL):
+                return
+            # Zeitstempel VOR der Pruefung setzen: sonst drosselt nur der
+            # Treffer-Fall und im Normalfall (Zone frei) liefe die zweite
+            # Binarisierung in JEDEM Minispiel-Frame mit. So ist es eine
+            # PRUEF-Drossel -- eine Verdeckung wird hoechstens um ein Intervall
+            # spaeter gemeldet, was fuer eine Diagnosezeile folgenlos ist.
+            self._last_obstructed_log = now
+            if _fc.chat_zone_obstructed(screenshot):
+                _flog(self.state, t('fishing.chat_zone_obstructed'))
         except Exception:
             pass
 

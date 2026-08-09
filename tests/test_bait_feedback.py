@@ -322,5 +322,188 @@ class TestAbortCooldown(unittest.TestCase):
         self.assertGreater(FishingBot._ABORT_COOLDOWN_S, 0.0)
 
 
+class TestTooltipObstruction(unittest.TestCase):
+    """Ein Item-Tooltip darf nie als Chat-Nachricht durchgehen.
+
+    Live-Report 2026-08-09: Nach dem Nachlegen blieb der Zeiger auf dem Koeder-
+    Quickslot stehen. Der Client blendet dort seinen Item-Tooltip ein -- und der
+    klappt NACH OBEN auf, quer ueber die Chat-Zeile. Am Bild gemessen:
+    Tooltip-Rahmen y[514,592] gegen die Lesezone y[579,596], also 14 von 18
+    Zeilen verdeckt (inkl. der ganzen Textzeile y[582,589]). Der Bot las ab da
+    den Tooltip -- auf einem LEEREN Chat fand die Segmentierung 5 "Woerter".
+    Folge: keine Fischnamen mehr, Whitelist wirkungslos.
+    """
+
+    def test_threshold_sits_in_the_measured_gap(self):
+        # 66 px = breitestes echtes Wort ueber alle gelabelten Zeilen,
+        # 100 px = der Tooltip-Block. Die Schwelle muss dazwischen liegen.
+        self.assertGreater(fc.MAX_WORD_WIDTH, 66)
+        self.assertLess(fc.MAX_WORD_WIDTH, 100)
+
+    def test_empty_word_list_is_never_obstructed(self):
+        self.assertFalse(fc.zone_obstructed([]))
+        self.assertFalse(fc.zone_obstructed(None))
+
+    def test_broken_input_is_treated_as_clear(self):
+        # Defensiv: unbrauchbare Eingabe darf nicht faelschlich blockieren.
+        self.assertFalse(fc.zone_obstructed(['kaputt']))
+
+    def test_wide_block_is_obstructed(self):
+        self.assertTrue(fc.zone_obstructed([(0, 10), (14, 14 + 100)]))
+
+    @unittest.skipUnless(_HAS_DEPS, 'numpy/PIL fehlen')
+    def test_tooltip_frame_is_rejected(self):
+        """Das echte Tooltip-Bild: verdeckt erkannt, beide Leser liefern NONE."""
+        path = os.path.join(_FISCH_DIR, 'tooltip_verdeckt_chatzeile.png')
+        if not os.path.exists(path):
+            self.skipTest('Referenzbild fehlt')
+        bgr = np.array(Image.open(path).convert('RGB'))[:, :, ::-1]
+        self.assertTrue(fc.chat_zone_obstructed(bgr))
+        self.assertEqual(fc.read_hook(bgr).kind, fc.NONE)
+        self.assertEqual(fc.read_action_feedback(bgr)[0], fc.NONE)
+        # Kein Fingerabdruck -> ein spaeterer FREIER Frame darf dieselbe Zeile
+        # normal auswerten (sonst waere sie dauerhaft verbrannt).
+        self.assertIsNone(fc.read_action_feedback(bgr)[1])
+
+    @unittest.skipUnless(_HAS_DEPS, 'numpy/PIL fehlen')
+    def test_real_chat_lines_are_never_called_obstructed(self):
+        """Die teure Fehlrichtung: echter Text darf NIE als verdeckt gelten."""
+        import glob
+        checked = 0
+        for path in sorted(glob.glob(os.path.join(_FISCH_DIR, '*.png'))):
+            if os.path.basename(path) == 'tooltip_verdeckt_chatzeile.png':
+                continue
+            bgr = np.array(Image.open(path).convert('RGB'))[:, :, ::-1]
+            self.assertFalse(fc.chat_zone_obstructed(bgr),
+                             '%s faelschlich als verdeckt' % os.path.basename(path))
+            checked += 1
+        if checked == 0:
+            self.skipTest('keine Referenzbilder vorhanden')
+
+
+class TestObstructionDiagnostic(unittest.TestCase):
+    """``_obstructed_diag`` -- meldet die Verdeckung, ohne den Loop zu belasten.
+
+    Der Zeitstempel wird VOR der Pruefung gesetzt: sonst drosselt nur der
+    Treffer-Fall, und im Normalfall (Zone frei) liefe die zweite Binarisierung
+    in JEDEM Minispiel-Frame mit.
+    """
+
+    def setUp(self):
+        import fishingbot
+        self.mod = fishingbot
+        self._orig_fc = fishingbot._fc
+
+    def tearDown(self):
+        self.mod._fc = self._orig_fc
+
+    def _bot(self):
+        from fishingbot import FishingBot
+
+        class _B(object):
+            _obstructed_diag = FishingBot._obstructed_diag
+            _BAIT_DIAG_INTERVAL = FishingBot._BAIT_DIAG_INTERVAL
+
+            def __init__(self):
+                self.state = 3
+                self._last_obstructed_log = 0.0
+
+        return _B()
+
+    def _spy(self, verdict):
+        calls = []
+
+        class _Fc(object):
+            @staticmethod
+            def chat_zone_obstructed(_shot):
+                calls.append(1)
+                return verdict
+
+        self.mod._fc = _Fc
+        return calls
+
+    def test_clear_zone_is_probed_only_once_per_interval(self):
+        calls = self._spy(False)
+        bot = self._bot()
+        for _ in range(25):
+            bot._obstructed_diag(object())
+        self.assertEqual(len(calls), 1)      # nicht 25 Binarisierungen
+
+    def test_obstruction_is_probed_only_once_per_interval(self):
+        calls = self._spy(True)
+        bot = self._bot()
+        for _ in range(25):
+            bot._obstructed_diag(object())
+        self.assertEqual(len(calls), 1)      # eine Meldung, kein Log-Spam
+
+    def test_probe_error_never_escapes(self):
+        class _Boom(object):
+            @staticmethod
+            def chat_zone_obstructed(_shot):
+                raise RuntimeError('kaputt')
+
+        self.mod._fc = _Boom
+        self._bot()._obstructed_diag(object())   # darf nicht werfen
+
+
+class TestCursorPark(unittest.TestCase):
+    """Der Zeiger muss nach dem Nachlegen vom Quickslot WEG -- ohne Klick."""
+
+    def setUp(self):
+        from interface import refill
+        self.refill = refill
+
+    def test_park_point_clear_of_chat_zone(self):
+        """Auf BEIDEN Frame-Hoehen ausserhalb der Lesezone (Live 601, Ref 632)."""
+        px, py = self.refill.CURSOR_PARK_XY
+        for height in (601, 632):
+            x0, y0, x1, y1 = fc.chat_region_for_frame(height)
+            inside = (x0 <= px < x1) and (y0 <= py < y1)
+            self.assertFalse(inside,
+                             'Park-Punkt %r liegt in der Chat-Zone bei H=%d'
+                             % ((px, py), height))
+
+    def test_park_point_clear_of_every_quickslot(self):
+        """Nicht auf einem Slot -> der Client zeigt dort keinen Tooltip."""
+        px, py = self.refill.CURSOR_PARK_XY
+        r = self.refill.QUICKSLOT_PROBE_RADIUS
+        for slot, (sx, sy) in self.refill.QUICKSLOT_XY.items():
+            self.assertFalse(abs(px - sx) <= r and abs(py - sy) <= r,
+                             'Park-Punkt sitzt auf Quickslot %d' % slot)
+
+    def test_park_moves_with_the_window_offset_and_never_clicks(self):
+        class _Api(object):
+            def __init__(self):
+                self.moves = []
+                self.clicks = 0
+
+            def moveTo(self, x, y):
+                self.moves.append((x, y))
+
+            def mouseDown(self, *_a, **_k):
+                self.clicks += 1
+
+            def mouseUp(self, *_a, **_k):
+                self.clicks += 1
+
+            def click(self, *_a, **_k):
+                self.clicks += 1
+
+        api = _Api()
+        self.refill.park_cursor(api, 100, 50, sleep=lambda *_a: None)
+        px, py = self.refill.CURSOR_PARK_XY
+        self.assertEqual(api.moves, [(100 + px, 50 + py)])
+        # Ein Klick in die Welt wuerde die Figur loslaufen lassen.
+        self.assertEqual(api.clicks, 0)
+
+    def test_park_failure_is_swallowed(self):
+        class _Broken(object):
+            @staticmethod
+            def moveTo(_x, _y):
+                raise RuntimeError('kein Fenster')
+
+        self.refill.park_cursor(_Broken(), 0, 0, sleep=lambda *_a: None)
+
+
 if __name__ == '__main__':
     unittest.main()

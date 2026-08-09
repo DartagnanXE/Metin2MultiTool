@@ -131,6 +131,7 @@ TRANSLATIONS = {
     'fishing.bait_blocked_retry': {'en': 'Client refused the bait ("you are fishing") -> no bait on the hook, waiting and baiting again', 'de': 'Client hat den Köder abgelehnt ("während du angelst") -> kein Köder am Haken, warte und ködere erneut'},
     'fishing.bait_blocked_late': {'en': 'Client refused the bait, but the minigame is already running -> only logged, catch continues', 'de': 'Client hat den Köder abgelehnt, das Minispiel läuft aber schon -> nur protokolliert, Fang läuft weiter'},
     'fishing.bait_blocked_repeat': {'en': 'Bait refused repeatedly in a row -> the character seems stuck in the fishing state', 'de': 'Köder mehrfach hintereinander abgelehnt -> die Figur hängt offenbar im Angel-Zustand fest'},
+    'fishing.chat_zone_obstructed': {'en': 'Chat line covered by a game tooltip - catches cannot be read while the cursor rests on a quick-slot', 'de': 'Chat-Zeile von einem Spiel-Tooltip verdeckt - solange der Zeiger auf einem Quickslot liegt, sind Fänge nicht auslesbar'},
     'fishing.bait_balance': {'en': 'Bait balance', 'de': 'Köder-Bilanz'},
     'fishing.minigame_finished': {'en': 'Minigame finished -> back to bait', 'de': 'Minispiel beendet -> zurück zu Köder'},
     'fishing.minigame_phase_start': {'en': 'Minigame phase starting', 'de': 'Minispiel-Phase startet'},

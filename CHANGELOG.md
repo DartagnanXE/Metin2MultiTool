@@ -3,6 +3,33 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.6.7] — 2026-08-09
+
+### Der Zeiger blockiert die Fisch-Erkennung nicht mehr
+
+Nach dem Nachlegen eines Köders blieb der Mauszeiger auf dem Köder-Feld unten
+stehen. Der Client blendet dort seinen Item-Tooltip ein („Wurm — Beliebter
+Köder …") — und der klappt **nach oben auf, quer über die Chat-Zeile**. Genau
+die Zeile liest der Bot, um zu erkennen, was am Haken hängt.
+
+Nachgemessen am Bild eines Testers: Der Tooltip verdeckt 14 der 18 Bildzeilen
+der Lesezone, inklusive der kompletten Textzeile. Schlimmer noch — der Bot las
+den **Tooltip-Text als Chat-Nachricht**: auf einem leeren Chat fand er fünf
+„Wörter". Ab da wurden keine Fischnamen mehr erkannt, die Nicht-fangen-Liste
+war wirkungslos, und auch die Köder-Rückmeldung aus 1.6.6 lief ins Leere.
+
+**Der Zeiger wird jetzt weggefahren**, nach jedem Nachlegen — auch wenn es
+fehlschlug. Bewegung, kein Klick: ein Klick in die Spielwelt würde die Figur
+loslaufen lassen. Alle anderen Inventar-Abläufe machten das längst so, nur
+dieser eine nicht.
+
+**Zusätzlich eine zweite Absicherung:** Der Bot erkennt jetzt selbst, wenn ein
+Fenster des Spiels über der Chat-Zeile liegt, und verwirft die Lesung, statt zu
+raten. Erkennungsmerkmal ist die Breite — echte Chat-Wörter sind höchstens
+66 Pixel breit, der Tooltip-Rahmen bildet einen 100 Pixel breiten Block. Liegt
+etwas im Weg, steht das ab sofort im Log, statt wie „nichts gefangen"
+auszusehen.
+
 ## [1.6.6] — 2026-08-06
 
 ### Der Bot merkt jetzt, wenn das Spiel eine Aktion ablehnt
