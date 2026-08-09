@@ -183,6 +183,16 @@ class _Bot(object):
     _BAIT_FEEDBACK_WINDOW_S = _FB._BAIT_FEEDBACK_WINDOW_S
     _BAIT_RETRY_WAIT_S = _FB._BAIT_RETRY_WAIT_S
     _BAIT_BLOCKED_WARN_AT = _FB._BAIT_BLOCKED_WARN_AT
+    # Die selbstkalibrierende Abbruch-Wartezeit haengt an derselben Rueckmeldung,
+    # also gehoert sie in diesen Nachbau (sonst testet man an ihr vorbei).
+    _tighten_abort_cooldown = _FB._tighten_abort_cooldown
+    _relax_abort_cooldown = _FB._relax_abort_cooldown
+    _ABORT_COOLDOWN_START_S = _FB._ABORT_COOLDOWN_START_S
+    _ABORT_COOLDOWN_MIN_S = _FB._ABORT_COOLDOWN_MIN_S
+    _ABORT_COOLDOWN_MAX_S = _FB._ABORT_COOLDOWN_MAX_S
+    _ABORT_COOLDOWN_UP_S = _FB._ABORT_COOLDOWN_UP_S
+    _ABORT_COOLDOWN_DOWN_S = _FB._ABORT_COOLDOWN_DOWN_S
+    _ABORT_COOLDOWN_CLEAN_CASTS = _FB._ABORT_COOLDOWN_CLEAN_CASTS
 
     def __init__(self, state=1, pending=None):
         import time as _t
@@ -193,6 +203,8 @@ class _Bot(object):
         self._bait_blocked_streak = 0
         self._bait_last_feedback_sig = None
         self.timer_action = 0.0
+        self._abort_cooldown = self._ABORT_COOLDOWN_START_S
+        self._clean_casts_since_block = 0
 
 
 class TestBaitFeedbackLoop(unittest.TestCase):
@@ -281,6 +293,20 @@ class TestBaitFeedbackLoop(unittest.TestCase):
         bot._check_bait_feedback(object())
         self.assertEqual(bot._bait_blocked_streak, 0)
 
+    def test_a_rejection_lengthens_the_abort_wait(self):
+        """Verdrahtung: die Client-Antwort speist wirklich den Regler."""
+        bot = _Bot(state=1)
+        before = bot._abort_cooldown
+        self._with_feedback(fc.BLOCKED)
+        bot._check_bait_feedback(object())
+        self.assertGreater(bot._abort_cooldown, before)
+
+    def test_a_confirmation_counts_towards_shortening(self):
+        bot = _Bot(state=1)
+        self._with_feedback(fc.BAITED)
+        bot._check_bait_feedback(object())
+        self.assertEqual(bot._clean_casts_since_block, 1)
+
     def test_same_chat_line_is_only_counted_once(self):
         """Die Chat-Zeile bleibt im Spiel stehen.
 
@@ -315,11 +341,119 @@ class TestBaitFeedbackLoop(unittest.TestCase):
 
 
 class TestAbortCooldown(unittest.TestCase):
-    """Der Whitelist-Abbruch darf nicht mehr in derselben Sekunde neu koedern."""
+    """Der Whitelist-Abbruch darf nicht in derselben Sekunde neu koedern --
+    und die Wartezeit regelt sich seit v1.6.8 selbst ein."""
 
-    def test_cooldown_is_positive(self):
+    def setUp(self):
         from fishingbot import FishingBot
-        self.assertGreater(FishingBot._ABORT_COOLDOWN_S, 0.0)
+        self.FB = FishingBot
+
+    def test_start_value_is_in_the_requested_range(self):
+        # Live-Wunsch 2026-08-09: "von 1 s auf etwa 0,5 bis 0,7 s".
+        self.assertGreaterEqual(self.FB._ABORT_COOLDOWN_START_S, 0.5)
+        self.assertLessEqual(self.FB._ABORT_COOLDOWN_START_S, 0.7)
+
+    def test_bounds_are_sane(self):
+        self.assertGreater(self.FB._ABORT_COOLDOWN_MIN_S, 0.0)
+        self.assertLess(self.FB._ABORT_COOLDOWN_MIN_S,
+                        self.FB._ABORT_COOLDOWN_START_S)
+        self.assertGreater(self.FB._ABORT_COOLDOWN_MAX_S,
+                           self.FB._ABORT_COOLDOWN_START_S)
+
+    def test_reacts_faster_upwards_than_downwards(self):
+        """Ein verlorener Wurf wiegt schwerer als eine Zehntelsekunde."""
+        self.assertGreater(self.FB._ABORT_COOLDOWN_UP_S,
+                           self.FB._ABORT_COOLDOWN_DOWN_S)
+
+
+class _CooldownBot(object):
+    """Nur der Zustand, den die beiden Regler anfassen."""
+
+    from fishingbot import FishingBot as _FB
+    _tighten_abort_cooldown = _FB._tighten_abort_cooldown
+    _relax_abort_cooldown = _FB._relax_abort_cooldown
+    for _n in ('_ABORT_COOLDOWN_START_S', '_ABORT_COOLDOWN_MIN_S',
+               '_ABORT_COOLDOWN_MAX_S', '_ABORT_COOLDOWN_UP_S',
+               '_ABORT_COOLDOWN_DOWN_S', '_ABORT_COOLDOWN_CLEAN_CASTS'):
+        locals()[_n] = getattr(_FB, _n)
+    del _n
+
+    def __init__(self):
+        self.state = 0
+        self._abort_cooldown = self._ABORT_COOLDOWN_START_S
+        self._clean_casts_since_block = 0
+
+
+class TestCooldownSelfCalibration(unittest.TestCase):
+    """Der Regelkreis: nach einer Ablehnung laenger, nach sauberen Wuerfen kuerzer."""
+
+    def test_rejection_lengthens_the_wait(self):
+        bot = _CooldownBot()
+        bot._tighten_abort_cooldown()
+        self.assertAlmostEqual(
+            bot._abort_cooldown,
+            bot._ABORT_COOLDOWN_START_S + bot._ABORT_COOLDOWN_UP_S, places=6)
+
+    def test_lengthening_is_capped(self):
+        bot = _CooldownBot()
+        for _ in range(50):
+            bot._tighten_abort_cooldown()
+        self.assertAlmostEqual(bot._abort_cooldown,
+                               bot._ABORT_COOLDOWN_MAX_S, places=6)
+
+    def test_clean_casts_below_the_threshold_change_nothing(self):
+        bot = _CooldownBot()
+        for _ in range(bot._ABORT_COOLDOWN_CLEAN_CASTS - 1):
+            bot._relax_abort_cooldown()
+        self.assertAlmostEqual(bot._abort_cooldown,
+                               bot._ABORT_COOLDOWN_START_S, places=6)
+
+    def test_enough_clean_casts_shorten_the_wait(self):
+        bot = _CooldownBot()
+        for _ in range(bot._ABORT_COOLDOWN_CLEAN_CASTS):
+            bot._relax_abort_cooldown()
+        self.assertAlmostEqual(
+            bot._abort_cooldown,
+            bot._ABORT_COOLDOWN_START_S - bot._ABORT_COOLDOWN_DOWN_S, places=6)
+
+    def test_shortening_is_floored(self):
+        bot = _CooldownBot()
+        for _ in range(bot._ABORT_COOLDOWN_CLEAN_CASTS * 60):
+            bot._relax_abort_cooldown()
+        self.assertAlmostEqual(bot._abort_cooldown,
+                               bot._ABORT_COOLDOWN_MIN_S, places=6)
+
+    def test_rejection_resets_the_clean_streak(self):
+        """Sonst koennte kurz nach einer Ablehnung sofort wieder gesenkt werden."""
+        bot = _CooldownBot()
+        for _ in range(bot._ABORT_COOLDOWN_CLEAN_CASTS - 1):
+            bot._relax_abort_cooldown()
+        bot._tighten_abort_cooldown()
+        self.assertEqual(bot._clean_casts_since_block, 0)
+        after = bot._abort_cooldown
+        bot._relax_abort_cooldown()          # ein einzelner sauberer Wurf
+        self.assertAlmostEqual(bot._abort_cooldown, after, places=6)
+
+    def test_a_rejection_is_undone_by_many_clean_casts(self):
+        """Regelkreis schliesst sich: hoch nach Fehler, langsam wieder runter."""
+        bot = _CooldownBot()
+        bot._tighten_abort_cooldown()
+        raised = bot._abort_cooldown
+        rounds = int(round(bot._ABORT_COOLDOWN_UP_S / bot._ABORT_COOLDOWN_DOWN_S))
+        for _ in range(bot._ABORT_COOLDOWN_CLEAN_CASTS * rounds):
+            bot._relax_abort_cooldown()
+        self.assertLess(bot._abort_cooldown, raised)
+        self.assertAlmostEqual(bot._abort_cooldown,
+                               bot._ABORT_COOLDOWN_START_S, places=6)
+
+    def test_regulators_never_raise(self):
+        class _Broken(_CooldownBot):
+            def __init__(self):
+                _CooldownBot.__init__(self)
+                self._abort_cooldown = 'kaputt'   # erzwingt einen TypeError
+
+        _Broken()._tighten_abort_cooldown()
+        _Broken()._relax_abort_cooldown()
 
 
 class TestTooltipObstruction(unittest.TestCase):

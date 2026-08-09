@@ -3,6 +3,37 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.6.8] — 2026-08-09
+
+### Die Wartezeit nach einem Abbruch stellt sich jetzt selbst ein
+
+Rückmeldung aus dem Test: Die Pause nach einem abgebrochenen Fang sei mit einer
+Sekunde zu lang, 0,5 bis 0,7 wären besser.
+
+Statt eine neue feste Zahl zu raten, regelt der Bot sie jetzt selbst ein. Eine
+feste Zahl ist hier grundsätzlich falsch: Wie lange der Client braucht, bis er
+den Angel-Zustand verlässt, hängt am Rechner und an der Verbindung. Zu kurz
+kostet einen Wurf, zu lang kostet bei jedem Abbruch Zeit.
+
+**Er startet jetzt bei 0,6 Sekunden.** Lehnt das Spiel den Köder danach doch ab,
+verlängert er in Schritten von 0,3 Sekunden — höchstens bis 2,0. Laufen zwanzig
+Würfe sauber durch, verkürzt er wieder um 0,1, mindestens bis 0,4. Nach oben
+reagiert er also schneller als nach unten: Ein verlorener Wurf wiegt schwerer
+als eine Zehntelsekunde.
+
+Möglich wurde das erst durch die Köder-Rückmeldung aus 1.6.6 und den
+Tooltip-Fix aus 1.6.7 — vorher konnte der Bot gar nicht erkennen, ob eine
+Wartezeit zu kurz war.
+
+**Im Log sichtbar:** Jede Anpassung erscheint als eigene Zeile („Wartezeit nach
+Abbruch auf 0,9s erhöht"), und die Köder-Bilanz alle 25 Würfe zeigt zusätzlich
+den aktuell eingeregelten Wert. Damit lässt sich ablesen, wo sich das Ganze
+einpendelt.
+
+**Unabhängig davon** lässt sich die Wartezeit *vor* dem Ködern weiterhin selbst
+einstellen: Angel-Reiter, Schieberegler „Warten bis Köder gesetzt wird" — der
+konnte schon immer 0,1 bis 20 Sekunden.
+
 ## [1.6.7] — 2026-08-09
 
 ### Der Zeiger blockiert die Fisch-Erkennung nicht mehr

@@ -133,6 +133,8 @@ TRANSLATIONS = {
     'fishing.bait_blocked_repeat': {'en': 'Bait refused repeatedly in a row -> the character seems stuck in the fishing state', 'de': 'Köder mehrfach hintereinander abgelehnt -> die Figur hängt offenbar im Angel-Zustand fest'},
     'fishing.chat_zone_obstructed': {'en': 'Chat line covered by a game tooltip - catches cannot be read while the cursor rests on a quick-slot', 'de': 'Chat-Zeile von einem Spiel-Tooltip verdeckt - solange der Zeiger auf einem Quickslot liegt, sind Fänge nicht auslesbar'},
     'fishing.bait_balance': {'en': 'Bait balance', 'de': 'Köder-Bilanz'},
+    'fishing.cooldown_up': {'en': 'Client was still fishing -> wait after an abort raised to {wert}s', 'de': 'Client war noch im Angel-Zustand -> Wartezeit nach Abbruch auf {wert}s erhöht'},
+    'fishing.cooldown_down': {'en': 'Many clean casts in a row -> wait after an abort lowered to {wert}s', 'de': 'Viele saubere Würfe in Folge -> Wartezeit nach Abbruch auf {wert}s gesenkt'},
     'fishing.minigame_finished': {'en': 'Minigame finished -> back to bait', 'de': 'Minispiel beendet -> zurück zu Köder'},
     'fishing.minigame_phase_start': {'en': 'Minigame phase starting', 'de': 'Minispiel-Phase startet'},
     'fishing.minigame_timeout': {'en': 'Minigame timeout (15s) -> back to bait', 'de': 'Minispiel-Timeout (15s) -> zurück zu Köder'},
