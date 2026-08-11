@@ -3,6 +3,35 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.6.10] — 2026-08-11
+
+### Nach einem Abbruch wird sofort neu geködert — das Tempo von 1.6.5
+
+Der Tester meldete, das Angel- und Nachlegetempo sei immer noch nicht das alte.
+Der Vergleichspunkt war **1.6.5**, nicht 1.6.6 — und damit war klar, wo es
+klemmt: Die Pause nach einem Whitelist-Abbruch wurde in **1.6.6 eingeführt**.
+
+Bis 1.6.5 wurde der Timer zurückdatiert, sodass der nächste Durchlauf *sofort*
+köderte. 1.6.6 ersetzte das durch eine Pause von einer Sekunde plus den normalen
+Vorlauf. Der Grund war echt: Ohne Pause standen Abbruch, Ködern und Auswerfen in
+derselben Sekunde, und das Spiel antwortete mit „Du kannst diese Aktion nicht
+ausführen, während du angelst" — der Köder kam nie an, der Wurf lief ins Leere.
+
+**Nur hat derselbe Release den Sensor dafür bekommen.** Der Bot *liest* diese
+Ablehnung inzwischen und ködert dann von selbst nach. Blind zu warten **und** zu
+messen ist doppelt: Die Pause zahlt jeder Abbruch, die Ablehnung kommt nur
+manchmal. Im eingeschickten Log enden **56 % aller Würfe in einem Abbruch** —
+dort kostete die Pause rund eine Sekunde pro Durchgang.
+
+Deshalb ist die Pause raus. Tritt die Ablehnung doch auf, kostet sie einen
+einzelnen Wiederholungsversuch, der im Log steht — statt einer Wartezeit bei
+jedem Abbruch. In der Köder-Bilanz (alle 25 Würfe) ist unter `abgelehnt`
+ablesbar, wie oft das wirklich passiert.
+
+Nebenbei behoben: Die Rückdatierung aus 1.6.5 rechnete den Zeit-Jitter (±15 %)
+nicht mit und verfehlte „sofort" bei großen eingestellten Zeiten knapp. Jetzt
+wird mit dem Jitter-Maximum gerechnet, damit sofort auch wirklich sofort heißt.
+
 ## [1.6.9] — 2026-08-11
 
 ### Fische mit langen Namen wurden verschluckt — behoben

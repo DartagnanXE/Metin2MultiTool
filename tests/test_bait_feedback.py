@@ -183,7 +183,6 @@ class _Bot(object):
     _BAIT_FEEDBACK_WINDOW_S = _FB._BAIT_FEEDBACK_WINDOW_S
     _BAIT_RETRY_WAIT_S = _FB._BAIT_RETRY_WAIT_S
     _BAIT_BLOCKED_WARN_AT = _FB._BAIT_BLOCKED_WARN_AT
-    _ABORT_COOLDOWN_S = _FB._ABORT_COOLDOWN_S
 
     def __init__(self, state=1, pending=None):
         import time as _t
@@ -282,19 +281,12 @@ class TestBaitFeedbackLoop(unittest.TestCase):
         bot._check_bait_feedback(object())
         self.assertEqual(bot._bait_blocked_streak, 0)
 
-    def test_abort_wait_is_the_fixed_v166_value(self):
-        """Die Abbruch-Wartezeit ist FEST 1,0 s -- exakt v1.6.6.
-
-        v1.6.8 regelte sie selbst (0,6 s Start, Spanne 0,4-2,0) und lief dabei
-        nach OBEN: +0,3 s je Ablehnung gegen -0,1 s je 20 saubere Wuerfe. Der
-        Tester meldete am 2026-08-11, dass v1.6.6 spuerbar schneller war -- also
-        zurueck zum Festwert. Dieser Test haelt das fest, damit kein Regler
-        unbemerkt wiederkommt.
-        """
+    def test_no_abort_wait_constant_remains(self):
+        """Es darf KEINE Abbruch-Wartezeit mehr geben -- siehe TestAbortRecast."""
         from fishingbot import FishingBot
-        self.assertEqual(FishingBot._ABORT_COOLDOWN_S, 1.0)
-        self.assertFalse(hasattr(FishingBot, '_abort_cooldown'),
-                         'der selbstregelnde Wert darf nicht zurueckkehren')
+        for gone in ('_ABORT_COOLDOWN_S', '_abort_cooldown'):
+            self.assertFalse(hasattr(FishingBot, gone),
+                             'Abbruch-Pause %s ist zurueck' % gone)
 
     def test_same_chat_line_is_only_counted_once(self):
         """Die Chat-Zeile bleibt im Spiel stehen.
@@ -329,36 +321,119 @@ class TestBaitFeedbackLoop(unittest.TestCase):
         self.assertEqual(bot.state, 1)
 
 
-class TestAbortCooldown(unittest.TestCase):
-    """Der Whitelist-Abbruch darf nicht in derselben Sekunde neu koedern.
+class TestAbortRecastIsInstant(unittest.TestCase):
+    """Nach einem Whitelist-Abbruch wird SOFORT neu gekoedert -- v1.6.5-Tempo.
 
-    Der Wert ist FEST -- v1.6.8 hatte hier einen selbstregelnden Cooldown
-    (Start 0,6 s, Spanne 0,4-2,0). Er regelte in der Praxis nach OBEN (+0,3 s je
-    Ablehnung gegen -0,1 s je 20 saubere Wuerfe) und klebte schon bei einer
-    Ablehnungsrate von 1:60 am Deckel 2,0 s -- also DOPPELT so langsam wie der
-    Festwert, den er ersetzen sollte. Zudem mass er das Falsche: jede
-    angenommene Koederaktion galt als Beleg, obwohl die Wartezeit nur die Lage
-    NACH einem Abbruch regelt. Der Tester urteilte am 2026-08-11 eindeutig fuer
-    das v1.6.6-Verhalten; diese Klasse haelt es fest.
+    Historie, damit die Pause nicht ein viertes Mal zurueckkommt: v1.6.6 fuehrte
+    1,0 s ein (ESC + Koeder + Wurf standen sonst in derselben Sekunde und der
+    Client lehnte ab), v1.6.8 ersetzte sie durch einen selbstregelnden Wert, der
+    asymmetrisch nach oben lief, v1.6.9 setzte auf 1,0 s zurueck. Alle drei
+    bezahlen bei JEDEM Abbruch fuer einen Fall, der nur manchmal eintritt -- und
+    im Live-Log des Testers (2026-08-11) enden 56 % aller Zyklen im Abbruch.
+
+    Die Ablehnung faengt seit v1.6.6 der Sensor ab (read_action_feedback ->
+    _check_bait_feedback -> _BAIT_RETRY_WAIT_S), also kostet sie einen
+    protokollierten Wiederholungsversuch statt einer Dauerpause.
     """
 
     def setUp(self):
+        import fishingbot
+        self.mod = fishingbot
+        self._orig_input = fishingbot._input
+
+        class _Keys(object):
+            def __init__(self):
+                self.pressed = []
+
+            def key(self, k):
+                self.pressed.append(k)
+
+        self.keys = _Keys()
+        fishingbot._input = self.keys
+
+    def tearDown(self):
+        self.mod._input = self._orig_input
+
+    def _bot(self):
         from fishingbot import FishingBot
-        self.FB = FishingBot
+        import time as _t
 
-    def test_value_is_exactly_the_v166_second(self):
-        self.assertEqual(self.FB._ABORT_COOLDOWN_S, 1.0)
+        class _B(object):
+            _abort_minigame = FishingBot._abort_minigame
+            _instant_recast_backdate = FishingBot._instant_recast_backdate
+            _TIMING_JITTER = FishingBot._TIMING_JITTER
+            mount_enabled = False
+            bait_time = 2
+            throw_time = 2
+            game_time = 2
 
-    def test_no_self_calibrating_state_remains(self):
-        """Kein Regler-Rest darf zurueckbleiben -- sonst driftet es wieder."""
-        for gone in ('_abort_cooldown', '_clean_casts_since_block',
-                     '_tighten_abort_cooldown', '_relax_abort_cooldown',
-                     '_ABORT_COOLDOWN_START_S', '_ABORT_COOLDOWN_MIN_S',
-                     '_ABORT_COOLDOWN_MAX_S', '_ABORT_COOLDOWN_UP_S',
-                     '_ABORT_COOLDOWN_DOWN_S', '_ABORT_COOLDOWN_CLEAN_CASTS'):
-            self.assertFalse(hasattr(self.FB, gone),
-                             'Regler-Rest %s ist noch da' % gone)
+            def __init__(self):
+                self.state = 3
+                self.timer_action = _t.time()
+                self._bait_pending_since = _t.time()
+                self.cycles_ended = 0
 
+            def _on_cycle_end(self):
+                self.cycles_ended += 1
+
+        return _B()
+
+    def test_next_tick_baits_immediately(self):
+        """Der Timer wird ZURUECK-datiert -> die State-0-Schwelle ist sofort reif."""
+        import time as _t
+        bot = self._bot()
+        bot._abort_minigame()
+        self.assertEqual(bot.state, 0)
+        # Genau die Bedingung, die der Loop in State 0 prueft (fishingbot.py):
+        #   time() - timer_action > roll_deadline(bait_time)
+        # Mit dem groesstmoeglichen Jitter (+15 %) muss sie SOFORT wahr sein.
+        wartezeit = _t.time() - bot.timer_action
+        self.assertGreater(wartezeit, bot.bait_time * 1.15,
+                           'der naechste Tick koedert nicht sofort')
+
+    def test_timer_covers_the_slowest_configured_phase(self):
+        """Auch bei ungleichen Zeiten muss die groesste ueberschritten sein."""
+        import time as _t
+        bot = self._bot()
+        bot.bait_time, bot.throw_time, bot.game_time = 1, 9, 3
+        bot._abort_minigame()
+        self.assertGreater(_t.time() - bot.timer_action, 9 * 1.15)
+
+    def test_esc_is_pressed_and_the_cycle_hook_fires(self):
+        bot = self._bot()
+        self.assertEqual(bot._abort_minigame(), 'esc')
+        self.assertEqual(self.keys.pressed, ['esc'])
+        self.assertEqual(bot.cycles_ended, 1)
+
+    def test_text_times_from_the_gui_never_break_the_abort(self):
+        """Die Zeiten kommen als GUI-Werte und koennen TEXT sein.
+
+        Ohne float()-Konvertierung stuerbe die Rueckdatierung mit einem
+        TypeError, den _apply_whitelist schluckt -- der State bliebe auf 3 und
+        der Bot haenge bis zum 15-s-Notausstieg im Minispiel.
+        """
+        import time as _t
+        bot = self._bot()
+        bot.bait_time, bot.throw_time, bot.game_time = '2', '2', '2'
+        bot._abort_minigame()
+        self.assertEqual(bot.state, 0)
+        self.assertGreater(_t.time() - bot.timer_action, 2 * 1.15)
+
+    def test_garbage_times_still_recast_instantly(self):
+        """Unbrauchbare Werte duerfen den Abbruch nicht verschlucken."""
+        import time as _t
+        bot = self._bot()
+        bot.bait_time = None
+        bot._abort_minigame()
+        self.assertEqual(bot.state, 0)
+        self.assertGreater(_t.time() - bot.timer_action, 30)
+
+    def test_pending_bait_press_is_cleared(self):
+        """Der alte Druck ist mit dem ESC erledigt -- sonst wertet der Sensor
+        eine Antwort, die zum vorigen Wurf gehoerte."""
+        bot = self._bot()
+        bot._abort_minigame()
+        self.assertEqual(bot._bait_pending_since, 0.0)
 
 
 class TestTooltipObstruction(unittest.TestCase):

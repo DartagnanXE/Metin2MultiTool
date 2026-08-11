@@ -407,25 +407,18 @@ class FishingBot(FishingDetectMixin):
     # Bilanz-Zeile alle N Wuerfe -> im Log ist laufend ablesbar, ob es sauber
     # laeuft, ohne dass der Nutzer etwas einschalten oder auswerten muss.
     _BAIT_BALANCE_EVERY = 25
-    # Wartezeit nach einem Whitelist-Abbruch, bevor neu gekoedert wird. Der ESC
-    # raeumt das Minispiel weg, der Client verlaesst den Angel-Zustand aber nicht
-    # im selben Moment: bis v1.6.5 datierte der Abbruch den Timer so vor, dass
-    # Koeder- UND Wurf-Taste in DERSELBEN Sekunde kamen (real im Log vom
-    # 2026-07-30, 07:31:04) -- genau das Muster, das die Ablehnung ausloest.
+    # KEINE Wartezeit mehr nach einem Whitelist-Abbruch -- siehe
+    # :meth:`_abort_minigame`. Der Bot koedert sofort neu (v1.6.5-Tempo); eine
+    # Ablehnung durch den Client faengt der Sensor aus v1.6.6 ab
+    # (``_BAIT_RETRY_WAIT_S`` + Koeder-Bilanz), statt sie durch eine Pause bei
+    # JEDEM Abbruch praeventiv zu erkaufen.
     #
-    # FESTER WERT -- bewusst zurueck auf das v1.6.6-Verhalten (Tester-Urteil
-    # 2026-08-11: "Angel- und Koeder-Nachlegegeschwindigkeit war in 1.6.6 viel
-    # besser, das sollte wieder exakt so gemacht werden").
-    #
-    # v1.6.8 hatte hier einen selbstregelnden Wert (Start 0,6 s, Spanne 0,4-2,0).
-    # Der regelte in der Praxis NACH OBEN statt nach unten: eine einzelne
-    # Ablehnung verlaengerte um 0,3 s, zurueck ging es nur in 0,1-Schritten je 20
-    # sauberen Wuerfen. Schon bei einer Ablehnungsrate von 1:60 klebt der Wert am
-    # Deckel 2,0 s -- also DOPPELT so langsam wie der feste 1,0-s-Wert, den er
-    # ersetzen sollte. Dazu maass er das Falsche (jede angenommene Koederaktion
-    # galt als Beleg, obwohl die Wartezeit nur die Lage NACH einem Abbruch regelt).
-    # Eine Selbstkalibrierung, die ihr eigenes Regelziel nicht misst, ist keine.
-    _ABORT_COOLDOWN_S = 1.0
+    # Historie, damit die Zahl nicht ein drittes Mal zurueckkommt: v1.6.6 fuehrte
+    # 1,0 s ein, v1.6.8 ersetzte sie durch einen selbstregelnden Wert (0,4-2,0),
+    # der asymmetrisch nach OBEN lief und am Deckel klebte, v1.6.9 setzte auf
+    # 1,0 s zurueck. Alle drei Varianten haben dasselbe Problem: sie bezahlen bei
+    # jedem Abbruch fuer einen Fall, der nur manchmal eintritt -- und im
+    # Live-Log des Testers enden 56 % aller Zyklen im Abbruch.
 
     # This is the filter parameters, this help to find the right image
     hsv_filter = HsvFilter(*FILTER_CONFIG)
@@ -534,20 +527,58 @@ class FishingBot(FishingDetectMixin):
                 self._do_mount_cancel(mount.mount_cancel_steps(self.mount_key))
             except Exception:
                 pass
-        # Von vorne -- aber MIT kurzem Vorlauf. Bis v1.6.5 wurde der Timer hier so
-        # vordatiert, dass der naechste Tick INSTANT neu koederte; real standen
-        # dadurch ESC, Koeder- und Wurf-Taste in DERSELBEN Sekunde (Live-Log
-        # 2026-07-30, 07:31:04), und der Client antwortete mit "Du kannst diese
-        # Aktion nicht ausfuehren, waehrend du angelst" -- der Koeder kam nie an,
-        # der Wurf lief ins Leere ("Kein Biss"). Das Minispiel verschwindet mit
-        # dem ESC sofort, der Angel-Zustand der Figur nicht. Also etwas Luft; ist
-        # sie im Einzelfall zu knapp, faengt _check_bait_feedback es ab und
-        # protokolliert es, statt es wieder zu verschlucken.
+        # SOFORT von vorne -- exakt das v1.6.5-Verhalten: den Timer so weit
+        # ZURUECK-datieren, dass der naechste Tick INSTANT neu koedert (kein
+        # bait_time-Vorlauf, keine zusaetzliche Abbruch-Pause).
+        #
+        # WARUM DIE PAUSE AUS v1.6.6 WIEDER WEG DARF: Sie kam, weil ESC, Koeder-
+        # und Wurf-Taste sonst in DERSELBEN Sekunde standen (Live-Log
+        # 2026-07-30, 07:31:04) und der Client mit "Du kannst diese Aktion nicht
+        # ausfuehren, waehrend du angelst" ablehnte -- der Koeder kam nie an, der
+        # Wurf lief ins Leere ("Kein Biss"). DERSELBE Release hat aber den SENSOR
+        # dafuer bekommen: :func:`fishing_chat.read_action_feedback` liest genau
+        # diese Ablehnung, und :meth:`_check_bait_feedback` koedert danach erneut
+        # (``_BAIT_RETRY_WAIT_S``) und protokolliert es. Blind warten UND messen
+        # ist doppelt gemoppelt -- nur zahlt die Pause JEDER Abbruch, waehrend
+        # die Ablehnung bloss manchmal kommt.
+        #
+        # Am Live-Log des Testers gemessen (2026-08-11, v1.6.9): 56 % aller
+        # Zyklen enden im Abbruch; die Pause kostete dort rund eine Sekunde je
+        # Zyklus. Deshalb ist die Fehlerrichtung hier die guenstige: tritt die
+        # Ablehnung doch auf, kostet sie EINEN protokollierten Wiederholungs-
+        # versuch statt einer Pause bei jedem Abbruch -- und sie steht in der
+        # Koeder-Bilanz, statt wie bis v1.6.5 unbemerkt zu bleiben.
         self.state = 0
-        self.timer_action = time() + self._ABORT_COOLDOWN_S
+        self.timer_action = time() - self._instant_recast_backdate()
         self._bait_pending_since = 0.0   # alter Druck ist mit dem ESC erledigt
         self._on_cycle_end()
         return how
+
+    def _instant_recast_backdate(self):
+        """Sekunden, um die der Timer nach einem Abbruch ZURUECK-datiert wird.
+
+        Muss die groesste eingestellte Phasenzeit inklusive Jitter-Maximum
+        ueberschreiten, damit der naechste Tick garantiert sofort koedert:
+
+          * Der Jitter (+-15 %) hebt die State-0-Schwelle ueber die eingestellte
+            Zeit. v1.6.5 rechnete nur ``max(...) + 1.0`` und verfehlte "sofort"
+            bei grossen Zeiten knapp (bait_time 9 -> Schwelle bis 10,35 gegen
+            10,0 Rueckdatierung).
+          * Die Zeiten kommen als GUI-Werte und koennen TEXT sein -- deshalb
+            dieselbe ``float()``-Konvertierung wie in :meth:`_roll_deadline`.
+            Ohne sie stuerbe die Multiplikation mit einem TypeError, den
+            :meth:`_apply_whitelist` schluckt: der State bliebe auf 3 stehen und
+            der Bot haenge bis zum 15-s-Notausstieg im Minispiel.
+
+        Wirft nie -- im Zweifel ein grosszuegiger Festwert, der jede sinnvolle
+        Einstellung abdeckt.
+        """
+        try:
+            groesste = max(float(self.bait_time), float(self.throw_time),
+                           float(self.game_time))
+            return groesste * (1.0 + self._TIMING_JITTER) + 1.0
+        except Exception:
+            return 60.0
 
     def _apply_whitelist(self, screenshot):
         """Wertet beim Biss den Chat-Streifen aus und bricht ab, falls der Fang
@@ -868,10 +899,12 @@ class FishingBot(FishingDetectMixin):
             if (self._BAIT_BALANCE_EVERY <= 0
                     or self._bait_casts % self._BAIT_BALANCE_EVERY != 0):
                 return
+            # 'abgelehnt' ist seit dem Wegfall der Abbruch-Pause die WICHTIGSTE
+            # Zahl hier: sie sagt, wie oft der Client das sofortige Neu-Koedern
+            # zurueckgewiesen hat -- also was das v1.6.5-Tempo real kostet.
             _flog(self.state, t('fishing.bait_balance'),
                   wuerfe=self._bait_casts, bestaetigt=self._bait_ok,
-                  abgelehnt=self._bait_blocked,
-                  wartezeit='{:.1f}'.format(self._ABORT_COOLDOWN_S))
+                  abgelehnt=self._bait_blocked)
         except Exception:
             pass
 
