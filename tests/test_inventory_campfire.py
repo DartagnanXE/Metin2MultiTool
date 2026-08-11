@@ -378,9 +378,51 @@ class TestLocateFire(unittest.TestCase):
 # run_campfire orchestration (deps injected)
 # ---------------------------------------------------------------------------
 
+def _scan_sequence(*invs):
+    """Fake-``scan_fn``, das die Inventare der Reihe nach liefert.
+
+    Der Grill scannt seit dem Mehrfeuer-Umbau nach JEDEM Feuer nach. Ein Fake,
+    der immer dasselbe liefert, ist deshalb ein echter Stillstand -- und wird
+    korrekt als solcher gemeldet. Das letzte Inventar bleibt stehen.
+    """
+    state = {'i': 0}
+
+    def _scan():
+        got = invs[min(state['i'], len(invs) - 1)]
+        state['i'] += 1
+        return got
+
+    return _scan
+
+
+class _Uhr(object):
+    """``time.monotonic``-Ersatz: jeder Aufruf springt um ``schritt`` Sekunden.
+
+    Deterministischer als eine feste Wertliste -- die Zahl der Zeitabfragen
+    haengt an der Zahl der Fische und Zyklen und soll den Test nicht diktieren.
+    """
+
+    def __init__(self, schritt):
+        self.t = 0.0
+        self.schritt = float(schritt)
+
+    def __call__(self):
+        jetzt = self.t
+        self.t += self.schritt
+        return jetzt
+
+
 class TestRunCampfireOrchestration(unittest.TestCase):
-    def _scan_returning(self, inv):
-        return lambda: inv
+    def _scan_returning(self, inv, keep=('Lagerfeuer', 'Worm')):
+        """Erster Scan: ``inv``; danach derselbe Beutel OHNE die Grill-Fische.
+
+        Bildet ab, was im Spiel passiert: gegrillte Fische sind weg. Die
+        Seiten-SCHLUESSEL bleiben gleich, damit der Nachscan als vollstaendig
+        gilt.
+        """
+        drained = _inv({p: [s for s in slots if s.name in keep]
+                        for p, slots in inv.pages.items()})
+        return _scan_sequence(inv, drained)
 
     def test_full_happy_path_places_and_grills(self):
         rec = _Recorder()
@@ -402,7 +444,9 @@ class TestRunCampfireOrchestration(unittest.TestCase):
         finally:
             campfire.find_label = orig
 
-        self.assertEqual(res.status, 'done')
+        self.assertEqual(res.status, 'complete')
+        self.assertEqual(res.cycles, 1)         # ein Feuer reichte hier
+        self.assertEqual(res.remaining, 0)      # Nachscan bestaetigt: nichts mehr
         # Two fish grilled (Carp + Zander), Worm excluded.
         self.assertEqual(len(res.grilled), 2)
         names = sorted(g[3] for g in res.grilled)
@@ -437,35 +481,100 @@ class TestRunCampfireOrchestration(unittest.TestCase):
                             if e[0] == 'move' and i < up_i)
             self.assertEqual(ev[last_move][1:], fire_screen)
 
-    def test_stops_grilling_when_fire_expired(self):
+    def test_expired_fire_never_drags_into_the_void(self):
         # Feuer-Lebensdauer ~35s: ist die Frist abgelaufen, wird NICHT mehr
-        # gegrillt (Fisch-Drag ins Leere vermieden). Sauberer Abschluss 'done'.
+        # gegrillt. Ohne ein zweites Lagerfeuer im Beutel ist danach Schluss --
+        # und zwar mit dem EHRLICHEN Grund, nicht mit "fertig".
         from unittest import mock
         rec = _Recorder()
         inv = _inv({
             'I': [_slot('Lagerfeuer', 0, 0), _slot('Carp', 1, 2)],
             'II': [_slot('Zander', 0, 0)],
         })
+        # Nach dem ersten (erfolglosen) Feuer ist das Werkzeug aufgebraucht.
+        ohne_werkzeug = _inv({
+            'I': [_slot('Carp', 1, 2)],
+            'II': [_slot('Zander', 0, 0)],
+        })
         orig = campfire.find_label
         campfire.find_label = lambda *a, **k: (True, 0.99, (300, 400))
         try:
-            # monotonic: Platzieren bei 0 (Frist=35), erste Loop-Pruefung bei 100
-            # (>35) -> sofort Schluss, KEIN Fisch gegrillt.
+            # Platzieren bei 0 (Frist=35), erste Ziel-Pruefung bei 100 (>35)
+            # -> sofort Schluss, KEIN Fisch gegrillt.
             with mock.patch.object(campfire.time, 'monotonic',
                                    side_effect=[0.0] + [100.0] * 10):
                 res = campfire.run_campfire(
                     {'Carp': 2, 'Zander': 2},
                     inp=rec,
                     capture_rgb_fn=lambda: 'frame',
-                    scan_fn=self._scan_returning(inv),
+                    scan_fn=_scan_sequence(inv, ohne_werkzeug),
                     offset=(10, 20),
                     sleep=_noop_sleep)
         finally:
             campfire.find_label = orig
-        self.assertEqual(res.status, 'done')
+        self.assertEqual(res.status, 'no_campfire_item')
         self.assertEqual(len(res.grilled), 0)        # Frist abgelaufen vor Fisch 1
+        self.assertEqual(res.remaining, 2)           # beide liegen noch da
         # KEIN Fisch-Drag passiert (kein down/up).
         self.assertEqual([e[0] for e in rec.events].count('down'), 0)
+
+    def test_a_second_fire_is_placed_when_the_first_burns_out(self):
+        """DIE Tester-Anforderung (2026-08-11): ein Feuer reicht nicht.
+
+        Gemessen an den Vorher-/Nachher-Bildern schafft EIN Feuer rund 60
+        Fische; Seite III blieb liegen, weil kein zweites gelegt wurde. Hier
+        brennt das erste Feuer nach dem ersten Fisch aus -- der Bot muss ein
+        neues legen und weitermachen, bis der Nachscan nichts mehr findet.
+        """
+        from unittest import mock
+        rec = _Recorder()
+        voll = _inv({'I': [_slot('Lagerfeuer', 0, 0), _slot('Carp', 1, 2),
+                           _slot('Zander', 1, 3)]})
+        rest = _inv({'I': [_slot('Lagerfeuer', 0, 0), _slot('Zander', 1, 3)]})
+        leer = _inv({'I': [_slot('Lagerfeuer', 0, 0)]})
+        orig = campfire.find_label
+        campfire.find_label = lambda *a, **k: (True, 0.99, (300, 400))
+        try:
+            # Schritt 20 s: Platzieren t=0 (Frist 35), Fisch 1 bei t=20 (passt),
+            # Fisch 2 bei t=40 -> Frist um. Zweites Feuer ab t=60.
+            with mock.patch.object(campfire.time, 'monotonic', _Uhr(20.0)):
+                res = campfire.run_campfire(
+                    {'Carp': 2, 'Zander': 2},
+                    inp=rec,
+                    capture_rgb_fn=lambda: 'frame',
+                    scan_fn=_scan_sequence(voll, rest, leer),
+                    offset=(10, 20),
+                    sleep=_noop_sleep)
+        finally:
+            campfire.find_label = orig
+
+        self.assertEqual(res.status, 'complete')
+        self.assertEqual(res.cycles, 2)              # zwei Feuer gelegt
+        self.assertEqual(res.remaining, 0)
+        self.assertEqual(sorted(g[3] for g in res.grilled), ['Carp', 'Zander'])
+        # Zwei Werkzeug-Doppelklicks = zwei tatsaechlich gelegte Feuer.
+        self.assertEqual([e[0] for e in rec.events].count('dclick'), 2)
+
+    def test_no_progress_stops_instead_of_burning_more_fires(self):
+        """Gegenprobe: bleibt der Beutel gleich, ist Schluss -- nicht endlos.
+
+        Sonst wuerde ein missglueckter Drag (oder ein Feuer, das nie gefunden
+        wird) Lagerfeuer um Lagerfeuer verbrennen.
+        """
+        rec = _Recorder()
+        inv = _inv({'I': [_slot('Lagerfeuer', 0, 0), _slot('Carp', 1, 2)]})
+        orig = campfire.find_label
+        campfire.find_label = lambda *a, **k: (True, 0.99, (300, 400))
+        try:
+            res = campfire.run_campfire(
+                {'Carp': 2}, inp=rec, capture_rgb_fn=lambda: 'frame',
+                scan_fn=_scan_sequence(inv),      # aendert sich NIE
+                offset=(10, 20), sleep=_noop_sleep)
+        finally:
+            campfire.find_label = orig
+        self.assertEqual(res.status, 'stalled')
+        self.assertEqual(res.cycles, 1)           # genau EIN Feuer verbrannt
+        self.assertEqual([e[0] for e in rec.events].count('dclick'), 1)
 
     def test_no_fish_marked_short_circuits_without_window_work(self):
         rec = _Recorder()
@@ -597,11 +706,12 @@ class TestSlotScreenLattice(unittest.TestCase):
         try:
             res = campfire.run_campfire(
                 {'Carp': 2}, inp=rec, capture_rgb_fn=lambda: 'frame',
-                scan_fn=lambda: inv, offset=(1000, 500),
+                scan_fn=_scan_sequence(inv, _inv({'I': [_slot('Lagerfeuer', 0, 0)]})),
+                offset=(1000, 500),
                 sleep=_noop_sleep, lattice=locked)
         finally:
             campfire.find_label = orig
-        self.assertEqual(res.status, 'done')
+        self.assertEqual(res.status, 'complete')
         ev = rec.events
         # The Carp drag SOURCE = locked slot (1,2) + offset = (1712, 793).
         down_idx = next(i for i, e in enumerate(ev) if e[0] == 'down')
@@ -696,3 +806,47 @@ class TestBirdsEyeDrag(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class TestAbortBetweenFires(unittest.TestCase):
+    """F6 zwischen zwei Feuern darf kein weiteres Lagerfeuer mehr verbrauchen.
+
+    Der Nachscan dauert mehrere Sekunden. Wird der Stopp erst beim naechsten
+    Fisch geprueft, hat der Bot bis dahin schon ein neues Feuer gelegt -- ein
+    Verbrauchsgegenstand, den der Nutzer gerade NICHT mehr ausgeben wollte.
+    """
+
+    def test_stop_during_the_rescan_places_no_new_fire(self):
+        rec = _Recorder()
+        voll = _inv({'I': [_slot('Lagerfeuer', 0, 0), _slot('Carp', 1, 2),
+                           _slot('Zander', 1, 3)]})
+        rest = _inv({'I': [_slot('Lagerfeuer', 0, 0), _slot('Zander', 1, 3)]})
+        stop = {'jetzt': False}
+
+        def scan_dann_stoppen(_seq=[voll, rest]):
+            got = _seq[0] if _seq[0] is voll else _seq[1]
+            if got is voll:
+                _seq[0] = rest              # ab jetzt der Rest-Beutel
+            else:
+                stop['jetzt'] = True        # der NACHscan loest den Stopp aus
+            return got
+
+        orig = campfire.find_label
+        campfire.find_label = lambda *a, **k: (True, 0.99, (300, 400))
+        try:
+            from unittest import mock
+            # Schritt 20 s -> nach dem ersten Fisch ist die Frist um.
+            with mock.patch.object(campfire.time, 'monotonic', _Uhr(20.0)):
+                res = campfire.run_campfire(
+                    {'Carp': 2, 'Zander': 2}, inp=rec,
+                    capture_rgb_fn=lambda: 'frame',
+                    scan_fn=scan_dann_stoppen, offset=(10, 20),
+                    sleep=_noop_sleep,
+                    abort_fn=lambda: stop['jetzt'])
+        finally:
+            campfire.find_label = orig
+
+        self.assertEqual(res.status, 'aborted')
+        # Genau EIN Feuer gelegt -- der Stopp kam vor dem zweiten.
+        self.assertEqual([e[0] for e in rec.events].count('dclick'), 1)
+        self.assertEqual(len(res.grilled), 1)

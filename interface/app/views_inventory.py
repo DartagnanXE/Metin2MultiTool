@@ -15,6 +15,18 @@ from interface.app._common import *  # noqa: F401,F403
 # aktiv und fishing wieder starten"); der Neustart folgt, sobald er steht.
 CLEANUP_RESTART_S = 30
 
+# ... AUSSER es wird gegrillt. Ein einzelnes Lagerfeuer lebt allein schon 35 s
+# (inventory_campfire.FIRE_LIFETIME_S), ein voller Beutel braucht mehrere davon.
+# Mit dem 30-s-Deckel schnitt der Cutoff JEDES Grillen mitten im ersten Feuer ab
+# -- der Bot meldete "fertig", und die restlichen Fische blieben liegen (genau
+# der Tester-Report vom 2026-08-11). Die 30 s stammen aus der Zeit, als das
+# Managen nur Scannen + Wegwerfen war; mit dem Grillen waren sie nie vertraeglich.
+#
+# Der ZWECK des Cutoffs -- "nicht ewig haengen, wieder angeln" -- bleibt: der
+# Grill hat inzwischen eigene harte Grenzen (Zyklus-Deckel + Stillstands-Abbruch),
+# dieser Wert ist nur noch das Notseil darum. F6 stoppt weiterhin sofort.
+CLEANUP_GRILL_RESTART_S = 300
+
 
 class InventoryViewMixin:
     def _build_inventory_view(self, _parent):
@@ -298,6 +310,16 @@ class InventoryViewMixin:
                 pass
             return
         self._campfire_running = True
+        # Laeuft das Grillen innerhalb eines Timer-Cleanups, die Deadline auf das
+        # Grill-Budget heben (siehe CLEANUP_GRILL_RESTART_S) -- sonst kappt der
+        # 30-s-Cutoff das erste Feuer, bevor es abgebrannt ist.
+        try:
+            if getattr(self, '_inv_cleanup_active', False):
+                self._inv_cleanup_restart_at = max(
+                    getattr(self, '_inv_cleanup_restart_at', 0) or 0,
+                    time.time() + CLEANUP_GRILL_RESTART_S)
+        except Exception:
+            pass
         try:
             self._apply_preferred_hwnd()
         except Exception:
@@ -328,7 +350,10 @@ class InventoryViewMixin:
         try:
             grilled = len(getattr(res, 'grilled', []) or [])
             status = getattr(res, 'status', 'error')
-            if status == 'done':
+            # 'complete' = ein vollstaendiger Nachscan findet keinen markierten
+            # Fisch mehr -- der EINZIGE Grund, der gruen gemeldet werden darf.
+            # ('done' bleibt als Alt-Status akzeptiert.)
+            if status in ('done', 'complete'):
                 self._set_inv_status(
                     t('campfire.status_done', count=grilled), TEAL)
             else:

@@ -413,27 +413,19 @@ class FishingBot(FishingDetectMixin):
     # Koeder- UND Wurf-Taste in DERSELBEN Sekunde kamen (real im Log vom
     # 2026-07-30, 07:31:04) -- genau das Muster, das die Ablehnung ausloest.
     #
-    # SELBSTKALIBRIEREND statt fest geraten (Live-Wunsch 2026-08-09: "von 1 s auf
-    # 0,5-0,7 s"). Eine feste Zahl ist hier prinzipiell falsch -- wie lange der
-    # Client braucht, haengt an Rechner und Latenz; zu kurz kostet einen Wurf, zu
-    # lang kostet bei JEDEM Abbruch Zeit. Seit v1.6.6 ist die Ablehnung MESSBAR,
-    # also darf der Bot kurz anfangen und nur dann verlaengern, wenn der Client
-    # tatsaechlich ablehnt -- und nach genug sauberen Wuerfen wieder verkuerzen.
-    # Der Startwert liegt in der gewuenschten Spanne; die Grenzen sind so gesetzt,
-    # dass der eingeregelte Wert nie unter das Messbare faellt und nie ueber den
-    # alten Festwert plus Reserve steigt.
-    _ABORT_COOLDOWN_START_S = 0.6
-    _ABORT_COOLDOWN_MIN_S = 0.4
-    _ABORT_COOLDOWN_MAX_S = 2.0
-    _ABORT_COOLDOWN_UP_S = 0.3      # nach einer Ablehnung: vorsichtig verlaengern
-    _ABORT_COOLDOWN_DOWN_S = 0.1    # nach vielen sauberen Wuerfen: wieder kuerzen
-    _ABORT_COOLDOWN_CLEAN_CASTS = 20
-
-    # Laufender Wert (Instanz-Zustand) + Zaehler der sauberen Wuerfe seit der
-    # letzten Ablehnung. Als Klassenattribut vordefiniert, damit ein Bot ohne
-    # __init__-Durchlauf (Tests) dieselben Startwerte sieht.
-    _abort_cooldown = _ABORT_COOLDOWN_START_S
-    _clean_casts_since_block = 0
+    # FESTER WERT -- bewusst zurueck auf das v1.6.6-Verhalten (Tester-Urteil
+    # 2026-08-11: "Angel- und Koeder-Nachlegegeschwindigkeit war in 1.6.6 viel
+    # besser, das sollte wieder exakt so gemacht werden").
+    #
+    # v1.6.8 hatte hier einen selbstregelnden Wert (Start 0,6 s, Spanne 0,4-2,0).
+    # Der regelte in der Praxis NACH OBEN statt nach unten: eine einzelne
+    # Ablehnung verlaengerte um 0,3 s, zurueck ging es nur in 0,1-Schritten je 20
+    # sauberen Wuerfen. Schon bei einer Ablehnungsrate von 1:60 klebt der Wert am
+    # Deckel 2,0 s -- also DOPPELT so langsam wie der feste 1,0-s-Wert, den er
+    # ersetzen sollte. Dazu maass er das Falsche (jede angenommene Koederaktion
+    # galt als Beleg, obwohl die Wartezeit nur die Lage NACH einem Abbruch regelt).
+    # Eine Selbstkalibrierung, die ihr eigenes Regelziel nicht misst, ist keine.
+    _ABORT_COOLDOWN_S = 1.0
 
     # This is the filter parameters, this help to find the right image
     hsv_filter = HsvFilter(*FILTER_CONFIG)
@@ -552,7 +544,7 @@ class FishingBot(FishingDetectMixin):
         # sie im Einzelfall zu knapp, faengt _check_bait_feedback es ab und
         # protokolliert es, statt es wieder zu verschlucken.
         self.state = 0
-        self.timer_action = time() + self._abort_cooldown
+        self.timer_action = time() + self._ABORT_COOLDOWN_S
         self._bait_pending_since = 0.0   # alter Druck ist mit dem ESC erledigt
         self._on_cycle_end()
         return how
@@ -846,7 +838,6 @@ class FishingBot(FishingDetectMixin):
             self._bait_pending_since = 0.0
             self._bait_ok += 1
             self._bait_blocked_streak = 0
-            self._relax_abort_cooldown()
             return
         if feedback != _fc.BLOCKED:
             return          # unbekannte Antwort -> unveraendert weiterlaufen
@@ -854,7 +845,6 @@ class FishingBot(FishingDetectMixin):
         self._bait_pending_since = 0.0
         self._bait_blocked += 1
         self._bait_blocked_streak += 1
-        self._tighten_abort_cooldown()
         if self.state > 2:
             _flog(self.state, t('fishing.bait_blocked_late'))
             return
@@ -869,45 +859,6 @@ class FishingBot(FishingDetectMixin):
             _flog(0, t('fishing.bait_blocked_repeat'),
                   anzahl=self._bait_blocked_streak)
 
-    def _tighten_abort_cooldown(self):
-        """Nach einer ABGELEHNTEN Koeder-Aktion die Abbruch-Wartezeit verlaengern.
-
-        Der Client hat gerade bewiesen, dass er noch im Angel-Zustand war -- die
-        aktuelle Wartezeit war also zu knapp. Nur nach oben und gedeckelt; wirft
-        nie (eine misslungene Anpassung darf den Loop nicht kippen)."""
-        try:
-            before = self._abort_cooldown
-            self._abort_cooldown = min(self._ABORT_COOLDOWN_MAX_S,
-                                       before + self._ABORT_COOLDOWN_UP_S)
-            self._clean_casts_since_block = 0
-            if self._abort_cooldown != before:
-                _flog(self.state, t('fishing.cooldown_up'),
-                      wert='{:.1f}'.format(self._abort_cooldown))
-        except Exception:
-            pass
-
-    def _relax_abort_cooldown(self):
-        """Nach genug BESTAETIGTEN Koedern die Wartezeit wieder verkuerzen.
-
-        Gegenstueck zu :meth:`_tighten_abort_cooldown`: laeuft es lange sauber,
-        war die Wartezeit womoeglich groesser als noetig. Bewusst traeger als das
-        Verlaengern (kleinere Schritte, erst nach ``_ABORT_COOLDOWN_CLEAN_CASTS``
-        sauberen Bestaetigungen) -- ein verlorener Wurf wiegt schwerer als eine
-        Zehntelsekunde. Wirft nie."""
-        try:
-            self._clean_casts_since_block += 1
-            if self._clean_casts_since_block < self._ABORT_COOLDOWN_CLEAN_CASTS:
-                return
-            self._clean_casts_since_block = 0
-            before = self._abort_cooldown
-            self._abort_cooldown = max(self._ABORT_COOLDOWN_MIN_S,
-                                       before - self._ABORT_COOLDOWN_DOWN_S)
-            if self._abort_cooldown != before:
-                _flog(self.state, t('fishing.cooldown_down'),
-                      wert='{:.1f}'.format(self._abort_cooldown))
-        except Exception:
-            pass
-
     def _log_bait_balance(self):
         """Gedrosselte Bilanz-Zeile (alle ``_BAIT_BALANCE_EVERY`` Wuerfe).
 
@@ -920,7 +871,7 @@ class FishingBot(FishingDetectMixin):
             _flog(self.state, t('fishing.bait_balance'),
                   wuerfe=self._bait_casts, bestaetigt=self._bait_ok,
                   abgelehnt=self._bait_blocked,
-                  wartezeit='{:.1f}'.format(self._abort_cooldown))
+                  wartezeit='{:.1f}'.format(self._ABORT_COOLDOWN_S))
         except Exception:
             pass
 
@@ -1035,11 +986,6 @@ class FishingBot(FishingDetectMixin):
         self._bait_blocked_streak = 0
         self._bait_casts = 0
         self._bait_last_feedback_sig = None
-        # Auch die eingeregelte Abbruch-Wartezeit startet pro Lauf frisch: sie
-        # gehoert zur Messung dieses Laufs, und ein alter, hochgeregelter Wert
-        # wuerde eine inzwischen behobene Ursache stillschweigend weiterschleppen.
-        self._abort_cooldown = self._ABORT_COOLDOWN_START_S
-        self._clean_casts_since_block = 0
 
         # Tasten (Koeder/Auswerfen) brauchen eine echte Haltezeit, sonst sieht
         # DirectInput sie nie. Ein vorheriger Inventar-Scan kann PAUSE auf 0,05

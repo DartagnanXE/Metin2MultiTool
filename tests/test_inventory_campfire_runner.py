@@ -36,6 +36,23 @@ def _slot(name, row, col, state='item'):
     return types.SimpleNamespace(state=state, name=name, row=row, col=col)
 
 
+def _scan_sequence(*invs):
+    """``scan_inventory``-Fake, das die Inventare der Reihe nach liefert.
+
+    Der Grill scannt seit dem Mehrfeuer-Umbau nach JEDEM Feuer nach; ein Fake,
+    der immer dasselbe liefert, waere ein echter Stillstand. Das letzte
+    Inventar bleibt stehen.
+    """
+    state = {'i': 0}
+
+    def _scan(**_kw):
+        got = invs[min(state['i'], len(invs) - 1)]
+        state['i'] += 1
+        return got
+
+    return _scan
+
+
 def _inv(pages):
     return types.SimpleNamespace(pages=pages)
 
@@ -97,6 +114,12 @@ class _CampfireRunnerBase(unittest.TestCase):
         for name in ('pydirectinput', 'WindowCapture'):
             self._orig[name] = getattr(cr, name)
         self._orig['grid_auto_align'] = cr.grid_mod.auto_align
+        # Plausibilitaets-Pruefung des Locks: auf dem SYNTHETISCHEN Frame findet
+        # sie naturgemaess kein Item und wuerde jeden gemockten Lock verwerfen.
+        # Hier neutral halten -- ihr eigenes Verhalten prueft
+        # TestLockPlausibility.
+        self._orig['aligned_match_count'] = cr.grid_mod.aligned_match_count
+        cr.grid_mod.aligned_match_count = lambda *a, **k: 42
         self._orig['find_label'] = campfire.find_label
         self._orig['sleep'] = cr.time.sleep
         # Import-inside-function seam: scan_fn does `from inventory.scanner import
@@ -110,6 +133,7 @@ class _CampfireRunnerBase(unittest.TestCase):
         cr.pydirectinput = self._orig['pydirectinput']
         cr.WindowCapture = self._orig['WindowCapture']
         cr.grid_mod.auto_align = self._orig['grid_auto_align']
+        cr.grid_mod.aligned_match_count = self._orig['aligned_match_count']
         campfire.find_label = self._orig['find_label']
         cr.time.sleep = self._orig['sleep']
         self._sc.scan_inventory = self._orig['scan_inventory']
@@ -133,13 +157,16 @@ class TestLockOnceAndThread(_CampfireRunnerBase):
         campfire.find_label = lambda *a, **k: (True, 0.99, (300, 400))
 
         inv = _inv({'I': [_slot('Lagerfeuer', 0, 0), _slot('Carp', 1, 2)]})
-        # scan_fn calls switch_page_fn per page then returns the map.
-        self._sc.scan_inventory = lambda **kw: inv
+        # scan_fn calls switch_page_fn per page then returns the map. Der
+        # Nachscan nach dem Feuer muss den gegrillten Fisch WEG zeigen -- sonst
+        # meldet der Mehrfeuer-Grill zu Recht Stillstand.
+        self._sc.scan_inventory = _scan_sequence(
+            inv, _inv({'I': [_slot('Lagerfeuer', 0, 0)]}))
 
         res = cr.run_campfire_grill({'inventory': {'hotkey': 'i'}},
                                     {'Carp': 2}, db=object())
 
-        self.assertEqual(res.status, 'done')
+        self.assertEqual(res.status, 'complete')
         # The grid was locked EXACTLY once (one fixed window -> one lock).
         self.assertEqual(align_calls[0], 1)
         # The Carp drag SOURCE uses the LOCKED grid: slot (1,2) on (632,245) +
@@ -162,11 +189,12 @@ class TestLockOnceAndThread(_CampfireRunnerBase):
         cr.grid_mod.auto_align = boom_align
         campfire.find_label = lambda *a, **k: (True, 0.99, (300, 400))
         inv = _inv({'I': [_slot('Lagerfeuer', 0, 0), _slot('Carp', 1, 2)]})
-        self._sc.scan_inventory = lambda **kw: inv
+        self._sc.scan_inventory = _scan_sequence(
+            inv, _inv({'I': [_slot('Lagerfeuer', 0, 0)]}))
 
         res = cr.run_campfire_grill({'inventory': {'hotkey': 'i'}},
                                     {'Carp': 2}, db=object())
-        self.assertEqual(res.status, 'done')
+        self.assertEqual(res.status, 'complete')
         # Drag SOURCE = calibration-lattice slot (1,2) + offset (NOT the 245 lock).
         from inventory.grid import lattice_from_calibration
         cl = lattice_from_calibration(DEFAULT_CALIBRATION)
@@ -268,3 +296,46 @@ class TestParkAndLockHelpersDefensive(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+@unittest.skipUnless(np is not None, 'numpy required for the captured frame')
+class TestLockPlausibility(_CampfireRunnerBase):
+    """Ein Lock, der KEIN Item trifft, ist geraten -- und wird verworfen.
+
+    Gemessen an der leeren Seite IV des Testers (2026-08-11): die
+    count-maximierende Suche vergibt dort einen beliebigen Ursprung (623, 234)
+    statt (632, 243) -- 9 px daneben, und genau dieser Lock steuert danach JEDEN
+    Zug. Auf einer Seite ohne Items gibt es kein Signal, also darf das Ergebnis
+    nicht wie ein Messwert behandelt werden.
+    """
+
+    def test_lock_without_any_match_falls_back_to_calibration(self):
+        cr.pydirectinput = _PDI()
+        cr.WindowCapture = _WinCap
+        verschoben = GridLattice(origin=(623, 234), pitch=(32, 32))
+        cr.grid_mod.auto_align = lambda *a, **k: verschoben
+        cr.grid_mod.aligned_match_count = lambda *a, **k: 0     # leere Seite
+
+        self.assertIsNone(cr._lock_lattice(_WinCap('METIN2'), object(), None))
+
+    def test_lock_with_matches_is_kept(self):
+        cr.pydirectinput = _PDI()
+        cr.WindowCapture = _WinCap
+        gut = GridLattice(origin=(632, 243), pitch=(32, 32))
+        cr.grid_mod.auto_align = lambda *a, **k: gut
+        cr.grid_mod.aligned_match_count = lambda *a, **k: 45
+
+        self.assertIs(cr._lock_lattice(_WinCap('METIN2'), object(), None), gut)
+
+    def test_a_broken_plausibility_check_never_kills_the_lock(self):
+        """Defensiv: faellt die Pruefung aus, gilt der Lock wie bisher."""
+        cr.pydirectinput = _PDI()
+        cr.WindowCapture = _WinCap
+        gut = GridLattice(origin=(632, 243), pitch=(32, 32))
+        cr.grid_mod.auto_align = lambda *a, **k: gut
+
+        def kaputt(*_a, **_k):
+            raise RuntimeError('scorer down')
+
+        cr.grid_mod.aligned_match_count = kaputt
+        self.assertIs(cr._lock_lattice(_WinCap('METIN2'), object(), None), gut)

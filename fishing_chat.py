@@ -136,7 +136,8 @@ WORD_GAP = 3
 # nie vom linken Crop-Rand beschnitten (im Gegensatz zu Wort[0]).
 DISC_WORD_INDEX = 4
 
-# OVERLAY-WACHE: groesste Breite (px), die ein ECHTES Chat-Wort haben darf.
+# OVERLAY-WACHE: laengster horizontaler Tinte-Lauf (px), den eine ECHTE
+# Chat-Zeile haben darf.
 #
 # Der Client blendet ueber einem Quickslot einen Item-Tooltip ein, der NACH OBEN
 # in die Chat-Lesezone ragt (Live-Bild 2026-08-09: Tooltip-Rahmen y[514,592]
@@ -145,16 +146,29 @@ DISC_WORD_INDEX = 4
 # entstanden so 5 Phantom-Woerter. Ohne diese Wache raet der Diskriminator auf
 # Tooltip-Text.
 #
-# Trennmerkmal ist die WORTBREITE: der durchgehende Tooltip-Rahmen bildet EINEN
-# breiten Block, echter Text zerfaellt in schmale Woerter. Gemessen ueber alle 13
-# gelabelten FischOCR-Zeilen: breitestes echtes Wort 66 px ("Spiegelkarpfen",
-# "Haarfaerbemittel"); der Tooltip-Block 100 px. Schwelle in die Mitte dieser
-# Luecke, mit Reserve nach oben fuer Namen, die laenger sind als die gemessenen.
+# WARUM NICHT MEHR DIE WORTBREITE (Regression v1.6.7, am Live-Bild des Testers
+# 2026-08-11 belegt): die alte Wache verwarf ein Wort breiter als 85 px. Die
+# Schwelle war gegen 13 gelabelte FischOCR-Zeilen gelegt (breitestes echtes Wort
+# dort 66 px) -- NICHT gegen den Namensbestand. Gemessen an der echten Chat-Zeile
+# "Es sieht aus, als haette Schlangenkopffisch angebissen." ist dieses Wort
+# 87 px breit: die Wache verwarf die GANZE Zeile, der Fang blieb unsichtbar und
+# die Whitelist griff nicht. Das Merkmal ist damit widerlegt -- echte Namen
+# reichen bis ~87 px, der Tooltip-Block liegt bei 100 px; die Luecke traegt keine
+# Schwelle.
+#
+# TRENNSCHARFES MERKMAL ist stattdessen der laengste DURCHGEHENDE waagerechte
+# Tinte-Lauf. Ein Pixelfont-Buchstabe hat nie mehr als ein paar gesetzte Pixel in
+# Folge; ein Tooltip-RAHMEN ist eine durchgezogene Linie. Gemessen:
+#
+#   echte Chat-Zeilen (28 Referenzbilder + Tester-Bild):   2-7 px
+#   Tooltip ueber der Lesezone:                             21 px
+#
+# Schwelle 12 liegt mitten in dieser Luecke (Faktor ~1,7 nach beiden Seiten).
 #
 # Richtung des Restfehlers ist die sichere: ein FALSCH als verdeckt geltender
 # Frame liefert nur NONE (Fang wird normal behandelt, Whitelist greift diesmal
 # nicht) -- ein NICHT erkanntes Overlay dagegen erzeugt einen falschen Namen.
-MAX_WORD_WIDTH = 85
+MAX_INK_RUN = 12
 
 # Match-Schwellen fuer den maskierten Pixel-Vergleich (NCC in [-1,1]). Bewusst
 # streng: lieber UNKNOWN als ein falscher Name.
@@ -798,16 +812,41 @@ def _chat_line_words(screenshot_bgr, region=None):
     return binary, _segment_words(binary)
 
 
-def zone_obstructed(words, max_width=MAX_WORD_WIDTH):
-    """True, wenn die Chat-Lesezone von einem Spiel-Overlay verdeckt ist.
+def longest_ink_run(binary):
+    """Laengster DURCHGEHENDER waagerechter Tinte-Lauf der Binaerzeile (px).
 
-    Erkennungsmerkmal ist ein unnatuerlich BREITES "Wort" -- der durchgehende
-    Rahmen eines Item-Tooltips (siehe :data:`MAX_WORD_WIDTH`). Wirft nie; bei
-    unbrauchbarer Eingabe gilt die Zone als frei (dann entscheidet wie bisher
-    allein der Template-Vergleich).
+    Zeilen werden mit einer Null-Spalte getrennt aneinandergehaengt, damit ein
+    Lauf nie ueber den Zeilenrand hinweg zusammenwaechst. ``0`` bei leerer oder
+    unbrauchbarer Eingabe. Wirft nie.
     """
     try:
-        return any((end - start) > max_width for start, end in words or ())
+        arr = np.asarray(binary)
+        if arr.ndim != 2 or arr.size == 0:
+            return 0
+        # Null-Spalte je Zeile als Trenner -> flacher Lauf-Scan ist korrekt.
+        sep = np.zeros((arr.shape[0], 1), dtype=np.uint8)
+        flat = np.concatenate(
+            [(arr > 0).astype(np.uint8), sep], axis=1).ravel()
+        # Kanten zwischen 0 und 1 -> Laufgrenzen paarweise.
+        edges = np.flatnonzero(np.diff(np.concatenate(([0], flat, [0]))))
+        if edges.size < 2:
+            return 0
+        return int((edges[1::2] - edges[0::2]).max())
+    except Exception:
+        return 0
+
+
+def zone_obstructed(binary, max_run=MAX_INK_RUN):
+    """True, wenn die Chat-Lesezone von einem Spiel-Overlay verdeckt ist.
+
+    Erkennungsmerkmal ist ein unnatuerlich LANGER waagerechter Tinte-Lauf -- der
+    durchgezogene Rahmen eines Item-Tooltips (siehe :data:`MAX_INK_RUN`).
+    Buchstaben eines Pixelfonts erreichen ihn nie. Wirft nie; bei unbrauchbarer
+    Eingabe gilt die Zone als frei (dann entscheidet wie bisher allein der
+    Template-Vergleich).
+    """
+    try:
+        return longest_ink_run(binary) > max_run
     except Exception:
         return False
 
@@ -820,10 +859,10 @@ def chat_zone_obstructed(screenshot_bgr, region=None):
     Wirft nie.
     """
     try:
-        binary, words = _chat_line_words(screenshot_bgr, region)
+        binary, _words = _chat_line_words(screenshot_bgr, region)
         if binary is None:
             return False
-        return zone_obstructed(words)
+        return zone_obstructed(binary)
     except Exception:
         return False
 
@@ -848,7 +887,7 @@ def read_hook(screenshot_bgr, region=None, templates=None):
     """
     try:
         binary, words = _chat_line_words(screenshot_bgr, region)
-        if binary is None or zone_obstructed(words):
+        if binary is None or zone_obstructed(binary):
             return HookResult(NONE)
         tmpl = templates if templates is not None else _load_templates()
         return _classify_words(binary, words, tmpl)
@@ -911,7 +950,7 @@ def read_action_feedback(screenshot_bgr, region=None, templates=None):
         # Verdeckte Zone (Item-Tooltip) NICHT auswerten: der Tooltip-Text wuerde
         # sonst als Client-Antwort durchgehen. Kein sig -> der naechste freie
         # Frame darf dieselbe Zeile normal werten.
-        if zone_obstructed(words):
+        if zone_obstructed(binary):
             return NONE, None
         # Fingerabdruck: Wortzahl + Tintenmenge + rechte Textkante. Billig und
         # trennscharf genug -- eine Kollision kostet hoechstens EINE nicht
@@ -935,7 +974,8 @@ __all__ = [
     'FISH', 'ITEM', 'NIETE', 'NONE', 'UNKNOWN',
     'BAITED', 'BLOCKED', 'BLOCKED_MIN_WORDS', 'read_action_feedback',
     'CHAT_REGION', 'INK_THRESHOLD', 'WORD_GAP', 'DISC_WORD_INDEX',
-    'MAX_WORD_WIDTH', 'zone_obstructed', 'chat_zone_obstructed',
+    'MAX_INK_RUN', 'longest_ink_run', 'zone_obstructed',
+    'chat_zone_obstructed',
     'GLYPH_PREFIX', 'GLYPH_MIN_SCORE', 'NAME_FUZZY_MIN_SIM',
     'NAME_FUZZY_MIN_MARGIN',
     'chat_region_for_frame',

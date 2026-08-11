@@ -151,6 +151,22 @@ GRILL_SETTLE_S = INPUT_SETTLE_S
 #: gegrillt (sonst landen Fische ins Leere, wo kein Feuer mehr ist).
 FIRE_LIFETIME_S = 35.0
 
+#: Obergrenze der Feuer-Zyklen pro Lauf -- reine Endlos-Bremse, im Normalbetrieb
+#: nie erreicht.
+#:
+#: WARUM MEHRERE FEUER (Tester-Messung 2026-08-11): EIN Feuer schafft rund 60
+#: Fische (35 s Frist / ~0,5 s je Drag). Die Vorher-/Nachher-Bilder des Testers
+#: zeigen genau das: 99 erkannte Items vor dem Lauf, 37 danach -- Seite III blieb
+#: fast unberuehrt liegen. Der Bot legte KEIN zweites Feuer und meldete trotzdem
+#: "fertig". Der Tester las das als "die unteren Inventarreihen werden nicht
+#: erkannt"; die Erkennung war aber nachweislich in Ordnung (Seite I Reihe 9 und
+#: Seite III wurden sauber gelesen) -- es war schlicht das Feuer, das ausging.
+#:
+#: 12 Zyklen decken ~720 Fische ab, also weit mehr als die 180 Slots eines vollen
+#: Beutels. Greift der Deckel doch, ist etwas grundlegend falsch -> eigener
+#: Status statt stillem "fertig".
+MAX_FIRE_CYCLES = 12
+
 
 def _flog(state, key, **fmt):
     """Loggt ein Lagerfeuer-Event (falls debuglog da). Wirft nie."""
@@ -322,29 +338,54 @@ class CampfireResult:
 
     Not a dataclass to stay import-light + Py-version-proof; treated read-only.
 
-    :ivar status: ``'done'`` / ``'no_campfire_item'`` / ``'label_not_found'`` /
-        ``'no_fish'`` / ``'not_open'`` / ``'aborted'`` / ``'error'``.
-    :ivar grilled: list of ``(page, row, col, name)`` actually dragged.
+    :ivar status: EHRLICHER Abschlussgrund -- der Aufrufer (und der Nutzer im
+        Log) soll sehen, WARUM Schluss war, statt pauschal "fertig":
+
+        * ``'complete'``       -- ein vollstaendiger Nachscan zeigt KEINEN
+          markierten Fisch mehr. Nur das heisst wirklich fertig.
+        * ``'no_fish'``        -- schon der erste Scan fand nichts zu grillen.
+        * ``'no_campfire_item'`` -- kein Lagerfeuer mehr im Beutel; es sind noch
+          Fische uebrig (``grilled`` sagt, wie viele es vorher wurden).
+        * ``'stalled'``        -- ein Zyklus brachte keinen Fortschritt (die Zahl
+          der Rest-Fische sank nicht). Weiterlaufen wuerde nur Feuer verbrennen.
+        * ``'scan_incomplete'`` -- der Nachscan war luecken haft; "nichts mehr da"
+          waere hier eine unbelegte Behauptung.
+        * ``'max_cycles'``     -- die Endlos-Bremse griff (siehe
+          :data:`MAX_FIRE_CYCLES`).
+        * ``'label_not_found'`` / ``'not_open'`` / ``'aborted'`` / ``'error'``.
+
+        Historisch gab es hier nur ``'done'`` -- auch bei abgelaufener Feuerfrist
+        mit haufenweise Fisch im Beutel. Genau daran scheiterte die Diagnose des
+        Testers: die Oberflaeche meldete Erfolg, wo keiner war.
+    :ivar grilled: list of ``(page, row, col, name)`` actually dragged (ueber
+        ALLE Zyklen).
     :ivar fire_point: the world ``(x, y)`` the fish were dropped on (or ``None``).
     :ivar label_score: the best label match score seen (diagnostic).
     :ivar rotations: how many camera rotations were tried before the label hit.
+    :ivar cycles: wie viele Feuer gelegt wurden.
+    :ivar remaining: markierte Fische, die am Ende NOCH im Beutel lagen
+        (``None`` = nicht ermittelt).
     """
 
-    __slots__ = ('status', 'grilled', 'fire_point', 'label_score', 'rotations')
+    __slots__ = ('status', 'grilled', 'fire_point', 'label_score', 'rotations',
+                 'cycles', 'remaining')
 
     def __init__(self, status, grilled=None, fire_point=None, label_score=0.0,
-                 rotations=0):
+                 rotations=0, cycles=0, remaining=None):
         self.status = status
         self.grilled = list(grilled or [])
         self.fire_point = fire_point
         self.label_score = float(label_score)
         self.rotations = int(rotations)
+        self.cycles = int(cycles)
+        self.remaining = remaining
 
     def __repr__(self):
         return ('CampfireResult(status=%r, grilled=%d, fire_point=%r, '
-                'score=%.3f, rotations=%d)'
+                'score=%.3f, rotations=%d, cycles=%d, remaining=%r)'
                 % (self.status, len(self.grilled), self.fire_point,
-                   self.label_score, self.rotations))
+                   self.label_score, self.rotations, self.cycles,
+                   self.remaining))
 
 
 def locate_fire(capture_rgb_fn, *, template=None, rotate_fn=None,
@@ -431,90 +472,203 @@ def run_campfire(states, *, inp, capture_rgb_fn, scan_fn, offset=(0, 0),
 
     try:
         ox, oy = int(offset[0]), int(offset[1])
+        env = _GrillEnv(inp=inp, capture_rgb_fn=capture_rgb_fn, offset=(ox, oy),
+                        calib=calib, sleep=sleep, template=template,
+                        rotate_key=rotate_key, lattice=lattice,
+                        abort_fn=abort_fn)
 
-        # 1) Scan to locate the Lagerfeuer TOOL + the marked fish slots up front.
         inv = scan_fn()
         if inv is None:
             _flog('-', 'campfire.scan_failed')
             return CampfireResult('error')
+        pages_first = _pages_seen(inv)
 
-        tool = _find_item_slot(inv, CAMPFIRE_ITEM_NAME, calib, ox, oy,
-                               lattice=lattice)
-        if tool is None:
-            _flog('-', 'campfire.no_campfire_item')
-            return CampfireResult('no_campfire_item')
+        grilled_all = []
+        cycles = 0
+        prev_remaining = None
+        fire, score, rotations = None, 0.0, 0
 
-        targets = fish_slots_to_grill(inv, fish_names)
-        if not targets:
-            _flog('-', 'campfire.no_fish')
-            return CampfireResult('no_fish')
+        while True:
+            targets = fish_slots_to_grill(inv, fish_names)
+            remaining = len(targets)
 
-        # 2) Place the campfire: DOUBLE-CLICK its inventory slot.
-        tool_page, tool_xy = tool
-        _switch_page(inp, calib, ox, oy, tool_page, sleep)
-        _double_click(inp, tool_xy[0], tool_xy[1])
-        # Ab JETZT laeuft die Feuer-Lebensdauer (~35 s) -- die Bird's-Eye-/
-        # Such-Phase frisst davon schon etwas auf, darum ab dem Platzieren messen.
-        fire_deadline = time.monotonic() + FIRE_LIFETIME_S
-        sleep(PLACE_SETTLE_S)
+            def _result(status):
+                return CampfireResult(status, grilled=grilled_all,
+                                      fire_point=fire, label_score=score,
+                                      rotations=rotations, cycles=cycles,
+                                      remaining=remaining)
 
-        # 3) Bird's-eye view via the SAME right-click-drag gesture the
-        #    Energiesplitter uses for NPCs/merchants (top-down camera -> the green
-        #    "Lagerfeuer" name is reliably clickable from straight above). The
-        #    preceding place double-click already activated the game window, and a
-        #    mouse gesture self-activates too, so no extra key-focus is needed.
-        #    ``birds_eye_key`` is now legacy/unused (kept for call-site stability).
-        _birds_eye_drag(inp, ox, oy, sleep)
-        sleep(BIRDS_EYE_SETTLE_S)
-
-        # 4) Locate the fire by its label, rotating the camera ("E") until found.
-        fire, score, rotations = locate_fire(
-            capture_rgb_fn, template=template,
-            rotate_fn=lambda: _tap_key(inp, rotate_key), sleep=sleep)
-        if fire is None:
-            _flog('-', 'campfire.label_not_found', score=round(score, 3),
-                  attempts=rotations)
-            return CampfireResult('label_not_found', label_score=score,
-                                  rotations=rotations)
-        fire_screen = (ox + fire[0], oy + fire[1])
-        _flog('0', 'campfire.fire_located', x=fire[0], y=fire[1],
-              score=round(score, 3))
-
-        # 5) Grill: drag each campfire fish from its slot onto the fire.
-        # ``abort_fn`` (optional) wird VOR jedem Fisch geprueft: F6 bzw. der
-        # Cleanup-Cutoff stoppen sauber NACH dem aktuellen Drag -> Status
-        # 'aborted' mit dem bisherigen Stand.
-        grilled = []
-        for (page, row, col, name) in targets:
+            # -- STOPP? Auch ZWISCHEN den Feuern pruefen ---------------------
+            # Der Nachscan dauert mehrere Sekunden. Ohne diese Pruefung wuerde
+            # ein F6 waehrend des Scans erst beim naechsten Fisch bemerkt -- und
+            # bis dahin haette der Bot bereits ein neues Lagerfeuer verbraucht.
             try:
                 if abort_fn is not None and abort_fn():
-                    _flog('-', 'campfire.aborted', count=len(grilled))
-                    return CampfireResult('aborted', grilled=grilled,
-                                          fire_point=fire,
-                                          label_score=score,
-                                          rotations=rotations)
+                    _flog('-', 'campfire.aborted', count=len(grilled_all))
+                    return _result('aborted')
             except Exception:
                 pass
-            # FEUER-FRIST: nach ~35 s ist das Feuer weg -> NICHT weiter grillen
-            # (sonst Fisch-Drag ins Leere). Sauberer Abschluss mit dem Stand.
-            if time.monotonic() >= fire_deadline:
-                _flog('0', 'campfire.fire_expired', count=len(grilled))
-                return CampfireResult('done', grilled=grilled, fire_point=fire,
-                                      label_score=score, rotations=rotations)
-            _switch_page(inp, calib, ox, oy, page, sleep)
-            fx, fy = _slot_screen(row, col, calib, ox, oy, lattice=lattice)
-            drag(inp, fx, fy, fire_screen[0], fire_screen[1], sleep=sleep)
-            sleep(GRILL_SETTLE_S)
-            grilled.append((page, row, col, name))
-            _flog('0', 'campfire.grilled_one', name=name, page=page,
-                  slot=_slot_no(row, col))
 
-        _flog('0', 'campfire.done', count=len(grilled))
-        return CampfireResult('done', grilled=grilled, fire_point=fire,
-                              label_score=score, rotations=rotations)
+            # -- FERTIG? Nur ein VOLLSTAENDIGER Nullscan zaehlt --------------
+            if not targets:
+                if cycles == 0:
+                    _flog('-', 'campfire.no_fish')
+                    return _result('no_fish')
+                if _pages_seen(inv) < pages_first:
+                    # "Nichts mehr da" waere hier unbelegt -- es fehlen Seiten.
+                    _flog('-', 'campfire.scan_incomplete', zyklen=cycles,
+                          count=len(grilled_all))
+                    return _result('scan_incomplete')
+                _flog('0', 'campfire.all_done', count=len(grilled_all),
+                      zyklen=cycles)
+                return _result('complete')
+
+            # -- Noch ein Lagerfeuer im Beutel? -----------------------------
+            # BEWUSST VOR der Stillstands-Pruefung: trifft beides zu, ist "kein
+            # Lagerfeuer mehr" die konkretere Auskunft (nachkaufen) als "kein
+            # Fortschritt". Der Stillstandsschutz verliert dadurch nichts -- er
+            # greift ueberall dort, wo Weiterlaufen ueberhaupt moeglich waere
+            # und nur Feuer verbrennen wuerde.
+            tool = _find_item_slot(inv, CAMPFIRE_ITEM_NAME, calib, ox, oy,
+                                   lattice=lattice)
+            if tool is None:
+                _flog('-', 'campfire.no_campfire_item', rest=remaining,
+                      count=len(grilled_all))
+                return _result('no_campfire_item')
+
+            # -- STILLSTAND? Ein Zyklus ohne Wirkung darf sich nicht wiederholen
+            if prev_remaining is not None and remaining >= prev_remaining:
+                _flog('-', 'campfire.stalled', rest=remaining, zyklen=cycles,
+                      count=len(grilled_all))
+                return _result('stalled')
+            prev_remaining = remaining
+
+            if cycles >= MAX_FIRE_CYCLES:
+                _flog('-', 'campfire.max_cycles', zyklen=cycles, rest=remaining)
+                return _result('max_cycles')
+
+            cycles += 1
+            _flog('0', 'campfire.cycle_start', zyklus=cycles, rest=remaining)
+
+            status, done, fire, score, rotations = _grill_one_fire(
+                env, tool, targets)
+            grilled_all.extend(done)
+            remaining = max(0, remaining - len(done))
+
+            # Abbruch/Fehler beenden den Lauf sofort. 'expired' (Frist um) und
+            # 'emptied' (alle bekannten Ziele durch) laufen beide weiter -- im
+            # zweiten Fall muss ein Nachscan das "fertig" erst bestaetigen.
+            if status not in ('expired', 'emptied'):
+                return _result(status)
+
+            # -- Nachscan: was liegt WIRKLICH noch im Beutel? ---------------
+            inv = scan_fn()
+            if inv is None:
+                _flog('-', 'campfire.scan_failed')
+                return _result('scan_incomplete')
     except Exception as exc:                # pragma: no cover - last-ditch guard
         _flog('-', 'campfire.error', detail=str(exc)[:120])
         return CampfireResult('error')
+
+
+class _GrillEnv(object):
+    """Die injizierten Abhaengigkeiten EINER Grill-Runde, gebuendelt.
+
+    Nur ein Transportbehaelter -- er haelt die Signatur von
+    :func:`_grill_one_fire` lesbar, statt neun Parameter durchzureichen.
+    """
+
+    __slots__ = ('inp', 'capture_rgb_fn', 'offset', 'calib', 'sleep',
+                 'template', 'rotate_key', 'lattice', 'abort_fn')
+
+    def __init__(self, **kw):
+        for name in self.__slots__:
+            setattr(self, name, kw.get(name))
+
+
+def _pages_seen(inv):
+    """Menge der Seiten, die dieser Scan ueberhaupt geliefert hat.
+
+    Gegen den ERSTEN Scan des Laufs verglichen (nicht gegen eine feste Liste):
+    fehlt spaeter eine Seite, die anfangs da war, ist ein "nichts mehr da"
+    unbelegt. Selbstkalibrierend -- funktioniert auch, wenn ein Aufrufer bewusst
+    nur eine Teilmenge scannt. Wirft nie.
+    """
+    try:
+        return set((getattr(inv, 'pages', None) or {}).keys())
+    except Exception:
+        return set()
+
+
+def _grill_one_fire(env, tool, targets):
+    """EIN Feuer legen, finden und bis zur Frist bebraten.
+
+    Liefert ``(status, grilled, fire, score, rotations)``. ``status`` ist einer
+    von:
+
+      * ``'emptied'``          -- alle uebergebenen Ziele sind durch (Frist hielt).
+      * ``'expired'``          -- die ~35-s-Frist lief ab, es blieb Fisch uebrig.
+        NUR dieser Fall rechtfertigt ein weiteres Feuer.
+      * ``'aborted'``          -- F6 / Cutoff.
+      * ``'label_not_found'``  -- das Feuer war nicht auffindbar.
+
+    Bewusst OHNE eigene Scans: der Aufrufer entscheidet ueber Nachscan und
+    naechsten Zyklus. Wirft nie nach aussen (der Aufrufer kapselt zusaetzlich).
+    """
+    ox, oy = env.offset
+    sleep = env.sleep
+    inp = env.inp
+    grilled = []
+
+    # Feuer legen: DOPPELKLICK auf den Werkzeug-Slot.
+    tool_page, tool_xy = tool
+    _switch_page(inp, env.calib, ox, oy, tool_page, sleep)
+    _double_click(inp, tool_xy[0], tool_xy[1])
+    # Ab JETZT laeuft die Feuer-Lebensdauer (~35 s) -- die Bird's-Eye-/Such-Phase
+    # frisst davon schon etwas auf, darum ab dem Platzieren messen.
+    fire_deadline = time.monotonic() + FIRE_LIFETIME_S
+    sleep(PLACE_SETTLE_S)
+
+    # Vogelperspektive per Rechtsklick-Drag (dieselbe Geste, die der
+    # Energiesplitter fuer NPCs nutzt): von oben ist der gruene "Lagerfeuer"-Name
+    # zuverlaessig klickbar. Der Platzier-Doppelklick hat das Fenster bereits
+    # aktiviert, eine Maus-Geste aktiviert ohnehin selbst.
+    _birds_eye_drag(inp, ox, oy, sleep)
+    sleep(BIRDS_EYE_SETTLE_S)
+
+    # Feuer am Namens-Label finden, dabei die Kamera drehen ("E").
+    fire, score, rotations = locate_fire(
+        env.capture_rgb_fn, template=env.template,
+        rotate_fn=lambda: _tap_key(inp, env.rotate_key), sleep=sleep)
+    if fire is None:
+        _flog('-', 'campfire.label_not_found', score=round(score, 3),
+              attempts=rotations)
+        return 'label_not_found', grilled, None, score, rotations
+    fire_screen = (ox + fire[0], oy + fire[1])
+    _flog('0', 'campfire.fire_located', x=fire[0], y=fire[1],
+          score=round(score, 3))
+
+    for (page, row, col, name) in targets:
+        try:
+            if env.abort_fn is not None and env.abort_fn():
+                _flog('-', 'campfire.aborted', count=len(grilled))
+                return 'aborted', grilled, fire, score, rotations
+        except Exception:
+            pass
+        # FEUER-FRIST: nach ~35 s ist das Feuer weg -> NICHT weiter grillen
+        # (sonst Fisch-Drag ins Leere). Der Aufrufer legt dann ein neues.
+        if time.monotonic() >= fire_deadline:
+            _flog('0', 'campfire.fire_expired', count=len(grilled))
+            return 'expired', grilled, fire, score, rotations
+        _switch_page(inp, env.calib, ox, oy, page, sleep)
+        fx, fy = _slot_screen(row, col, env.calib, ox, oy, lattice=env.lattice)
+        drag(inp, fx, fy, fire_screen[0], fire_screen[1], sleep=sleep)
+        sleep(GRILL_SETTLE_S)
+        grilled.append((page, row, col, name))
+        _flog('0', 'campfire.grilled_one', name=name, page=page,
+              slot=_slot_no(row, col))
+
+    return 'emptied', grilled, fire, score, rotations
 
 
 # -- input primitives (pure given an injected api) --------------------------

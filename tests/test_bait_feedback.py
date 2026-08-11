@@ -183,16 +183,7 @@ class _Bot(object):
     _BAIT_FEEDBACK_WINDOW_S = _FB._BAIT_FEEDBACK_WINDOW_S
     _BAIT_RETRY_WAIT_S = _FB._BAIT_RETRY_WAIT_S
     _BAIT_BLOCKED_WARN_AT = _FB._BAIT_BLOCKED_WARN_AT
-    # Die selbstkalibrierende Abbruch-Wartezeit haengt an derselben Rueckmeldung,
-    # also gehoert sie in diesen Nachbau (sonst testet man an ihr vorbei).
-    _tighten_abort_cooldown = _FB._tighten_abort_cooldown
-    _relax_abort_cooldown = _FB._relax_abort_cooldown
-    _ABORT_COOLDOWN_START_S = _FB._ABORT_COOLDOWN_START_S
-    _ABORT_COOLDOWN_MIN_S = _FB._ABORT_COOLDOWN_MIN_S
-    _ABORT_COOLDOWN_MAX_S = _FB._ABORT_COOLDOWN_MAX_S
-    _ABORT_COOLDOWN_UP_S = _FB._ABORT_COOLDOWN_UP_S
-    _ABORT_COOLDOWN_DOWN_S = _FB._ABORT_COOLDOWN_DOWN_S
-    _ABORT_COOLDOWN_CLEAN_CASTS = _FB._ABORT_COOLDOWN_CLEAN_CASTS
+    _ABORT_COOLDOWN_S = _FB._ABORT_COOLDOWN_S
 
     def __init__(self, state=1, pending=None):
         import time as _t
@@ -203,8 +194,6 @@ class _Bot(object):
         self._bait_blocked_streak = 0
         self._bait_last_feedback_sig = None
         self.timer_action = 0.0
-        self._abort_cooldown = self._ABORT_COOLDOWN_START_S
-        self._clean_casts_since_block = 0
 
 
 class TestBaitFeedbackLoop(unittest.TestCase):
@@ -293,19 +282,19 @@ class TestBaitFeedbackLoop(unittest.TestCase):
         bot._check_bait_feedback(object())
         self.assertEqual(bot._bait_blocked_streak, 0)
 
-    def test_a_rejection_lengthens_the_abort_wait(self):
-        """Verdrahtung: die Client-Antwort speist wirklich den Regler."""
-        bot = _Bot(state=1)
-        before = bot._abort_cooldown
-        self._with_feedback(fc.BLOCKED)
-        bot._check_bait_feedback(object())
-        self.assertGreater(bot._abort_cooldown, before)
+    def test_abort_wait_is_the_fixed_v166_value(self):
+        """Die Abbruch-Wartezeit ist FEST 1,0 s -- exakt v1.6.6.
 
-    def test_a_confirmation_counts_towards_shortening(self):
-        bot = _Bot(state=1)
-        self._with_feedback(fc.BAITED)
-        bot._check_bait_feedback(object())
-        self.assertEqual(bot._clean_casts_since_block, 1)
+        v1.6.8 regelte sie selbst (0,6 s Start, Spanne 0,4-2,0) und lief dabei
+        nach OBEN: +0,3 s je Ablehnung gegen -0,1 s je 20 saubere Wuerfe. Der
+        Tester meldete am 2026-08-11, dass v1.6.6 spuerbar schneller war -- also
+        zurueck zum Festwert. Dieser Test haelt das fest, damit kein Regler
+        unbemerkt wiederkommt.
+        """
+        from fishingbot import FishingBot
+        self.assertEqual(FishingBot._ABORT_COOLDOWN_S, 1.0)
+        self.assertFalse(hasattr(FishingBot, '_abort_cooldown'),
+                         'der selbstregelnde Wert darf nicht zurueckkehren')
 
     def test_same_chat_line_is_only_counted_once(self):
         """Die Chat-Zeile bleibt im Spiel stehen.
@@ -341,119 +330,35 @@ class TestBaitFeedbackLoop(unittest.TestCase):
 
 
 class TestAbortCooldown(unittest.TestCase):
-    """Der Whitelist-Abbruch darf nicht in derselben Sekunde neu koedern --
-    und die Wartezeit regelt sich seit v1.6.8 selbst ein."""
+    """Der Whitelist-Abbruch darf nicht in derselben Sekunde neu koedern.
+
+    Der Wert ist FEST -- v1.6.8 hatte hier einen selbstregelnden Cooldown
+    (Start 0,6 s, Spanne 0,4-2,0). Er regelte in der Praxis nach OBEN (+0,3 s je
+    Ablehnung gegen -0,1 s je 20 saubere Wuerfe) und klebte schon bei einer
+    Ablehnungsrate von 1:60 am Deckel 2,0 s -- also DOPPELT so langsam wie der
+    Festwert, den er ersetzen sollte. Zudem mass er das Falsche: jede
+    angenommene Koederaktion galt als Beleg, obwohl die Wartezeit nur die Lage
+    NACH einem Abbruch regelt. Der Tester urteilte am 2026-08-11 eindeutig fuer
+    das v1.6.6-Verhalten; diese Klasse haelt es fest.
+    """
 
     def setUp(self):
         from fishingbot import FishingBot
         self.FB = FishingBot
 
-    def test_start_value_is_in_the_requested_range(self):
-        # Live-Wunsch 2026-08-09: "von 1 s auf etwa 0,5 bis 0,7 s".
-        self.assertGreaterEqual(self.FB._ABORT_COOLDOWN_START_S, 0.5)
-        self.assertLessEqual(self.FB._ABORT_COOLDOWN_START_S, 0.7)
+    def test_value_is_exactly_the_v166_second(self):
+        self.assertEqual(self.FB._ABORT_COOLDOWN_S, 1.0)
 
-    def test_bounds_are_sane(self):
-        self.assertGreater(self.FB._ABORT_COOLDOWN_MIN_S, 0.0)
-        self.assertLess(self.FB._ABORT_COOLDOWN_MIN_S,
-                        self.FB._ABORT_COOLDOWN_START_S)
-        self.assertGreater(self.FB._ABORT_COOLDOWN_MAX_S,
-                           self.FB._ABORT_COOLDOWN_START_S)
+    def test_no_self_calibrating_state_remains(self):
+        """Kein Regler-Rest darf zurueckbleiben -- sonst driftet es wieder."""
+        for gone in ('_abort_cooldown', '_clean_casts_since_block',
+                     '_tighten_abort_cooldown', '_relax_abort_cooldown',
+                     '_ABORT_COOLDOWN_START_S', '_ABORT_COOLDOWN_MIN_S',
+                     '_ABORT_COOLDOWN_MAX_S', '_ABORT_COOLDOWN_UP_S',
+                     '_ABORT_COOLDOWN_DOWN_S', '_ABORT_COOLDOWN_CLEAN_CASTS'):
+            self.assertFalse(hasattr(self.FB, gone),
+                             'Regler-Rest %s ist noch da' % gone)
 
-    def test_reacts_faster_upwards_than_downwards(self):
-        """Ein verlorener Wurf wiegt schwerer als eine Zehntelsekunde."""
-        self.assertGreater(self.FB._ABORT_COOLDOWN_UP_S,
-                           self.FB._ABORT_COOLDOWN_DOWN_S)
-
-
-class _CooldownBot(object):
-    """Nur der Zustand, den die beiden Regler anfassen."""
-
-    from fishingbot import FishingBot as _FB
-    _tighten_abort_cooldown = _FB._tighten_abort_cooldown
-    _relax_abort_cooldown = _FB._relax_abort_cooldown
-    for _n in ('_ABORT_COOLDOWN_START_S', '_ABORT_COOLDOWN_MIN_S',
-               '_ABORT_COOLDOWN_MAX_S', '_ABORT_COOLDOWN_UP_S',
-               '_ABORT_COOLDOWN_DOWN_S', '_ABORT_COOLDOWN_CLEAN_CASTS'):
-        locals()[_n] = getattr(_FB, _n)
-    del _n
-
-    def __init__(self):
-        self.state = 0
-        self._abort_cooldown = self._ABORT_COOLDOWN_START_S
-        self._clean_casts_since_block = 0
-
-
-class TestCooldownSelfCalibration(unittest.TestCase):
-    """Der Regelkreis: nach einer Ablehnung laenger, nach sauberen Wuerfen kuerzer."""
-
-    def test_rejection_lengthens_the_wait(self):
-        bot = _CooldownBot()
-        bot._tighten_abort_cooldown()
-        self.assertAlmostEqual(
-            bot._abort_cooldown,
-            bot._ABORT_COOLDOWN_START_S + bot._ABORT_COOLDOWN_UP_S, places=6)
-
-    def test_lengthening_is_capped(self):
-        bot = _CooldownBot()
-        for _ in range(50):
-            bot._tighten_abort_cooldown()
-        self.assertAlmostEqual(bot._abort_cooldown,
-                               bot._ABORT_COOLDOWN_MAX_S, places=6)
-
-    def test_clean_casts_below_the_threshold_change_nothing(self):
-        bot = _CooldownBot()
-        for _ in range(bot._ABORT_COOLDOWN_CLEAN_CASTS - 1):
-            bot._relax_abort_cooldown()
-        self.assertAlmostEqual(bot._abort_cooldown,
-                               bot._ABORT_COOLDOWN_START_S, places=6)
-
-    def test_enough_clean_casts_shorten_the_wait(self):
-        bot = _CooldownBot()
-        for _ in range(bot._ABORT_COOLDOWN_CLEAN_CASTS):
-            bot._relax_abort_cooldown()
-        self.assertAlmostEqual(
-            bot._abort_cooldown,
-            bot._ABORT_COOLDOWN_START_S - bot._ABORT_COOLDOWN_DOWN_S, places=6)
-
-    def test_shortening_is_floored(self):
-        bot = _CooldownBot()
-        for _ in range(bot._ABORT_COOLDOWN_CLEAN_CASTS * 60):
-            bot._relax_abort_cooldown()
-        self.assertAlmostEqual(bot._abort_cooldown,
-                               bot._ABORT_COOLDOWN_MIN_S, places=6)
-
-    def test_rejection_resets_the_clean_streak(self):
-        """Sonst koennte kurz nach einer Ablehnung sofort wieder gesenkt werden."""
-        bot = _CooldownBot()
-        for _ in range(bot._ABORT_COOLDOWN_CLEAN_CASTS - 1):
-            bot._relax_abort_cooldown()
-        bot._tighten_abort_cooldown()
-        self.assertEqual(bot._clean_casts_since_block, 0)
-        after = bot._abort_cooldown
-        bot._relax_abort_cooldown()          # ein einzelner sauberer Wurf
-        self.assertAlmostEqual(bot._abort_cooldown, after, places=6)
-
-    def test_a_rejection_is_undone_by_many_clean_casts(self):
-        """Regelkreis schliesst sich: hoch nach Fehler, langsam wieder runter."""
-        bot = _CooldownBot()
-        bot._tighten_abort_cooldown()
-        raised = bot._abort_cooldown
-        rounds = int(round(bot._ABORT_COOLDOWN_UP_S / bot._ABORT_COOLDOWN_DOWN_S))
-        for _ in range(bot._ABORT_COOLDOWN_CLEAN_CASTS * rounds):
-            bot._relax_abort_cooldown()
-        self.assertLess(bot._abort_cooldown, raised)
-        self.assertAlmostEqual(bot._abort_cooldown,
-                               bot._ABORT_COOLDOWN_START_S, places=6)
-
-    def test_regulators_never_raise(self):
-        class _Broken(_CooldownBot):
-            def __init__(self):
-                _CooldownBot.__init__(self)
-                self._abort_cooldown = 'kaputt'   # erzwingt einen TypeError
-
-        _Broken()._tighten_abort_cooldown()
-        _Broken()._relax_abort_cooldown()
 
 
 class TestTooltipObstruction(unittest.TestCase):
@@ -469,21 +374,33 @@ class TestTooltipObstruction(unittest.TestCase):
     """
 
     def test_threshold_sits_in_the_measured_gap(self):
-        # 66 px = breitestes echtes Wort ueber alle gelabelten Zeilen,
-        # 100 px = der Tooltip-Block. Die Schwelle muss dazwischen liegen.
-        self.assertGreater(fc.MAX_WORD_WIDTH, 66)
-        self.assertLess(fc.MAX_WORD_WIDTH, 100)
+        # 7 px  = laengster Tinte-Lauf ueber alle echten Referenzzeilen,
+        # 21 px = derselbe Wert im Tooltip. Die Schwelle muss dazwischen liegen.
+        self.assertGreater(fc.MAX_INK_RUN, 7)
+        self.assertLess(fc.MAX_INK_RUN, 21)
 
-    def test_empty_word_list_is_never_obstructed(self):
-        self.assertFalse(fc.zone_obstructed([]))
+    def test_empty_input_is_never_obstructed(self):
         self.assertFalse(fc.zone_obstructed(None))
 
     def test_broken_input_is_treated_as_clear(self):
         # Defensiv: unbrauchbare Eingabe darf nicht faelschlich blockieren.
-        self.assertFalse(fc.zone_obstructed(['kaputt']))
+        self.assertFalse(fc.zone_obstructed('kaputt'))
 
-    def test_wide_block_is_obstructed(self):
-        self.assertTrue(fc.zone_obstructed([(0, 10), (14, 14 + 100)]))
+    @unittest.skipUnless(_HAS_DEPS, 'numpy fehlt')
+    def test_solid_line_is_obstructed(self):
+        """Ein durchgezogener Rahmenstrich -- das Tooltip-Merkmal."""
+        band = np.zeros((18, 200), dtype=np.uint8)
+        band[9, 20:20 + 40] = 1          # 40 px am Stueck
+        self.assertTrue(fc.zone_obstructed(band))
+
+    @unittest.skipUnless(_HAS_DEPS, 'numpy fehlt')
+    def test_runs_do_not_wrap_across_rows(self):
+        """Zwei kurze Laeufe an Zeilenenden duerfen nicht zu einem langen
+        verschmelzen -- sonst meldete jede dichte Textzeile 'verdeckt'."""
+        band = np.zeros((4, 10), dtype=np.uint8)
+        band[:, 7:] = 1                  # je 3 px am rechten Rand jeder Zeile
+        self.assertEqual(fc.longest_ink_run(band), 3)
+        self.assertFalse(fc.zone_obstructed(band))
 
     @unittest.skipUnless(_HAS_DEPS, 'numpy/PIL fehlen')
     def test_tooltip_frame_is_rejected(self):
@@ -513,6 +430,67 @@ class TestTooltipObstruction(unittest.TestCase):
             checked += 1
         if checked == 0:
             self.skipTest('keine Referenzbilder vorhanden')
+
+    @unittest.skipUnless(_HAS_DEPS, 'numpy/PIL fehlen')
+    def test_no_known_name_is_ever_called_obstructed(self):
+        """DER Regressionstest zur v1.6.7-Wache -- gegen den GANZEN Namensbestand.
+
+        Die alte Wache (Wortbreite > 85 px) wurde gegen 13 gelabelte Bilder
+        gelegt, nicht gegen die Namen, die im Spiel vorkommen koennen. Am
+        Live-Bild des Testers (2026-08-11) misst 'Schlangenkopffisch' 87 px --
+        die Wache verwarf die ganze Zeile, der Fang blieb unsichtbar, die
+        Whitelist griff nicht. Genau diese zu schmale Pruefbasis wird hier
+        geschlossen: JEDER bekannte Name wird aus dem Glyphen-Atlas
+        zusammengesetzt und muss die Wache passieren.
+
+        Zeichen, die der Atlas (noch) nicht kennt, werden durch das Glyph mit
+        dem LAENGSTEN Tinte-Lauf ersetzt -- also bewusst zum ungueenstigsten
+        Fall hin, nie beschoenigend.
+        """
+        import glob
+        atlas = {}
+        for path in glob.glob(os.path.join('fishing_chat_templates',
+                                           fc.GLYPH_PREFIX + '*.png')):
+            code = os.path.basename(path)[len(fc.GLYPH_PREFIX):-4]
+            try:
+                ch = chr(int(code, 16))
+            except Exception:
+                continue
+            atlas[ch] = (np.array(Image.open(path).convert('L')) > 0).astype(
+                np.uint8)
+        if not atlas:
+            self.skipTest('Glyphen-Atlas fehlt')
+
+        worst = max(atlas.values(), key=fc.longest_ink_run)
+        names = fc._known_names()
+        self.assertGreater(len(names), 20, 'Namensbestand unerwartet klein')
+
+        widest = 0
+        for name in names:
+            glyphs = [atlas.get(ch, worst) for ch in name if ch != ' ']
+            if not glyphs:
+                continue
+            height = max(g.shape[0] for g in glyphs)
+            # Zeichenluecke = 1 px (an echten Zeilen gemessen); Glyphen oben
+            # ausgerichtet -- das begueenstigt Beruehrungen und ist damit die
+            # strengere Pruefung.
+            width = sum(g.shape[1] for g in glyphs) + len(glyphs) - 1
+            band = np.zeros((height, width), dtype=np.uint8)
+            x = 0
+            for g in glyphs:
+                band[0:g.shape[0], x:x + g.shape[1]] = g
+                x += g.shape[1] + 1
+            widest = max(widest, width)
+            self.assertFalse(
+                fc.zone_obstructed(band),
+                '%r (%d px breit, laengster Lauf %d) faelschlich als verdeckt'
+                % (name, width, fc.longest_ink_run(band)))
+
+        # Beleg, dass die Pruefung wirklich ueber die alte Schwelle hinausgeht:
+        # es GIBT Namen jenseits der 85 px, an denen v1.6.7 gescheitert ist.
+        self.assertGreater(widest, 85,
+                           'Pruefbasis erreicht die alte Schwelle nicht mehr '
+                           '-- dann bewacht dieser Test nichts')
 
 
 class TestObstructionDiagnostic(unittest.TestCase):

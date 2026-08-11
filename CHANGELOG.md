@@ -3,6 +3,80 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.6.9] — 2026-08-11
+
+### Fische mit langen Namen wurden verschluckt — behoben
+
+Der wichtigste Fund. Seit 1.6.7 gab es eine Schutzregel gegen den Item-Tooltip,
+der sich über die Chat-Zeile legt: Ein „Wort" breiter als 85 Pixel galt als
+Tooltip, und die ganze Zeile wurde verworfen.
+
+Diese Regel war an dreizehn Beispielbildern kalibriert — aber nicht an den
+Namen, die im Spiel wirklich vorkommen. Am eingeschickten Bild nachgemessen ist
+**„Schlangenkopffisch" 87 Pixel breit**. Der Fang wurde also stillschweigend
+weggeworfen, tauchte im Log nie auf, und die Whitelist konnte gar nicht
+greifen. Genau das war gemeint mit „das Chat-Auslesen war in 1.6.6 besser".
+
+Die Breite taugt als Merkmal nicht: Echte Namen reichen bis 87 Pixel, der
+Tooltip liegt bei 100 — dazwischen passt keine Grenze. Der Bot schaut jetzt
+stattdessen auf den **längsten durchgehenden Strich** in der Zeile. Buchstaben
+bestehen aus kurzen Strichen (gemessen 2 bis 7 Pixel), ein Tooltip-Rahmen ist
+eine durchgezogene Linie (21 Pixel). Dazwischen liegt viel Platz.
+
+Damit das nicht wieder passiert, prüft ein neuer Test **jeden einzelnen dem Bot
+bekannten Namen** — zusammengesetzt aus den echten Buchstabenbildern — statt
+einer Handvoll Beispiele. Der Tooltip wird weiterhin zuverlässig erkannt.
+
+### Angel- und Köder-Tempo wieder exakt wie in 1.6.6
+
+Die selbsteinstellende Wartezeit aus 1.6.8 ist wieder raus; es gilt wieder fest
+**eine Sekunde**.
+
+Sie hat nicht gehalten, was sie versprach. Nach oben ging sie in Schritten von
+0,3 Sekunden, zurück nur um 0,1 — und das erst nach zwanzig sauberen Würfen.
+Schon bei einer Ablehnung auf sechzig Würfe klebte sie am oberen Anschlag von
+2,0 Sekunden und war damit doppelt so langsam wie der feste Wert, den sie
+ersetzen sollte. Dazu maß sie das Falsche: Jeder angenommene Köder zählte als
+Beleg, obwohl die Wartezeit nur die Lage *nach einem Abbruch* betrifft.
+
+### Lagerfeuer: es wird jetzt so lange gegrillt, bis nichts mehr da ist
+
+Bisher legte der Bot **ein** Lagerfeuer und meldete danach „fertig" — auch wenn
+noch der halbe Beutel voll Fisch war. Ein Feuer brennt nur etwa 35 Sekunden und
+schafft damit rund 60 Fische. Die eingeschickten Vorher-/Nachher-Bilder zeigen
+das genau: von 99 erkannten Gegenständen blieben 37 liegen, Inventarseite III
+war fast unangetastet.
+
+Weil der Bot von oben nach unten arbeitet, sah das aus, als würden die unteren
+Reihen nicht erkannt. **Die Erkennung war in Ordnung** — an denselben Bildern
+nachgeprüft: Seite I wird bis in die letzte Reihe gelesen, Seite III komplett.
+Es war schlicht das Feuer, das ausging.
+
+Jetzt: Ist die Zeit um und liegt noch Fisch im Beutel, **legt der Bot ein neues
+Feuer** und macht weiter. Nach jedem Feuer scannt er neu und arbeitet mit dem,
+was wirklich noch da ist. Schluss ist erst, wenn ein vollständiger Nachscan
+keinen markierten Fisch mehr findet. In der Simulation: ein voller Beutel mit
+175 Fischen braucht drei Feuer und ist nach knapp zwei Minuten leer.
+
+Er hört auch dann auf, wenn er soll — und sagt jedes Mal **warum**:
+
+- kein Lagerfeuer mehr im Beutel (mit Angabe, wie viele Fische liegen bleiben)
+- ein Feuer hat nichts bewirkt (statt weitere Lagerfeuer zu verbrennen)
+- der Nachscan war unvollständig (dann wird nicht „leer" behauptet)
+
+In der Statuszeile erscheint Grün nur noch, wenn wirklich alles gegrillt ist.
+
+### Kleinere Korrekturen am Rand
+
+- **Zeitlimit-Aufräumen:** Das Grillen bekam bisher nur 30 Sekunden, bevor es
+  abgeschnitten wurde — weniger, als ein einziges Feuer lebt. Läuft ein Grill,
+  gilt jetzt ein eigenes, ausreichendes Zeitbudget.
+- **Raster auf leerer Seite:** Stand beim Start eine leere Inventarseite offen,
+  konnte sich der Bot am falschen Raster festlegen (gemessen: 9 Pixel daneben,
+  was jeden Zug steuert). Findet die Festlegung auf der sichtbaren Seite keinen
+  einzigen Gegenstand, nimmt er jetzt die mitgelieferte Kalibrierung und
+  schreibt es ins Log.
+
 ## [1.6.8] — 2026-08-09
 
 ### Die Wartezeit nach einem Abbruch stellt sich jetzt selbst ein

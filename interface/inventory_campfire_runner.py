@@ -98,7 +98,23 @@ def _lock_lattice(wincap, db, calib):
         frame = wincap.get_screenshot()
         if frame is None:
             return None
-        return grid_mod.auto_align(frame, db, calib)
+        lat = grid_mod.auto_align(frame, db, calib)
+        if lat is None:
+            return None
+        # A lock that matches NOT ONE item on this frame is guesswork: the search
+        # maximises matches, so with an empty page every candidate origin scores
+        # the same and an arbitrary one wins. Measured on the tester's page IV
+        # (empty, 2026-08-11): origin (623, 234) at fit 0 instead of (632, 243) --
+        # a 9 px shift that would then steer EVERY drag. The bundled calibration
+        # is the safer fallback (it landed within 1 px of the real lock on every
+        # page that had items).
+        try:
+            if grid_mod.aligned_match_count(frame, db, lat) <= 0:
+                _emit('-', 'campfire.lock_unreliable')
+                return None
+        except Exception:
+            pass
+        return lat
     except Exception:
         return None
 
