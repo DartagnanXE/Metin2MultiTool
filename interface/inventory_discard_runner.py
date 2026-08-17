@@ -34,6 +34,7 @@ from inventory.constants import (
     DEFAULT_CALIBRATION, PAGES, OPEN_SETTLE_S, TAB_SETTLE_S,
 )
 from inventory import hover
+from inventory import pages as _inv_pages
 from inventory import open_probe
 from i18n import t
 
@@ -223,6 +224,12 @@ def run_discard_items(cfg, states, *, log_fn=None, db=None,
         except Exception:
             db = None
 
+    # NUR die vom Nutzer freigegebenen Inventar-Seiten anfassen -- abgewaehlte
+    # werden weder umgeblaettert noch gescannt, also auch nichts von dort
+    # weggeworfen.
+    allowed_pages = _inv_pages.roman_pages(
+        (cfg or {}).get('inventory', {}).get('pages'))
+
     try:
         wincap = WindowCapture(constants.GAME_NAME)
     except Exception as exc:
@@ -294,7 +301,7 @@ def run_discard_items(cfg, states, *, log_fn=None, db=None,
             return scan_inventory(
                 capture_fn=wincap.get_screenshot,
                 switch_page_fn=_switch,
-                db=db, calib=calib, pages=PAGES)
+                db=db, calib=calib, pages=allowed_pages)
         except Exception:
             return None
 

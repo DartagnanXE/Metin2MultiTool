@@ -134,6 +134,15 @@ def _build_fishing_bot(cfg, cursor, *, stop_sig):
     bot.bait_refill_calib = None     # Engine-Default (DEFAULT_CALIBRATION)
     inv = cfg.get('inventory', {}) if isinstance(cfg, dict) else {}
     bot.inventory_hotkey = inv.get('hotkey', 'i')
+    # Freigegebene Inventar-Seiten (wie im Haupt-RunLoop) -- abgewaehlte Seiten
+    # fasst auch der Koeder-Nachschub nicht an. Defensiv: schlaegt der Import
+    # fehl, bleibt das Klassen-Default None = alle vier Seiten; ein Bot, der
+    # deswegen gar nicht erst startet, waere die schlechtere Fehlerrichtung.
+    try:
+        from inventory.pages import roman_pages as _roman_pages
+        bot.bait_refill_pages = _roman_pages(inv.get('pages'))
+    except Exception:
+        pass
     bot.stop_signal = stop_sig
     bot.set_to_begin(values)         # erzeugt wincap (preferred_hwnd ist gesetzt)
     bot.botting = True
@@ -250,6 +259,10 @@ def _build_energiesplitter_bot(cfg, cursor, sub_mode, *, stop_sig):
     bot.stop_signal = stop_sig
     inv = cfg.get('inventory', {}) if isinstance(cfg, dict) else {}
     bot.inventory_hotkey = inv.get('hotkey', 'i')
+    # KEIN bait_refill_pages hier: der Energiesplitter hat keinen Koeder-
+    # Nachschub und seine EIGENE Seitenfreigabe
+    # (energiesplitter.shared.inventory_pages) -- die darf die Fisch-Einstellung
+    # nicht ueberschreiben.
     bot.set_to_begin(_es_values(cfg, sub))   # friert Config ein, ruft phase0_gate
     bot.botting = True
     return bot

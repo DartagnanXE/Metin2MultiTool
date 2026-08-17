@@ -36,6 +36,28 @@ class SettingsEffectsMixin:
             'inventory', 'auto_scan_after_fishing',
             bool(self._auto_scan_var.get()))
 
+    def _on_inventory_pages_change(self):
+        """Persistiert die freigegebenen Inventar-Seiten (I-IV).
+
+        Abgewaehlte Seiten fasst der Bot NIRGENDS an: weder Scan noch
+        Lagerfeuer, Wegwerfen oder Koeder-Nachlegen blaettern dorthin. Eine
+        LEERE Auswahl ist unzulaessig -- der Bot braucht mindestens eine Seite,
+        sonst fande er nie etwas und das saehe wie ein Defekt aus. Sie faellt
+        deshalb auf alle vier zurueck, und die Haken werden sichtbar wieder
+        gesetzt (gleiches Verhalten wie beim Energiesplitter). Wirft nie.
+        """
+        try:
+            pages = [p for p, v in sorted(self._inv_page_vars.items())
+                     if bool(v.get())]
+            if not pages:
+                pages = [1, 2, 3, 4]
+                for v in self._inv_page_vars.values():
+                    v.set(True)
+            self._cfg = self.controller.update_config(
+                'inventory', 'pages', pages)
+        except Exception:
+            pass
+
     def _on_fast_recognition_toggle(self):
         """Persistiert den Opt-in 'schnelle (vektorisierte) Erkennung'-Schalter.
 

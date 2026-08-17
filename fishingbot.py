@@ -204,7 +204,38 @@ class FishingBot(FishingDetectMixin):
     # Absolute Obergrenze (Sekunden ab dem Options-Klick), bis zu der ueberhaupt
     # auf Bestaetigungs-Dialoge geachtet wird -- Backstop, falls je ein Dialog
     # klebt (sonst koennte die Fenster-Verlaengerung unten endlos verlaengern).
-    GOLDEN_CONFIRM_MAX_S = 25.0
+    #
+    # 25 -> 45 (v1.6.11, User-Report 2026-08-17 "die Taste muss sicher gedrueckt
+    # werden"): Die alte Grenze zaehlte ab dem ERSTEN daily-Frame und deckelte
+    # ``_until`` mit. Stand der Options-Dialog laenger (Server-Lag) oder folgten
+    # mehrere Meldungen nacheinander, war das Fenster schon zu, BEVOR der letzte
+    # Dialog kam -- er blieb dann fuer immer offen. Teuer ist die grosszuegigere
+    # Grenze nicht mehr, seit die Suche gedrosselt laeuft (siehe
+    # GOLDEN_CONFIRM_SCAN_INTERVAL_S); begrenzt wird jetzt ueber die ZAHL der
+    # Klicks (GOLDEN_CONFIRM_MAX_CLICKS), nicht mehr allein ueber die Zeit.
+    GOLDEN_CONFIRM_MAX_S = 45.0
+
+    # Wie oft die Vollbild-Suche nach dem OK-Knopf hoechstens laeuft (Sekunden
+    # zwischen zwei Suchen).
+    #
+    # GEMESSEN (2026-08-17, echte Referenz-Frames 601x800): ein
+    # ``golden_confirm_find`` kostet 4,7 ms -- das 18-fache der Chat-Auswertung
+    # (0,26 ms) und das 38-fache des Koeder-Sensors (0,12 ms). Ungedrosselt bei
+    # voller Loop-Frequenz waere das rund ein Viertel der Frame-Zeit, solange das
+    # Fenster offen ist -- genau die Bremse, die der Tester zuletzt zweimal
+    # gemeldet hat. 0,2 s = hoechstens 5 Suchen/s senkt die Last um ~90 %, ohne
+    # dass es sich bemerkbar macht: zwischen zwei OK-Klicks liegt ohnehin eine
+    # ganze Sekunde Cooldown.
+    GOLDEN_CONFIRM_SCAN_INTERVAL_S = 0.2
+
+    # Wie viele OK-Klicks eine Golden-Tuna-Episode hoechstens senden darf.
+    #
+    # Ersetzt die reine Zeitgrenze als eigentlichen Backstop: eine Dialogkette
+    # (Ergebnis- + Buff-Meldung) braucht real 1-3 Klicks. Klebt ein Dialog, weil
+    # der Klick nicht wirkt, laeuft der Zaehler voll und die Episode endet --
+    # unabhaengig davon, wie lange sie schon dauert. So darf die Zeitgrenze
+    # grosszuegig sein, ohne dass ein klebender Dialog endlos angeklickt wird.
+    GOLDEN_CONFIRM_MAX_CLICKS = 6
     # Mindestabstand zwischen zwei OK-Klicks. Der Server tauscht Dialog 1 -> 2
     # nicht instant; ohne Cooldown wuerde der Loop 60x/s auf denselben Dialog
     # klicken und im Moment des Schliessens einmal in die Welt treffen.
@@ -315,6 +346,11 @@ class FishingBot(FishingDetectMixin):
     # Weltklick-Sperre bis (time()): an tatsaechlicher Modal-Evidenz + kurzer
     # Grace, NICHT am Klick-Fenster (siehe GOLDEN_SUPPRESS_GRACE_S). 0.0 = frei.
     _golden_suppress_until = 0.0
+    # Gesendete OK-Klicks der laufenden Episode (Deckel:
+    # GOLDEN_CONFIRM_MAX_CLICKS) + Zeitpunkt der letzten Vollbild-Suche
+    # (Drosselung: GOLDEN_CONFIRM_SCAN_INTERVAL_S).
+    _golden_confirm_clicks = 0
+    _golden_last_scan = 0.0
 
     # Angel-Whitelist (opt-in). Default AUS -> angelt ALLES -> byte-stabil.
     #   * whitelist_enabled: nur True schaltet die Pruefung scharf.
@@ -347,6 +383,12 @@ class FishingBot(FishingDetectMixin):
     bait_refill_enabled = False
     bait_refill_db = None
     bait_refill_calib = None
+    # Freigegebene Inventar-Seiten (roemische Labels, z. B. ``('I', 'III')``).
+    # ``None`` -> alle vier, damit ein Bot ohne Injektion (Tests/Alt-Pfad)
+    # unveraendert laeuft. Ist eine Seite abgewaehlt, wird dort auch NICHT nach
+    # Koeder gesucht -- liegt der letzte Wurm dort, gilt der Beutel bewusst als
+    # leer, statt heimlich doch umzublaettern.
+    bait_refill_pages = None
     inventory_hotkey = 'i'
     on_bait_empty = None
     # Drossel: nicht jeden Frame pruefen -- nur, wenn seit der letzten Pruefung
@@ -503,6 +545,126 @@ class FishingBot(FishingDetectMixin):
             return _fc.read_hook(screenshot)
         except Exception:
             return None
+
+    def _handle_golden_tuna(self, screenshot):
+        """Raeumt die Dialoge des Goldenen Thunfischs ab.
+
+        Zwei Fenster nacheinander: erst die drei Optionen (Freilassen /
+        Aufschneiden / Als Koeder benutzen), dann -- mit der SERVER-Antwort --
+        eine Meldung mit einem einzelnen OK-Knopf. Beide muessen weg, sonst
+        klickt der Bot hinter den Dialog in die Welt und die Figur laeuft vor.
+
+        :return: ``True``, wenn diesen Frame ein Dialog stand (der Aufrufer
+            haelt dann alles andere an). Wirft nie -- ein Fehler in der
+            Erkennung darf den Angel-Loop nicht kippen.
+        """
+        try:
+            if self.detect_daily_reward(screenshot):
+                self._click_golden_option()
+                return True
+            if time() < getattr(self, '_golden_confirm_until', 0.0):
+                return self._click_golden_confirm(screenshot)
+            # Ausserhalb jeder Episode: die Weltklick-Sperre entscheidet, ob
+            # gerade noch ein Modal nachwirkt (Grace nach echter Evidenz).
+            return time() < getattr(self, '_golden_suppress_until', 0.0)
+        except Exception:
+            return False
+
+    def _arm_golden_confirm_watch(self):
+        """Oeffnet ein Such-Fenster fuer den Bestaetigungs-Dialog OHNE Options-Klick.
+
+        Fuer den Fall, dass das Optionsfenster nie gesehen wurde (der Nutzer hat
+        selbst geklickt) oder die Server-Antwort zu spaet kam. Verlaengert ein
+        bereits offenes Fenster NICHT -- sonst koennte sich ein wiederkehrender
+        Timeout die Episode endlos verlaengern. Wirft nie.
+        """
+        try:
+            now = time()
+            if now < getattr(self, '_golden_confirm_until', 0.0):
+                return                      # laeuft schon
+            self._golden_confirm_hard = now + self.GOLDEN_CONFIRM_MAX_S
+            self._golden_confirm_clicks = 0
+            self._golden_confirm_until = now + self.GOLDEN_CONFIRM_WAIT_S
+        except Exception:
+            pass
+
+    def _click_golden_option(self):
+        """Klickt das eingestellte Optionsfeld und zieht die Episode auf."""
+        field = self.golden_tuna_action
+        ox, oy = self.wincap.offset_x, self.wincap.offset_y
+        mouse_x = int(ox + self.GOLDEN_TUNA_X)
+        mouse_y = int(oy + self.GOLDEN_TUNA_Y[field])
+        _input.click(mouse_x, mouse_y, tag='daily')
+        # Bestaetigungs-Fenster SCHARF schalten statt blind zu klicken: es kommt
+        # erst mit der Server-Antwort (der alte Sofort-Klick feuerte vorher ins
+        # Leere -> Dialog blieb offen). _until = pro-Dialog-Fenster (wird bei
+        # JEDEM gefundenen Dialog verlaengert), _hard = absolute Obergrenze.
+        now = time()
+        # Harte Deadline NUR an der steigenden Flanke einer Episode setzen (nicht
+        # jeden Frame neu) -- sonst haelt ein klebender daily-Zustand (dauerhaft
+        # schwarze Ecke) den Backstop endlos am Leben. Dieselbe Flanke setzt den
+        # Klick-Zaehler zurueck: er begrenzt GENAU EINE Episode.
+        if now >= getattr(self, '_golden_confirm_hard', 0.0):
+            self._golden_confirm_hard = now + self.GOLDEN_CONFIRM_MAX_S
+            self._golden_confirm_clicks = 0
+        self._golden_confirm_until = min(now + self.GOLDEN_CONFIRM_WAIT_S,
+                                         self._golden_confirm_hard)
+        # Weltklick-Sperre an ECHTER Evidenz (Popup steht diesen Frame) + Grace.
+        self._golden_suppress_until = now + self.GOLDEN_SUPPRESS_GRACE_S
+        if now - getattr(self, '_last_daily_log', 0) > 3:
+            self._last_daily_log = now
+            _flog(self.state, t('fishing.golden_tuna_clicked'),
+                  field=field, x=mouse_x, y=mouse_y)
+
+    def _click_golden_confirm(self, screenshot):
+        """Sucht den OK-Knopf der Bestaetigungs-Meldung und klickt ihn.
+
+        Der Dialog wandert -- seine Hoehe haengt am Meldungstext (Live-Referenzen:
+        OK-Mitte y=202 / 250 / 266) -- deshalb wird der Knopf per Template im
+        GANZEN Frame gesucht und der FUND geklickt, nie eine Konstante. Der
+        Server schickt teils mehrere Meldungen nacheinander; nach jedem Klick
+        wird das Fenster verlaengert, damit auch die zweite und dritte wegkommt.
+
+        :return: ``True``, wenn der Dialog diesen Frame stand (oder die Grace
+            noch nachwirkt) -- also ein Modal den Angel-Loop blockiert.
+        """
+        now = time()
+        # Gedrosselt suchen: die Vollbild-Suche kostet 4,7 ms (gemessen), das
+        # Warten auf die Server-Antwort dauert Sekunden. Zwischen zwei Suchen
+        # gilt die Grace-Sperre weiter, damit kein Weltklick durchrutscht.
+        if now - getattr(self, '_golden_last_scan', 0.0) \
+                < self.GOLDEN_CONFIRM_SCAN_INTERVAL_S:
+            return now < getattr(self, '_golden_suppress_until', 0.0)
+        self._golden_last_scan = now
+
+        found, _score, point = self.detect_golden_confirm(screenshot)
+        if not found:
+            return now < getattr(self, '_golden_suppress_until', 0.0)
+
+        # Dialog steht -> Weltklick-Sperre auffrischen, unabhaengig vom Cooldown.
+        self._golden_suppress_until = now + self.GOLDEN_SUPPRESS_GRACE_S
+
+        cooldown_ok = (now - getattr(self, '_last_confirm_click', 0.0)
+                       > self.GOLDEN_CONFIRM_CLICK_COOLDOWN_S)
+        budget_ok = (getattr(self, '_golden_confirm_clicks', 0)
+                     < self.GOLDEN_CONFIRM_MAX_CLICKS)
+        if point is not None and cooldown_ok and budget_ok:
+            ox, oy = self.wincap.offset_x, self.wincap.offset_y
+            ok_x = int(ox + point[0])
+            ok_y = int(oy + point[1])
+            _input.click(ok_x, ok_y, tag='confirm')
+            self._last_confirm_click = now
+            self._golden_confirm_clicks = (
+                getattr(self, '_golden_confirm_clicks', 0) + 1)
+            # Fenster verlaengern -- aber nie ueber die harte Deadline hinaus.
+            self._golden_confirm_until = min(
+                now + self.GOLDEN_CONFIRM_WAIT_S,
+                getattr(self, '_golden_confirm_hard', now))
+            if now - getattr(self, '_last_confirm_log', 0) > 3:
+                self._last_confirm_log = now
+                _flog(self.state, t('fishing.golden_tuna_confirmed',
+                                    x=ok_x, y=ok_y))
+        return True
 
     def _abort_minigame(self):
         """Bricht den aktuellen Angel-Versuch SOFORT ab und startet den Zyklus neu.
@@ -756,7 +918,8 @@ class FishingBot(FishingDetectMixin):
             result = _refill.refill_from_inventory(
                 _refill.BAIT_NAMES, target, inp=inp,
                 wincap=self.wincap, db=self.bait_refill_db, calib=calib,
-                sleep=self._refill_sleep, should_stop=self._refill_should_stop)
+                sleep=self._refill_sleep, should_stop=self._refill_should_stop,
+                pages=self.bait_refill_pages)
 
             # ZEIGER WEGFAHREN -- in JEDEM Ergebnisfall (auch nach 'error'/
             # 'stopped'; der Drag kann den Zeiger auch dann auf dem Slot
@@ -1253,6 +1416,26 @@ class FishingBot(FishingDetectMixin):
                 offset_x=getattr(self.wincap, 'offset_x', None),
                 offset_y=getattr(self.wincap, 'offset_y', None))
 
+        # GOLDENER THUNFISCH ZUERST -- ein modaler Dialog hat Vorrang vor allem
+        # anderen. Bis v1.6.11 stand dieser Block HINTER der Whitelist, und die
+        # steigt bei einem Abbruch mit ``return`` aus dem Frame aus.
+        #
+        # Am echten Code nachgestellt (2026-08-17): brach die Whitelist ab,
+        # waehrend ein Dialog stand, wurde KEIN einziger Klick gesendet -- weder
+        # auf die Option noch auf OK; der Dialog blieb offen. Der Zusammenstoss
+        # ist real und nicht bloss theoretisch: Abbrueche sind haeufig (jede
+        # Niete bricht ab, im Live-Log des Testers 56 % aller Zyklen), und bei
+        # zwei der drei Referenz-Meldungen ist die Chat-Zeile waehrend des
+        # offenen Dialogs frei lesbar -- die Whitelist entscheidet dort also.
+        #
+        # EHRLICH: dass GENAU dieser Pfad den Dialog im Report des Testers
+        # stehen liess, ist damit nicht bewiesen. Ein zu knapp bemessenes
+        # Zeitfenster kommt als zweite Ursache in Frage (siehe
+        # GOLDEN_CONFIRM_MAX_S) -- ebenso der Fall, dass nie ein Fenster
+        # aufgezogen wurde (dagegen das Sicherheitsnetz im Minispiel-Timeout
+        # weiter unten). Alle drei Pfade sind jetzt geschlossen.
+        golden_modal = self._handle_golden_tuna(screenshot)
+
         # ANGEL-WHITELIST -- ENTKOPPELT vom Minispiel: ab dem Auswerfen wird JEDEN
         # Frame der kleine Chat-Streifen ausgewertet. Wiederverwendung des oben
         # ohnehin geholten ``screenshot`` (KEIN Extra-Capture) + winzige OCR auf
@@ -1261,69 +1444,14 @@ class FishingBot(FishingDetectMixin):
         # steht (oft vor dem Minispiel), und unerwuenscht sofort abgebrochen ->
         # diese Runde hier beenden. Erst ab State 2 (nach dem Auswurf); _apply_
         # whitelist prueft "aktiv" + "schon entschieden" selbst (aus = byte-stabil).
-        if self.state >= 2 and self._apply_whitelist(screenshot):
+        #
+        # NICHT, solange ein Golden-Dialog steht: der Abbruch wuerde ESC druecken
+        # und sofort neu koedern/auswerfen -- in ein offenes Fenster hinein, wo
+        # der Client die Aktion ohnehin ablehnt. Die Chat-Zeile bleibt stehen und
+        # wird ausgewertet, sobald der Dialog weg ist; verloren geht nichts.
+        if self.state >= 2 and not golden_modal \
+                and self._apply_whitelist(screenshot):
             return crop_img
-
-        daily = self.detect_daily_reward(screenshot)
-
-        if daily:
-            field = self.golden_tuna_action
-            ox, oy = self.wincap.offset_x, self.wincap.offset_y
-            mouse_x = int(ox + self.GOLDEN_TUNA_X)
-            mouse_y = int(oy + self.GOLDEN_TUNA_Y[field])
-            _input.click(mouse_x, mouse_y, tag='daily')
-            # Bestaetigungs-Fenster SCHARF schalten statt blind zu klicken: es
-            # kommt erst mit der Server-Antwort (der alte Sofort-Klick feuerte
-            # vorher ins Leere -> Dialog blieb offen). _until = pro-Dialog-Fenster
-            # (wird bei JEDEM gefundenen Dialog verlaengert), _hard = absolute
-            # Obergrenze als Backstop gegen endlose Verlaengerung.
-            now = time()
-            # Harte Deadline NUR an der steigenden Flanke einer Episode setzen
-            # (nicht jeden Frame neu) -- sonst haelt ein klebender daily-Zustand
-            # (dauerhaft schwarze Ecke) den Backstop endlos am Leben. Absolut ab
-            # dem ERSTEN daily-Frame der Episode; _until darauf gedeckelt.
-            if now >= getattr(self, '_golden_confirm_hard', 0.0):
-                self._golden_confirm_hard = now + self.GOLDEN_CONFIRM_MAX_S
-            self._golden_confirm_until = min(now + self.GOLDEN_CONFIRM_WAIT_S,
-                                             self._golden_confirm_hard)
-            # Weltklick-Sperre an ECHTER Evidenz (Popup steht diesen Frame) + Grace.
-            self._golden_suppress_until = now + self.GOLDEN_SUPPRESS_GRACE_S
-            if now - getattr(self, '_last_daily_log', 0) > 3:
-                self._last_daily_log = now
-                _flog(self.state, t('fishing.golden_tuna_clicked'),
-                      field=field, x=mouse_x, y=mouse_y)
-        elif time() < getattr(self, '_golden_confirm_until', 0.0):
-            # Auf den Bestaetigungs-Dialog warten und OK erst klicken, wenn er
-            # WIRKLICH im Frame steht (Template der Knopf-Leiste). Der Dialog
-            # wandert je nach Textlaenge -> geklickt wird die GEFUNDENE Mitte.
-            # WICHTIG (User-Report 2026-07-22): der Server schickt teils MEHRERE
-            # Dialoge nacheinander (Buff-/Ergebnis-Meldung), egal ob ein Buff
-            # faellt -> nach jedem OK-Klick wird das Fenster VERLAENGERT (bis zur
-            # harten Deadline), damit auch der 2./3. Dialog abgeraeumt wird statt
-            # offen zu bleiben (offener Dialog = Bot klickt in die Welt = Char
-            # laeuft vor). Cooldown verhindert 60 Klicks/s auf denselben Dialog.
-            found, _score, point = self.detect_golden_confirm(screenshot)
-            now = time()
-            cooldown_ok = (now - getattr(self, '_last_confirm_click', 0.0)
-                           > self.GOLDEN_CONFIRM_CLICK_COOLDOWN_S)
-            if found:
-                # Dialog steht diesen Frame -> Weltklick-Sperre (an ECHTER
-                # Evidenz) auffrischen, unabhaengig vom Cooldown des OK-Klicks.
-                self._golden_suppress_until = now + self.GOLDEN_SUPPRESS_GRACE_S
-            if found and point is not None and cooldown_ok:
-                ox, oy = self.wincap.offset_x, self.wincap.offset_y
-                ok_x = int(ox + point[0])
-                ok_y = int(oy + point[1])
-                _input.click(ok_x, ok_y, tag='confirm')
-                self._last_confirm_click = now
-                # Fenster verlaengern -- aber nie ueber die harte Deadline hinaus.
-                self._golden_confirm_until = min(
-                    now + self.GOLDEN_CONFIRM_WAIT_S,
-                    getattr(self, '_golden_confirm_hard', now))
-                if now - getattr(self, '_last_confirm_log', 0) > 3:
-                    self._last_confirm_log = now
-                    _flog(self.state, t('fishing.golden_tuna_confirmed',
-                                        x=ok_x, y=ok_y))
 
         # Verify total time
 
@@ -1403,6 +1531,20 @@ class FishingBot(FishingDetectMixin):
                 self.state = 0
                 _flog(0, t('fishing.minigame_timeout'))
                 self._on_cycle_end()
+                # SICHERHEITSNETZ gegen einen uebersehenen Bestaetigungs-Dialog.
+                #
+                # Der Dialog wird sonst nur innerhalb eines Fensters gesucht, das
+                # ein erkannter Options-Klick aufzieht. Wurde das Optionsfenster
+                # nie gesehen (z.B. weil der Nutzer selbst geklickt hat) oder ist
+                # das Fenster abgelaufen, bevor die Server-Antwort kam, bliebe die
+                # Meldung fuer immer stehen -- und ein offener Dialog heisst:
+                # Klicks gehen in die Welt, die Figur laeuft vor.
+                #
+                # Genau hier ist der guenstigste Moment nachzusehen: der Bot
+                # kommt seit 15 s nicht weiter, was ein offener Dialog erklaeren
+                # wuerde. Kosten: eine gedrosselte Suche (4,7 ms) je Timeout,
+                # also hoechstens alle 15 s -- im Normalbetrieb unmessbar.
+                self._arm_golden_confirm_watch()
             if time() - self.timer_action > 5 and detected_end is False:
                 self.timer_action = time()
                 self.state = 0

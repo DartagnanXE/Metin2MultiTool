@@ -212,7 +212,7 @@ class TestRefillAbortsOnStop(unittest.TestCase):
         from inventory import scanner as scanner_mod
         flag = {'stop': False}
 
-        def fake_scan(*, capture_fn, switch_page_fn, db, calib):
+        def fake_scan(*, capture_fn, switch_page_fn, db, calib, pages=None):
             # The runner calls switch_page_fn per page; we emulate two pages and
             # trip the stop on the first switch.
             switch_page_fn('I')
@@ -236,7 +236,7 @@ class TestRefillAbortsOnStop(unittest.TestCase):
         # Without should_stop, a found item drags as before and returns 'dragged'.
         from inventory import scanner as scanner_mod
 
-        def fake_scan(*, capture_fn, switch_page_fn, db, calib):
+        def fake_scan(*, capture_fn, switch_page_fn, db, calib, pages=None):
             slot = types.SimpleNamespace(state='item', name='Worm', row=0, col=0)
             return types.SimpleNamespace(pages={'I': [slot]})
 
@@ -258,7 +258,7 @@ class TestRefillAbortsOnStop(unittest.TestCase):
         # after the scan must abort with 'stopped' before the drag.
         from inventory import scanner as scanner_mod
 
-        def fake_scan(*, capture_fn, switch_page_fn, db, calib):
+        def fake_scan(*, capture_fn, switch_page_fn, db, calib, pages=None):
             slot = types.SimpleNamespace(state='item', name='Worm', row=0, col=0)
             return types.SimpleNamespace(pages={'I': [slot]})
 

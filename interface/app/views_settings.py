@@ -95,6 +95,28 @@ class SettingsViewMixin:
             ibody, 1, t('ui.auto_scan_after_fishing'), None,
             t('ui.auto_scan_after_fishing_help'), self._auto_scan_var,
             self._on_auto_scan_toggle)
+
+        # Freigegebene Inventar-SEITEN. Abgewaehlte Seiten fasst der Bot
+        # NIRGENDS an -- Scan, Lagerfeuer, Wegwerfen und Koeder-Nachlegen
+        # blaettern dort nicht einmal hin. Gleiches Muster wie beim
+        # Energiesplitter (views_energiesplitter._es_commit_pages), damit sich
+        # dieselbe Einstellung in beiden Bot-Teilen gleich anfuehlt.
+        self._inv_page_vars = {}
+        pagerow = ctk.CTkFrame(ibody, fg_color='transparent')
+        pagerow.grid(row=2, column=0, columnspan=2, sticky='w', pady=(6, 2))
+        ctk.CTkLabel(pagerow, text=t('ui.inventory_pages_label'),
+                     text_color=TEXT_FAINT,
+                     font=ctk.CTkFont(size=12)).grid(row=0, column=0,
+                                                     padx=(0, 8))
+        aktiv = set(self._cfg.get('inventory', {}).get('pages', [1, 2, 3, 4]))
+        for i, roman in enumerate(('I', 'II', 'III', 'IV')):
+            var = ctk.BooleanVar(value=((i + 1) in aktiv))
+            self._inv_page_vars[i + 1] = var
+            ctk.CTkCheckBox(pagerow, text=roman, variable=var, width=46,
+                            command=self._on_inventory_pages_change).grid(
+                row=0, column=i + 1, padx=(0, 6))
+        InfoBadge(pagerow, text=t('ui.inventory_pages_help')).grid(
+            row=0, column=5, padx=(6, 0))
         # (Der "Schnelle Erkennung"-Schalter entfaellt: der Scan laeuft jetzt
         # IMMER vektorisiert/bit-identisch -- der Schalter waere ohne Wirkung. Die
         # Einstellung bleibt als interner Debug-Default True in der Config, ohne

@@ -491,13 +491,23 @@ class TestTooltipObstruction(unittest.TestCase):
         # normal auswerten (sonst waere sie dauerhaft verbrannt).
         self.assertIsNone(fc.read_action_feedback(bgr)[1])
 
+    # Referenzbilder, in denen die Chat-Zeile TATSAECHLICH zugedeckt ist -- sie
+    # gehoeren in die Gegenrichtung (siehe test_known_covered_lines_are_caught).
+    _ECHT_VERDECKT = (
+        'tooltip_verdeckt_chatzeile.png',
+        # Goldener Thunfisch, Bestaetigungs-Meldung (Report 2026-08-17): der
+        # Dialograhmen laeuft quer ueber die Chat-Zeile -- gemessener
+        # Tintenlauf 68 px gegen die Grenze von 12.
+        'GoldenerThunfischEntwischtBestaetigen.png',
+    )
+
     @unittest.skipUnless(_HAS_DEPS, 'numpy/PIL fehlen')
     def test_real_chat_lines_are_never_called_obstructed(self):
         """Die teure Fehlrichtung: echter Text darf NIE als verdeckt gelten."""
         import glob
         checked = 0
         for path in sorted(glob.glob(os.path.join(_FISCH_DIR, '*.png'))):
-            if os.path.basename(path) == 'tooltip_verdeckt_chatzeile.png':
+            if os.path.basename(path) in self._ECHT_VERDECKT:
                 continue
             bgr = np.array(Image.open(path).convert('RGB'))[:, :, ::-1]
             self.assertFalse(fc.chat_zone_obstructed(bgr),
@@ -505,6 +515,25 @@ class TestTooltipObstruction(unittest.TestCase):
             checked += 1
         if checked == 0:
             self.skipTest('keine Referenzbilder vorhanden')
+
+    @unittest.skipUnless(_HAS_DEPS, 'numpy/PIL fehlen')
+    def test_known_covered_lines_are_caught(self):
+        """Gegenprobe zur Ausnahmeliste oben.
+
+        Ohne sie waere jeder Eintrag dort ein blinder Fleck: man koennte die
+        Wache abschalten, und der Test bliebe gruen. Diese Bilder MUESSEN als
+        verdeckt gelten -- eine ueberdeckte Zeile falsch auszulesen ist die
+        gefaehrliche Richtung (der Bot wirft dann auf eine Phantom-Meldung hin
+        weg oder bricht ab)."""
+        for name in self._ECHT_VERDECKT:
+            path = os.path.join(_FISCH_DIR, name)
+            if not os.path.exists(path):
+                continue
+            with self.subTest(shot=name):
+                bgr = np.array(Image.open(path).convert('RGB'))[:, :, ::-1]
+                self.assertTrue(fc.chat_zone_obstructed(bgr),
+                                '%s wurde NICHT als verdeckt erkannt' % name)
+                self.assertEqual(fc.read_hook(bgr).kind, fc.NONE)
 
     @unittest.skipUnless(_HAS_DEPS, 'numpy/PIL fehlen')
     def test_no_known_name_is_ever_called_obstructed(self):

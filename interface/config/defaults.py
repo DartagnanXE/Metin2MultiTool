@@ -234,6 +234,14 @@ DEFAULTS = {
     'inventory': {                # Inventar-Scan: Hotkey + (gestubbter) Auto-Scan
         'hotkey': 'i',            # In-Game-Taste, die das Inventar oeffnet
         'auto_scan_after_fishing': False,  # vorerst nur Setting + Roadmap
+        # Freigegebene Inventar-SEITEN (1..4). Unmarkierte Seiten fasst der Bot
+        # NIRGENDS an -- weder beim Scan noch beim Lagerfeuer, Wegwerfen oder
+        # Koeder-Nachlegen: kein Reiter-Klick, kein Screenshot, keine Erkennung.
+        # Wer Seite IV dauerhaft leer laesst, spart damit ein Viertel jeder
+        # Scanzeit; beim Lagerfeuer zaehlt das mehrfach, weil dort nach JEDEM
+        # Feuer neu gescannt wird. Leere Auswahl ist unzulaessig und faellt auf
+        # alle vier zurueck (siehe inventory.pages).
+        'pages': [1, 2, 3, 4],
         # Vektorisierte Erkennung -- jetzt der EINZIGE Pfad (kein UI-Schalter mehr).
         # Statt die 45 Slots/Seite einzeln in einer Python-Schleife zu matchen,
         # wird die maskierte Differenz fuer ALLE Slots einer Seite in EINER

@@ -21,6 +21,7 @@ import time
 
 import constants
 from inventory.constants import DEFAULT_CALIBRATION, PAGES, OPEN_SETTLE_S, TAB_SETTLE_S
+from inventory import pages as _inv_pages
 from inventory import grid as grid_mod
 from inventory import hover
 from inventory import open_probe
@@ -244,6 +245,12 @@ def run_campfire_grill(cfg, states, *, log_fn=None, db=None,
         except Exception:
             db = None
 
+    # NUR die vom Nutzer freigegebenen Inventar-Seiten anfassen. Abgewaehlte
+    # Seiten werden weder umgeblaettert noch gescannt -- das spart beim Grillen
+    # besonders viel, weil hier nach JEDEM Feuer neu gescannt wird.
+    allowed_pages = _inv_pages.roman_pages(
+        (cfg or {}).get('inventory', {}).get('pages'))
+
     try:
         wincap = WindowCapture(constants.GAME_NAME)
     except Exception as exc:
@@ -296,7 +303,7 @@ def run_campfire_grill(cfg, states, *, log_fn=None, db=None,
             return scan_inventory(
                 capture_fn=wincap.get_screenshot,
                 switch_page_fn=_switch,
-                db=db, calib=calib, pages=PAGES)
+                db=db, calib=calib, pages=allowed_pages)
         except Exception:
             return None
 

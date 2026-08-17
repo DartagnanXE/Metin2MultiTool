@@ -3,6 +3,79 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.6.11] — 2026-08-17
+
+### Der Goldene Thunfisch wird zu Ende geklickt
+
+Nach dem Fenster mit den drei Möglichkeiten (Freilassen / Aufschneiden / Als
+Köder benutzen) schickt der Server noch eine **Meldung, die mit OK bestätigt
+werden muss**. Die blieb stehen. Ein offener Dialog ist nicht bloß unschön: Der
+Bot klickt dann hinter das Fenster in die Landschaft, und die Figur läuft los.
+
+**Die Erkennung war nicht die Ursache.** Sie wurde nachgemessen und trifft den
+OK-Knopf auf allen drei Referenz-Meldungen sicher (0,80 / 0,81 / 1,00), während
+die stärkste Verwechslungsgefahr — das Optionsfenster selbst, offenes Inventar,
+normale Angel-Bilder — bei 0,57 liegt. Die Schwelle sitzt sauber dazwischen.
+
+Der Fehler lag in der **Reihenfolge innerhalb eines Bildes**: Die Fisch-Auswahl
+(Whitelist) wurde vor den Dialogen ausgewertet und verlässt bei einem Abbruch
+den ganzen Durchlauf. Stand in genau diesem Moment ein Dialog, wurde **kein
+einziger Klick gesendet** — weder auf die Option noch auf OK. Und Abbrüche sind
+häufig: Jede Niete bricht ab, im eingeschickten Log 56 % aller Würfe.
+
+Ab jetzt gilt: **Ein offenes Fenster hat Vorrang.** Es wird zuerst abgeräumt,
+und solange es steht, wird nicht geködert, geworfen oder abgebrochen — in ein
+offenes Fenster hinein lehnt das Spiel diese Aktionen ohnehin ab.
+
+Zwei weitere Lücken sind mitgeschlossen, weil sie zum selben Ergebnis führen:
+
+- **Das Zeitfenster war zu knapp.** Es zählte ab dem ersten Options-Bild und lief
+  nach 25 Sekunden ab. Kam die Antwort spät oder folgten mehrere Meldungen
+  aufeinander, war es zu, bevor die letzte kam. Jetzt sind es 45 Sekunden, und
+  begrenzt wird über die **Zahl der Klicks** (höchstens sechs je Vorgang) — so
+  darf eine Meldungskette in Ruhe durchlaufen, ein klebendes Fenster wird
+  trotzdem nicht endlos angeklickt.
+- **Wurde das Optionsfenster nie gesehen** — etwa weil der Spieler selbst
+  geklickt hat —, gab es gar kein Zeitfenster. Hängt der Bot jetzt 15 Sekunden
+  ohne Fortschritt, schaut er einmal von sich aus nach.
+
+Die Suche nach dem Knopf ist dabei **gedrosselt** worden. Sie kostet 4,7
+Millisekunden — das Achtzehnfache der Chat-Auswertung. Ungebremst wäre das rund
+ein Viertel der Rechenzeit pro Bild, solange ein Fenster offen ist; also genau
+die Bremse, die zuletzt zweimal bemängelt wurde. Fünf Suchen pro Sekunde
+genügen, denn zwischen zwei Klicks liegt ohnehin eine Sekunde Pause.
+
+Die Meldung aus dem Bericht („… ist dir der goldene Thunfisch entwischt …")
+liegt jetzt als Referenzbild bei, zusammen mit einem Test, der den ganzen Weg
+auf diesem echten Bild durchspielt.
+
+### Inventar-Seiten einzeln an- und abwählbar
+
+Neu unter **Einstellungen → Inventar → „Inventar-Seiten nutzen"**: vier Häkchen
+für die Seiten I bis IV. Wer nur die ersten beiden Seiten benutzt, hakt III und
+IV ab — und der Bot fasst sie ab sofort **nirgends** mehr an.
+
+Das gilt für alles, was mit dem Inventar zu tun hat: den Scan, das Grillen am
+Lagerfeuer, das Wegwerfen und das Köder-Nachlegen. Eine abgewählte Seite wird
+nicht einmal aufgeschlagen — kein Reiter-Klick, kein Bildschirmfoto, keine
+Erkennung.
+
+**Was das bringt:** Pro übersprungener Seite entfallen ein Reiter-Klick samt
+Wartezeit, ein Bildschirmfoto und 45 Slot-Vergleiche. Beim Lagerfeuer zählt das
+mehrfach, weil dort seit 1.6.9 nach jedem Feuer neu gescannt wird.
+
+**Zwei Dinge sind bewusst so gebaut:**
+
+- **Alle abwählen geht nicht.** Die Auswahl fällt dann auf alle vier zurück und
+  die Häkchen werden sichtbar wieder gesetzt. Ein Bot, der nirgends nachschaut,
+  fände nie etwas — das sähe wie ein Defekt aus.
+- **Der Köder wird auf gesperrten Seiten nicht gesucht.** Liegt der letzte Wurm
+  auf einer abgewählten Seite, gilt der Beutel als leer, statt heimlich doch
+  dort nachzusehen. „Nicht anfassen" heißt nicht anfassen.
+
+Der Energie-Splitter hatte diese Einstellung schon; beide Bot-Teile benutzen
+jetzt dieselbe Logik dafür, damit sie sich nicht auseinanderentwickeln.
+
 ## [1.6.10] — 2026-08-11
 
 ### Nach einem Abbruch wird sofort neu geködert — das Tempo von 1.6.5

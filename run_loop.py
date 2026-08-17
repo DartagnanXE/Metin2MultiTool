@@ -642,9 +642,20 @@ class RunLoop:
                 fish_cfg['bait_refill_enabled'])
             self.fishbot.bait_refill_db = self._bait_refill_db()
             self.fishbot.bait_refill_calib = None   # Engine-Default (DEFAULT_CALIBRATION)
-            self.fishbot.inventory_hotkey = (
-                self.controller.current_config()
-                .get('inventory', {}).get('hotkey', 'i'))
+            _inv_cfg = (self.controller.current_config()
+                        .get('inventory', {}) or {})
+            # Freigegebene Inventar-Seiten -> der Koeder-Nachschub blaettert
+            # abgewaehlte Seiten gar nicht erst um. Defensiv: schlaegt der
+            # Import fehl, bleibt das Klassen-Default None = alle vier Seiten;
+            # ein Bot, der deswegen nicht startet, waere die schlechtere
+            # Fehlerrichtung.
+            try:
+                from inventory.pages import roman_pages as _roman_pages
+                self.fishbot.bait_refill_pages = _roman_pages(
+                    _inv_cfg.get('pages'))
+            except Exception:
+                pass
+            self.fishbot.inventory_hotkey = _inv_cfg.get('hotkey', 'i')
             self.fishbot.on_bait_empty = self._on_bait_empty
             # Gemeinsames Stop-Signal injizieren: die schwere Refill-Op (Inventar
             # oeffnen/scannen/draggen) pollt es ueber interruptible-sleeps und

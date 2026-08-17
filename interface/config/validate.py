@@ -335,6 +335,10 @@ def validate(cfg):
             inventory.get('hotkey'), DEFAULTS['inventory']['hotkey'])
         inventory['auto_scan_after_fishing'] = bool(
             inventory.get('auto_scan_after_fishing', False))
+        # Freigegebene Seiten ueber denselben Validator wie beim Energiesplitter
+        # -> identische Semantik in beiden Bot-Teilen, inkl. Fail-safe auf alle
+        # vier bei leerer/kaputter Auswahl.
+        inventory['pages'] = _validate_inventory_pages(inventory.get('pages'))
         # Vektorisierte Erkennung ist jetzt der einzige (bit-identische) Pfad und
         # der UI-Schalter ist entfallen. MIGRATION: ein frueher gespeichertes
         # False wird stillschweigend auf True gehoben -- es war nie eine bewusste
@@ -476,10 +480,11 @@ def _validate_energiesplitter(value):
 def _validate_inventory_pages(value):
     """Freigegebene Inventar-Seiten -> sortierte int-Liste aus 1..4 (nie leer).
 
-    Delegiert an die reine Logik (energiesplitter.inventory_pages); leeres/
-    ungueltiges Ergebnis faellt fail-safe auf ALLE Seiten zurueck."""
+    Delegiert an die reine Logik (:mod:`inventory.pages` -- dieselbe Quelle, die
+    auch der Energiesplitter benutzt); leeres/ungueltiges Ergebnis faellt
+    fail-safe auf ALLE Seiten zurueck."""
     try:
-        from energiesplitter import inventory_pages as _ip
+        from inventory import pages as _ip
         return list(_ip.normalize_pages(value))
     except Exception:
         return [1, 2, 3, 4]

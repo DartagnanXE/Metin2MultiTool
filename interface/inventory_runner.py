@@ -44,6 +44,7 @@ import time
 from inventory import grid as grid_mod
 from inventory import scanner, report, hover
 from inventory import open_probe
+from inventory import pages as _inv_pages
 from inventory.diff import diff_maps
 from inventory.constants import (
     DEFAULT_CALIBRATION,
@@ -582,10 +583,15 @@ def run_inventory_scan(cfg, previous_map=None, *, log_fn=None, db=None,
         runner._last_image = img
         return img
 
+    # NUR die vom Nutzer freigegebenen Seiten erfassen. Abgewaehlte Seiten
+    # werden nicht angeklickt und nicht aufgenommen -- pro Seite spart das einen
+    # Reiter-Klick samt Settle, einen Screenshot und 45 Slot-Vergleiche.
+    allowed_pages = _inv_pages.roman_pages(
+        (cfg or {}).get('inventory', {}).get('pages'))
     captured = scanner.capture_pages(
         capture_fn,
         runner.switch_page,
-        pages=PAGES,
+        pages=allowed_pages,
         verify_page_fn=runner.verify,
     )
     # Hand the buffer to the runner so PHASE-2 can map an aligned frame back to
@@ -595,7 +601,7 @@ def run_inventory_scan(cfg, previous_map=None, *, log_fn=None, db=None,
     # Zur vorher aktiven Seite zurueckkehren (capture_pages endete auf Seite I).
     # Ein Klick + Park; non-fatal -- die Erkennung unten braucht nur den Buffer.
     try:
-        if prev_page and prev_page != PAGES[0]:
+        if prev_page and allowed_pages and prev_page != allowed_pages[0]:
             runner.switch_page(prev_page)
     except Exception:
         pass

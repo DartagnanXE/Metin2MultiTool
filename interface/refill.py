@@ -455,7 +455,7 @@ def tab_click(inp, calib, offset_x, offset_y, page, tag='refill'):
 
 def refill_from_inventory(item_names, target_xy, *, inp, wincap, db,
                           calib=DEFAULT_CALIBRATION, sleep=None,
-                          should_stop=None):
+                          should_stop=None, pages=None):
     """Scan the (already open) inventory + drag the first matching item to
     ``target_xy``. Returns ``'dragged'`` / ``'empty'`` / ``'error'`` / ``'stopped'``.
 
@@ -526,10 +526,15 @@ def refill_from_inventory(item_names, target_xy, *, inp, wincap, db,
                 aborted['stop'] = True
 
         def _scan():
+            # NUR die freigegebenen Seiten durchsuchen (``pages=None`` -> alle,
+            # damit Alt-Aufrufer unveraendert laufen). Eine abgewaehlte Seite
+            # wird nicht umgeblaettert -- liegt der letzte Koeder dort, gilt der
+            # Beutel bewusst als leer, statt heimlich doch dort zu suchen.
             return scan_inventory(
                 capture_fn=wincap.get_screenshot,
                 switch_page_fn=_switch_page,
-                db=db, calib=calib)
+                db=db, calib=calib,
+                pages=(tuple(pages) if pages else PAGE_ORDER))
 
         inv = _scan()
         if aborted['stop'] or stop():
@@ -747,7 +752,8 @@ def inventory_looks_open(frame, calib=DEFAULT_CALIBRATION):
 
 def box_refill_from_inventory(box_names, target_xy, *, inp, wincap,
                               open_toggle_fn=None, calib=DEFAULT_CALIBRATION,
-                              sleep=None, should_stop=None, max_open_tries=3):
+                              sleep=None, should_stop=None, max_open_tries=3,
+                              pages=None):
     """ROBUSTES Box-Nachlegen ohne die kaputte Tab-Template-Probe.
 
     Ablauf: (1) template-frei pruefen ob das Inventar offen ist
@@ -818,7 +824,10 @@ def box_refill_from_inventory(box_names, target_xy, *, inp, wincap,
             if not _napped(0.2):
                 aborted['stop'] = True
 
+        # ``pages=None`` -> alle vier (Alt-Aufrufer bleiben unveraendert);
+        # sonst nur die freigegebenen Seiten.
         loc = find_box_slot(wincap.get_screenshot, _switch_page, box_names,
+                            pages=(tuple(pages) if pages else PAGE_ORDER),
                             calib=calib,
                             should_stop=lambda: aborted['stop'] or stop())
         if aborted['stop'] or stop():
