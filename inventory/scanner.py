@@ -793,7 +793,8 @@ def _scan_one_page(page, capture_fn, switch_page_fn, hover_fn, verify_page_fn,
 
 def scan_inventory(capture_fn, switch_page_fn, db,
                    calib=DEFAULT_CALIBRATION, pages=PAGES,
-                   hover_fn=None, verify_page_fn=None, progress_fn=None):
+                   hover_fn=None, verify_page_fn=None, progress_fn=None,
+                   early_stop_fn=None):
     """Drive a full I->IV scan via injected callbacks; assemble an InventoryMap.
 
     For each page label the per-page steps (switch -> capture -> optional verify
@@ -818,6 +819,15 @@ def scan_inventory(capture_fn, switch_page_fn, db,
         show live per-page feedback instead of only a final summary. Defaults to
         ``None`` (no progress) and is wrapped defensively -- a raising callback
         never aborts the scan.
+    :param early_stop_fn: optional ``(page, results) -> bool`` asked AFTER each
+        page has been classified. ``True`` -> the remaining pages are neither
+        turned to nor scanned. Fuer SUCHENDE Aufrufer (Koeder-/Box-Nachlegen):
+        wer nur das ERSTE Vorkommen braucht, muss nicht alle vier Seiten
+        durchblaettern -- jede uebersprungene Seite spart einen Tab-Klick, eine
+        Settle-Pause und 45 Slot-Klassifikationen. Fuer die vollstaendige
+        Inventar-Anzeige bleibt es bei ``None`` (alle Seiten). Defensiv
+        gewickelt: eine werfende Rueckfrage bricht den Scan nie ab (-> weiter
+        scannen, also das bisherige Verhalten).
     :return: :class:`InventoryMap` keyed by the pages successfully scanned.
     """
     page_results = {}
@@ -833,5 +843,11 @@ def scan_inventory(capture_fn, switch_page_fn, db,
         if results is None:
             continue
         page_results[page] = results
+        if early_stop_fn is not None:
+            try:
+                if early_stop_fn(page, results):
+                    break
+            except Exception:
+                pass   # nie den Scan kippen -> im Zweifel weiter scannen
     _log('inventory.scan_done', pages=len(page_results))
     return InventoryMap(pages=page_results)

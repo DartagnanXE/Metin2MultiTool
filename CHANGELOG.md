@@ -3,6 +3,61 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.6.12] — 2026-08-18
+
+### Der OK-Knopf des Goldenen Thunfischs wird jetzt wirklich gedrückt
+
+Rückmeldung aus dem Spiel: *„Beim ersten Mal hat's geklappt, die letzten Male
+gar nicht mehr."* Genau dieses Muster — mal ja, mal nein — hatte **zwei
+voneinander unabhängige Ursachen**. Beide sind nachgemessen, nicht vermutet.
+
+**Erstens: ein fremdes Ereignis nahm dem Dialog seine Zeit.** Nach dem Klick auf
+eine der drei Möglichkeiten wartet der Bot in einem Zeitfenster auf die Antwort
+des Servers. Dieses Fenster hing an derselben Obergrenze, die auch die
+Sicherheits-Nachschau nach einem abgelaufenen Minispiel stellt — zu einem völlig
+anderen Zeitpunkt. Kam der Thunfisch kurz nach so einer Nachschau, hielt der Bot
+sein Fenster für „läuft schon" und kürzte es auf den Rest zusammen. Am echten
+Code nachgestellt: **statt zehn Sekunden blieben eine** — die Antwort des Servers
+kam eine Sekunde zu spät, und der OK-Knopf wurde nie gedrückt, obwohl der Dialog
+einwandfrei erkannt war. Das Fenster hängt jetzt an einer eigenen Marke: Der
+Klick auf die Optionen bekommt **immer** die volle Wartezeit.
+
+**Zweitens: eine Schwelle, die an der Landschaft hing.** Die Knopfleiste des
+Dialogs ist halbdurchsichtig — ihre Helligkeit richtet sich nach der Szene
+dahinter. Geprüft wurde bisher auf einen engen Helligkeitsbereich, abgelesen an
+drei Beispielbildern. Gemessen: Schon **45 Helligkeitsstufen mehr** — eine andere
+Angelstelle, eine andere Tageszeit — ließen **alle drei** Referenzbilder
+durchfallen. Perfekt erkannter Knopf, kein Klick. Der Bereich ist jetzt weit
+gefasst; die eigentliche Unterscheidung leistet ohnehin der Formvergleich (Treffer
+0,80–1,00 gegenüber 0,57 im stärksten Verwechslungsfall über alle 30 Testbilder).
+
+Dazu eine Kleinigkeit mit Wirkung: Ist das Klick-Budget einer Dialogkette
+aufgebraucht, wird die Episode jetzt **sauber beendet**, statt ein totes Fenster
+offen zu lassen. Das spart Suchaufwand — und erlaubt es der Sicherheits-Nachschau,
+es später noch einmal zu versuchen, falls doch eine Meldung stehen bleibt.
+
+### Köder nachlegen blättert nicht mehr durchs ganze Inventar
+
+Rückmeldung: *„Der Wurm liegt immer auf Seite 1, er geht aber jedes Mal durch
+alle Seiten — zieht etwas Zeit."* Stimmt. Gesucht wird das **erste** Vorkommen —
+sobald es gefunden ist, ändert keine weitere Seite das Ergebnis. Der Scan hört
+jetzt genau dort auf. Gemessen: **rund 1,7 Sekunden weniger pro Nachlegen**
+(0,35 s Bilderkennung und 0,2 s Umblätter-Pause je eingesparter Seite), dazu drei
+Mausklicks weniger.
+
+Wichtig: Das ist **keine Einstellung und kein Raten**. Liegt der Köder auf Seite
+III, wird bis Seite III geblättert; ist gar keiner mehr da, werden weiterhin alle
+Seiten geprüft, bevor der Bot „kein Köder mehr" meldet. Der gezogene Slot ist
+beweisbar derselbe wie vorher — Ausstiegs-Prüfung und Auswahl benutzen dieselbe
+Regel.
+
+### Was noch nicht geprüft ist
+
+Beide Fehler wurden am echten Code nachgestellt und mit Tests festgenagelt. **Im
+Spiel getestet ist nichts davon** — ob ein Klick im Client wirklich ankommt, lässt
+sich außerhalb des Spiels nicht feststellen. Der nächste Goldene Thunfisch ist
+die eigentliche Probe.
+
 ## [1.6.11] — 2026-08-17
 
 ### Der Goldene Thunfisch wird zu Ende geklickt

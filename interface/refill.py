@@ -114,6 +114,36 @@ def inventory_slot_screen(row, col, offset_x=0, offset_y=0,
     return (int(offset_x + x), int(offset_y + y))
 
 
+def slot_is_usable(slot, want):
+    """``True`` gdw. dieser Slot ein gesuchtes Item traegt, das der Bot ANFASSEN
+    darf: Zustand ``item``, Name in ``want`` und Match-Distanz innerhalb
+    :data:`REFILL_MAX_DISTANCE`.
+
+    Die EINE Akzeptanz-Regel, geteilt von :func:`find_first` (welcher Slot wird
+    gezogen) und :func:`page_holds` (darf der Scan hier aufhoeren). Rein, ohne
+    Logging/Seiteneffekt -- damit beide zwingend dasselbe entscheiden und der
+    Frueh-Ausstieg nie an einer Seite haelt, an der ``find_first`` dann doch
+    vorbeilaeuft."""
+    if getattr(slot, 'state', None) != 'item':
+        return False
+    if getattr(slot, 'name', None) not in want:
+        return False
+    dist = getattr(slot, 'distance', None)
+    return dist is None or dist <= REFILL_MAX_DISTANCE
+
+
+def page_holds(slots, names):
+    """``True``, wenn auf DIESER Seite ein anfassbares Item aus ``names`` liegt.
+
+    Der Frueh-Ausstiegs-Test des Scans (siehe
+    :func:`inventory.scanner.scan_inventory`, ``early_stop_fn``). Wirft nie."""
+    try:
+        want = set(names)
+        return any(slot_is_usable(s, want) for s in (slots or ()))
+    except Exception:
+        return False
+
+
 def find_first(inv, names, pages=PAGE_ORDER):
     """First slot holding one of ``names``, in PAGE order then row-major.
 
@@ -140,8 +170,7 @@ def find_first(inv, names, pages=PAGE_ORDER):
                 continue
             if getattr(s, 'name', None) not in want:
                 continue
-            dist = getattr(s, 'distance', None)
-            if dist is not None and dist > REFILL_MAX_DISTANCE:
+            if not slot_is_usable(s, want):
                 # Sichtbar verwerfen: sonst sieht der Nutzer nur "kein Koeder
                 # gefunden" und raetselt, obwohl ein Kandidat da war.
                 try:
@@ -150,7 +179,8 @@ def find_first(inv, names, pages=PAGE_ORDER):
                                'Seite {} R{}C{} {} Distanz {:.1f} > {:.1f}'
                                .format(page, getattr(s, 'row', '?'),
                                        getattr(s, 'col', '?'),
-                                       getattr(s, 'name', '?'), float(dist),
+                                       getattr(s, 'name', '?'),
+                                       float(getattr(s, 'distance', 0.0) or 0.0),
                                        float(REFILL_MAX_DISTANCE)))
                 except Exception:
                     pass
@@ -525,6 +555,27 @@ def refill_from_inventory(item_names, target_xy, *, inp, wincap, db,
             if not _napped(0.2):
                 aborted['stop'] = True
 
+        def _fertig_nach_seite(page, slots):
+            # FRUEH-AUSSTIEG (2026-08-18, User-Report "geht einmal durch alle
+            # Seiten, brauch er aber gar nicht"): Gesucht wird das ERSTE
+            # Vorkommen -- ``find_first`` laeuft die Seiten in genau dieser
+            # Reihenfolge ab und nimmt den ersten Treffer. Steht der schon auf
+            # dieser Seite, aendert keine weitere Seite das Ergebnis; sie kostet
+            # nur einen Tab-Klick, eine Settle-Pause und 45 Klassifikationen.
+            # Beide Seiten derselben Entscheidung nutzen dieselbe Regel
+            # (``slot_is_usable``), damit der Ausstieg nie an einer Seite haelt,
+            # an der ``find_first`` dann doch vorbeilaeuft.
+            if not page_holds(slots, item_names):
+                return False
+            try:
+                from debuglog import log as _dbg
+                _dbg.event('refill', 'Auf Seite {} gefunden -> restliche Seiten '
+                                     'werden nicht mehr durchgeblaettert'
+                                     .format(page))
+            except Exception:
+                pass
+            return True
+
         def _scan():
             # NUR die freigegebenen Seiten durchsuchen (``pages=None`` -> alle,
             # damit Alt-Aufrufer unveraendert laufen). Eine abgewaehlte Seite
@@ -534,7 +585,8 @@ def refill_from_inventory(item_names, target_xy, *, inp, wincap, db,
                 capture_fn=wincap.get_screenshot,
                 switch_page_fn=_switch_page,
                 db=db, calib=calib,
-                pages=(tuple(pages) if pages else PAGE_ORDER))
+                pages=(tuple(pages) if pages else PAGE_ORDER),
+                early_stop_fn=_fertig_nach_seite)
 
         inv = _scan()
         if aborted['stop'] or stop():

@@ -236,6 +236,29 @@ class FishingBot(FishingDetectMixin):
     # unabhaengig davon, wie lange sie schon dauert. So darf die Zeitgrenze
     # grosszuegig sein, ohne dass ein klebender Dialog endlos angeklickt wird.
     GOLDEN_CONFIRM_MAX_CLICKS = 6
+
+    # Ab welcher Pause ohne Optionsfenster ein WIEDERAUFTAUCHEN als NEUE Episode
+    # gilt (Sekunden). Nur an dieser steigenden Flanke werden harte Deadline und
+    # Klick-Zaehler gesetzt.
+    #
+    # WARUM eine eigene Flanken-Marke (v1.6.12, User-Report 2026-08-18 "beim
+    # ersten Mal hats geklappt, jetzt gar nicht mehr"): Bis v1.6.11 galt
+    # ``now >= _golden_confirm_hard`` als Flanke. Diese Deadline setzt aber AUCH
+    # das Sicherheitsnetz im Minispiel-Timeout (``_arm_golden_confirm_watch``,
+    # 45 s) -- und zwar zu einem voellig unabhaengigen Zeitpunkt. Kam der Goldene
+    # Thunfisch INNERHALB dieser 45 s, galt seine Flanke als "laeuft schon", die
+    # Deadline blieb am Timeout verankert und das Klick-Fenster wurde per
+    # ``min(now+10, _hard)`` auf den Rest zusammengestrichen.
+    #
+    # Am echten Code nachgestellt (2026-08-18): Timeout bei t=0, Optionsfenster
+    # bei t=44 -> Fenster nur 1,0 s statt 10 s; die Server-Antwort kam bei t=46
+    # und der OK-Knopf wurde NIE gedrueckt, obwohl der Dialog erkannt wurde.
+    # Genau das Muster des Reports: mal geht es, mal nicht -- je nachdem, ob
+    # kurz vorher ein Minispiel-Timeout lief. Mit eigener Flanken-Marke bekommt
+    # der Options-Klick IMMER das volle Fenster, waehrend ein DAUERHAFT
+    # klebendes Optionsfenster die Deadline weiterhin nicht verlaengern kann
+    # (die Luecke wird dann nie ueberschritten).
+    GOLDEN_EPISODE_GAP_S = 2.0
     # Mindestabstand zwischen zwei OK-Klicks. Der Server tauscht Dialog 1 -> 2
     # nicht instant; ohne Cooldown wuerde der Loop 60x/s auf denselben Dialog
     # klicken und im Moment des Schliessens einmal in die Welt treffen.
@@ -351,6 +374,9 @@ class FishingBot(FishingDetectMixin):
     # (Drosselung: GOLDEN_CONFIRM_SCAN_INTERVAL_S).
     _golden_confirm_clicks = 0
     _golden_last_scan = 0.0
+    # Zeitpunkt des letzten Frames MIT Optionsfenster -- die Flanken-Marke einer
+    # Episode (siehe GOLDEN_EPISODE_GAP_S). 0.0 = noch nie gesehen.
+    _golden_daily_seen = 0.0
 
     # Angel-Whitelist (opt-in). Default AUS -> angelt ALLES -> byte-stabil.
     #   * whitelist_enabled: nur True schaltet die Pruefung scharf.
@@ -604,7 +630,17 @@ class FishingBot(FishingDetectMixin):
         # jeden Frame neu) -- sonst haelt ein klebender daily-Zustand (dauerhaft
         # schwarze Ecke) den Backstop endlos am Leben. Dieselbe Flanke setzt den
         # Klick-Zaehler zurueck: er begrenzt GENAU EINE Episode.
-        if now >= getattr(self, '_golden_confirm_hard', 0.0):
+        #
+        # Die Flanke haengt an einer EIGENEN Marke (``_golden_daily_seen``), nicht
+        # mehr an ``_golden_confirm_hard``: jene Deadline setzt auch das
+        # Sicherheitsnetz im Minispiel-Timeout, und deren Rest hat dem
+        # Options-Klick frueher das Fenster weggenommen (siehe
+        # GOLDEN_EPISODE_GAP_S -- am echten Code nachgestellt: 1,0 s statt 10 s,
+        # OK-Knopf nie gedrueckt).
+        neue_episode = (now - getattr(self, '_golden_daily_seen', 0.0)
+                        > self.GOLDEN_EPISODE_GAP_S)
+        self._golden_daily_seen = now
+        if neue_episode:
             self._golden_confirm_hard = now + self.GOLDEN_CONFIRM_MAX_S
             self._golden_confirm_clicks = 0
         self._golden_confirm_until = min(now + self.GOLDEN_CONFIRM_WAIT_S,
@@ -660,6 +696,16 @@ class FishingBot(FishingDetectMixin):
             self._golden_confirm_until = min(
                 now + self.GOLDEN_CONFIRM_WAIT_S,
                 getattr(self, '_golden_confirm_hard', now))
+            # Budget aufgebraucht -> die Episode SOFORT schliessen, statt das
+            # Fenster tot offen stehen zu lassen. Zwei Gruende: die gedrosselte
+            # Vollbild-Suche (4,7 ms) liefe sonst noch Sekunden weiter, ohne dass
+            # ein Klick folgen darf -- und das Sicherheitsnetz im Minispiel-
+            # Timeout haelt sich an ein offenes Fenster ("laeuft schon") und
+            # koennte deshalb keinen frischen Versuch aufziehen. Klebt der Dialog
+            # wirklich, ist ein spaeterer neuer Anlauf die richtige Richtung:
+            # aufgeben hiesse, fuer immer hinter dem Dialog zu haengen.
+            if self._golden_confirm_clicks >= self.GOLDEN_CONFIRM_MAX_CLICKS:
+                self._golden_confirm_until = 0.0
             if now - getattr(self, '_last_confirm_log', 0) > 3:
                 self._last_confirm_log = now
                 _flog(self.state, t('fishing.golden_tuna_confirmed',

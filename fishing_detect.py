@@ -45,12 +45,23 @@ from respath import resource_path
 #     nach dem Options-Klick.
 #   * Leisten-Check: der Knopf sitzt auf einer breiten, FLACHEN Grau-Leiste;
 #     beide Flanken (links/rechts vom Fund) muessen flach sein (std <= 12)
-#     mit plausibler Helligkeit (mean 50..110 -- die Dialog-Transparenz
-#     dimmt die Leiste je Szene: gemessen 65..85). Killt zufaellige
-#     Texture-Treffer in unbekannten Szenen.
+#     und duerfen weder schwarzes Loch noch ausgebrannte Flaeche sein.
+#
+# HELLIGKEITS-FENSTER BEWUSST WEIT (v1.6.12, 2026-08-18). Es stand auf
+# 50..110 -- kalibriert an den drei Referenzen (gemessen 65,7 / 79,3 / 84,7).
+# Das ist genau der Fehler, den dieses Projekt schon einmal teuer bezahlt hat:
+# eine Schwelle an Stichproben statt an der Sache. Die Leiste ist
+# HALBTRANSPARENT, ihre Helligkeit folgt also der Szene DAHINTER; an einer
+# helleren Angelstelle waeren die 110 gerissen und der OK-Knopf waere -- bei
+# perfekter Erkennung des Knopfes selbst -- ohne Klick geblieben. Genau die
+# Beschwerde des Testers ("drueckt nicht mehr drauf"). Die eigentliche
+# Unterscheidung leistet ohnehin die NCC-Schwelle (Positive 0,80/0,81/1,00
+# gegen staerkstes Negativ 0,57 ueber alle 30 Referenzbilder) plus die
+# Flachheit (Positive std <= 3,3 gegen Negative >= 8,7). Das Fenster soll nur
+# noch "schwarzes Nichts" und "ausgebrannt weiss" ausschliessen.
 GOLDEN_OK_TEMPLATE = 'images/golden_ok_knob.png'
 GOLDEN_OK_NCC_MIN = 0.70
-GOLDEN_OK_BAR_MEAN = (50.0, 110.0)
+GOLDEN_OK_BAR_MEAN = (20.0, 200.0)
 GOLDEN_OK_BAR_STD_MAX = 12.0
 
 _golden_ok_cache = None
