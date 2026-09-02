@@ -377,6 +377,10 @@ class FishingBot(FishingDetectMixin):
     # Zeitpunkt des letzten Frames MIT Optionsfenster -- die Flanken-Marke einer
     # Episode (siehe GOLDEN_EPISODE_GAP_S). 0.0 = noch nie gesehen.
     _golden_daily_seen = 0.0
+    # True ab einem Options-Klick bis zum ersten OK-Klick: dann WIRD eine
+    # Bestaetigung erwartet. Laeuft das Fenster ohne Klick ab, gibt es genau
+    # EINE Diagnosezeile mit allen Teilwerten der Erkennung.
+    _golden_expect_confirm = False
 
     # Angel-Whitelist (opt-in). Default AUS -> angelt ALLES -> byte-stabil.
     #   * whitelist_enabled: nur True schaltet die Pruefung scharf.
@@ -590,11 +594,28 @@ class FishingBot(FishingDetectMixin):
                 return True
             if time() < getattr(self, '_golden_confirm_until', 0.0):
                 return self._click_golden_confirm(screenshot)
+            # Fenster abgelaufen, aber eine Bestaetigung war ERWARTET (Options-
+            # Klick ohne folgenden OK-Klick): genau eine Diagnosezeile mit allen
+            # Teilwerten. Damit unterscheidet der naechste Report "nicht
+            # erkannt" von "geklickt, aber nicht angenommen" -- bis v1.6.12
+            # blieb dieser Fall im Log unsichtbar (User-Log 2026-09-02).
+            if getattr(self, '_golden_expect_confirm', False):
+                self._golden_expect_confirm = False
+                self._log_golden_confirm_missed(screenshot)
             # Ausserhalb jeder Episode: die Weltklick-Sperre entscheidet, ob
             # gerade noch ein Modal nachwirkt (Grace nach echter Evidenz).
             return time() < getattr(self, '_golden_suppress_until', 0.0)
         except Exception:
             return False
+
+    def _log_golden_confirm_missed(self, screenshot):
+        """Eine Zeile: erwarteter OK-Dialog nicht gefunden + Teilwerte. Wirft nie."""
+        try:
+            werte = self.golden_confirm_diag(screenshot)
+            _flog(self.state, t('fishing.golden_confirm_missed'),
+                  **{k: str(v) for k, v in sorted(werte.items())})
+        except Exception:
+            pass
 
     def _arm_golden_confirm_watch(self):
         """Oeffnet ein Such-Fenster fuer den Bestaetigungs-Dialog OHNE Options-Klick.
@@ -621,6 +642,7 @@ class FishingBot(FishingDetectMixin):
         mouse_x = int(ox + self.GOLDEN_TUNA_X)
         mouse_y = int(oy + self.GOLDEN_TUNA_Y[field])
         _input.click(mouse_x, mouse_y, tag='daily')
+        self._golden_expect_confirm = True
         # Bestaetigungs-Fenster SCHARF schalten statt blind zu klicken: es kommt
         # erst mit der Server-Antwort (der alte Sofort-Klick feuerte vorher ins
         # Leere -> Dialog blieb offen). _until = pro-Dialog-Fenster (wird bei
@@ -689,6 +711,7 @@ class FishingBot(FishingDetectMixin):
             ok_x = int(ox + point[0])
             ok_y = int(oy + point[1])
             _input.click(ok_x, ok_y, tag='confirm')
+            self._golden_expect_confirm = False
             self._last_confirm_click = now
             self._golden_confirm_clicks = (
                 getattr(self, '_golden_confirm_clicks', 0) + 1)
@@ -1499,6 +1522,16 @@ class FishingBot(FishingDetectMixin):
                 and self._apply_whitelist(screenshot):
             return crop_img
 
+        # Solange ein Dialog steht (oder gerade eben stand: Grace), macht der
+        # Angel-Automat PAUSE. User-Log 2026-09-02, 13:25:46: Options-Klick,
+        # und in DERSELBEN Sekunde "Bait set" und "Cast out" -- der Bot angelte
+        # in den offenen Dialog hinein, der Wurf lief ins Leere, und die 5-s-
+        # Runden ("No bite") liefen weiter, waehrend der Dialog stehen blieb.
+        # Die Sperre haengt an echter Evidenz + 3 s Grace, nicht am Suchfenster
+        # -- ein Fehlalarm kostet also hoechstens 3 s Angeln.
+        if golden_modal:
+            return crop_img
+
         # Verify total time
 
         if self.end_time_enable and time() - self.initial_time > self.end_time:
@@ -1606,6 +1639,14 @@ class FishingBot(FishingDetectMixin):
                             self.mount_key))
                 else:
                     _flog(0, t('fishing.no_bite'))
+                    # SICHERHEITSNETZ, zweite Stelle (v1.6.13). Das Netz im
+                    # 15-s-Timeout unten greift praktisch nie: steht ein Dialog,
+                    # erscheint kein Minispiel, und DIESER Zweig feuert schon
+                    # nach 5 s (User-Log 2026-09-02: "No bite" alle 6 s, waehrend
+                    # der OK-Dialog stand). Kosten: ein 10-s-Suchfenster mit der
+                    # gedrosselten, unter 1 ms teuren Suche -- nur, wenn gerade
+                    # keins offen ist.
+                    self._arm_golden_confirm_watch()
                 self._on_cycle_end()
 
         # make the click

@@ -40,13 +40,19 @@ from tests.test_golden_modal_priority import (_Clock, _client_bgr, _make_bot,
 
 _POSITIVE = ('GoldenThunfischBuffBestaetigen.png',
              'GoldenerThunfischAuswahlbestätigen.png',
-             'GoldenerThunfischEntwischtBestaetigen.png')
+             'GoldenerThunfischEntwischtBestaetigen.png',
+             # Nutzer-Report 2026-09-02: Gildenname ueber dem OK (Bonus) und
+             # die Entwischt-Meldung desselben Laufs -- beides echte Dialoge.
+             'GoldenerThunfischBonus_user2.png',
+             'GoldenerThunfischEntwischtNass_user2.png')
 
 # Erwartete Knopf-Mitte je Referenz (Client-Koordinaten) -- der Dialog WANDERT,
 # seine Hoehe haengt am Meldungstext.
 _PUNKT = {'GoldenThunfischBuffBestaetigen.png': (403, 202),
           'GoldenerThunfischAuswahlbestätigen.png': (403, 250),
-          'GoldenerThunfischEntwischtBestaetigen.png': (403, 266)}
+          'GoldenerThunfischEntwischtBestaetigen.png': (403, 266),
+          'GoldenerThunfischBonus_user2.png': (403, 250),
+          'GoldenerThunfischEntwischtNass_user2.png': (403, 266)}
 
 
 class _Fenster(unittest.TestCase):
@@ -220,8 +226,13 @@ class TestErkennungUeberlebtDieSzene(unittest.TestCase):
                 with self.subTest(shot=name, szene=label):
                     found, _score, point = fd.golden_confirm_find(variante)
                     self.assertTrue(found, 'nicht erkannt')
-                    self.assertEqual(point, _PUNKT[name],
-                                     'Klickpunkt gewandert')
+                    # Seit v1.6.13 ist der Klick an der Leisten-Geometrie
+                    # verankert, nicht am OK-Text: bis 3 px Versatz auf der
+                    # 20 px hohen Leiste sind derselbe Knopf.
+                    ex = _PUNKT[name]
+                    self.assertLessEqual(
+                        abs(point[0] - ex[0]) + abs(point[1] - ex[1]), 6,
+                        'Klickpunkt %s nicht auf dem Knopf um %s' % (point, ex))
 
     def test_weiteres_fenster_erzeugt_keine_neuen_fehltreffer(self):
         """Gegenprobe: kein Nicht-Dialog darf jetzt als Dialog gelten."""

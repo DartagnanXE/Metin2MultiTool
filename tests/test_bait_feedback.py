@@ -499,6 +499,9 @@ class TestTooltipObstruction(unittest.TestCase):
         # Dialograhmen laeuft quer ueber die Chat-Zeile -- gemessener
         # Tintenlauf 68 px gegen die Grenze von 12.
         'GoldenerThunfischEntwischtBestaetigen.png',
+        # Derselbe Dialog aus dem Nutzer-Report 2026-09-02 -- der Rahmen
+        # kreuzt die Chat-Zeile genauso (Bild in diesem Bereich identisch).
+        'GoldenerThunfischEntwischtNass_user2.png',
     )
 
     @unittest.skipUnless(_HAS_DEPS, 'numpy/PIL fehlen')

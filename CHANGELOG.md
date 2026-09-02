@@ -3,6 +3,66 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.6.13] — 2026-09-02
+
+### Thunfisch-Bestätigung: der OK-Knopf wird auch unter einem Namensschild gefunden
+
+Ein Nutzer schickte Log und Screenshots: Der Bot klickt das Optionsfenster,
+danach kommt **keine einzige** „Bestätigen-OK"-Zeile, der Dialog bleibt stehen.
+Am Screenshot nachgemessen: Der OK-Knopf selbst erreicht nur **0,68 statt der
+nötigen 0,70** — der **Gildenname der eigenen Figur** steht in Pink quer über
+dem „OK". Die Figur steht mittig im Bild, der Dialog ist halbdurchsichtig, und
+das Spiel zeichnet Namensschilder darüber. Ob das passiert, hängt von Kamera und
+Standort ab. Genau deshalb: mal ja, mal nein.
+
+**Drei Erkennungswege statt einem.** Was ein Namensschild nie erreicht, sind die
+**Enden der 280 px breiten Knopfleiste** — sie werden jetzt zuerst gesucht, an
+fester Lage, beide müssen auf gleicher Höhe tragen. Auf allen fünf bekannten
+Dialogen ≥ 0,775, im stärksten Verwechslungsfall 0,60 bei 13 px Höhenversatz.
+Als zweiter Weg die **feste Geometrie** auf Wunsch des Nutzers: Der
+Dialograhmen steht immer an derselben Stelle (linke Kante bei x 49–53, obere bei
+y 149), nur die Leiste wandert mit der Textlänge. Steht der Rahmen, wird die
+Leiste als hellste flache Zeile in den schildfreien Spalten gefunden und auf
+(400, y) geklickt — ohne jede Bildvorlage. Der bisherige Knopf-Vergleich bleibt
+als dritter Weg, jetzt auf den Mittelstreifen begrenzt. Zusammen 2,3 ms statt
+4,7 ms je Suche. Das Optionsfenster mit seinem gleichen Rahmen wird sauber
+ausgeschlossen (schwarze Bildecke).
+
+Rein blinde Klicks ohne Rahmenprüfung gibt es bewusst nicht: Solange die
+Server-Antwort noch aussteht, träfe ein fester Klick die Welt und die Figur
+liefe los.
+
+### Der Bot angelt nicht mehr in den offenen Dialog hinein
+
+Zweiter Befund aus dem Log: In derselben Sekunde wie der Options-Klick standen
+„Bait set" und „Cast out". Der Angel-Automat lief weiter, warf ins Leere, und
+alle sechs Sekunden folgte „Kein Biss", während der Dialog stand. Jetzt
+**pausiert der Automat, solange ein Dialog steht** — gebunden an echte Evidenz
+plus drei Sekunden Nachlauf, nicht an das Suchfenster. Ein Fehlalarm kostet
+also höchstens drei Sekunden.
+
+### Das Sicherheitsnetz hängt jetzt am richtigen Zweig
+
+Das Netz gegen einen übersehenen Dialog saß bisher am 15-Sekunden-Timeout des
+Minispiels. Steht ein Dialog, erscheint aber gar kein Minispiel, und der
+5-Sekunden-Zweig „Kein Biss" feuert zuerst — das Netz griff praktisch nie.
+Es hängt jetzt zusätzlich dort.
+
+### Eine Diagnosezeile, wenn der Dialog erwartet wurde und fehlt
+
+Bis jetzt hinterließ genau dieser Fall **keine Spur im Log**; man konnte „nicht
+erkannt" nicht von „geklickt, aber nicht angenommen" unterscheiden. Läuft das
+Suchfenster nach einem Options-Klick ohne OK-Klick ab, steht jetzt eine Zeile
+mit allen Teilwerten der Erkennung (Knopf, beide Enden, Rahmen, Leiste). Genau
+eine, nicht viele — Fenster des Sicherheitsnetzes ohne Erwartung bleiben still.
+
+### Was noch nicht geprüft ist
+
+Alles am echten Code und an den echten Screenshots nachgestellt, 17 neue Tests,
+Suite grün. **Im Spiel getestet ist nichts davon.** Der nächste Goldene
+Thunfisch ist die Probe; bleibt der Dialog wieder stehen, steht diesmal die
+Diagnosezeile im Log.
+
 ## [1.6.12] — 2026-08-18
 
 ### Der OK-Knopf des Goldenen Thunfischs wird jetzt wirklich gedrückt

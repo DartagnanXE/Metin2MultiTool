@@ -90,7 +90,8 @@ class TestGoldenConfirmOnRealShots(unittest.TestCase):
         found, score, point = fd.golden_confirm_find(
             _load_client_bgr(_SHOTS['confirm']))
         self.assertTrue(found)
-        self.assertEqual(point, (403, 250))
+        self.assertLessEqual(abs(point[0] - 403) + abs(point[1] - 250), 6,
+                             'Klickpunkt %s nicht auf dem Knopf um (403, 250)' % (point,))
 
     def test_buff_variant_detected_at_shifted_point(self):
         # Der Dialog steht NICHT fest: die Buff-Variante sitzt ~48px hoeher --
@@ -112,14 +113,17 @@ class TestGoldenConfirmOnRealShots(unittest.TestCase):
             _load_client_bgr(_SHOTS['fishing'])))
 
     def test_shift_tolerance(self):
-        # Versatz (Session-Drift) ist trivial: die Suche laeuft ueber den
-        # ganzen Frame -- der Fundpunkt wandert einfach mit.
+        # Kleiner Versatz (Session-Drift) darf die Erkennung nicht kippen. Seit
+        # v1.6.13 sitzt der Klick auf der 280 px breiten LEISTE (feste x-Lage,
+        # y folgt dem Fund) -- ein Versatz von 2 px verschiebt den Fund in y
+        # mit und laesst x auf der Leiste.
         frame = _load_client_bgr(_SHOTS['confirm'])
         shifted = np.zeros_like(frame)
         shifted[2:, :-2] = frame[:-2, 2:]
         found, _score, point = fd.golden_confirm_find(shifted)
         self.assertTrue(found)
-        self.assertEqual(point, (403 - 2, 250 + 2))
+        self.assertLessEqual(abs(point[1] - (250 + 2)), 4, point)
+        self.assertLessEqual(abs(point[0] - (403 - 2)), 8, point)
 
 
 if __name__ == '__main__':

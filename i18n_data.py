@@ -118,6 +118,7 @@ TRANSLATIONS = {
     'fishing.game_window_not_found': {'en': 'ERROR: Game window not found/invalid', 'de': 'FEHLER: Spielfenster nicht gefunden/ungültig'},
     'fishing.golden_tuna_clicked': {'en': 'Golden tuna dialog -> clicked field {field} at ({x}, {y})', 'de': 'Goldener-Thunfisch-Dialog -> Feld {field} geklickt bei ({x}, {y})'},
     'fishing.golden_tuna_confirmed': {'en': 'Golden tuna dialog -> confirm OK at ({x}, {y})', 'de': 'Goldener-Thunfisch-Dialog -> Bestätigen-OK bei ({x}, {y})'},
+    'fishing.golden_confirm_missed': {'en': 'Golden tuna: confirm dialog EXPECTED but not found within the window (no OK click sent) - detection values follow', 'de': 'Goldener Thunfisch: Bestätigungs-Dialog ERWARTET, aber im Suchfenster nicht gefunden (kein OK-Klick gesendet) - Erkennungswerte folgen'},
     'fishing.whitelist_abort': {'en': 'Whitelist: unwanted catch ({name}) -> aborting minigame ({how}) and recasting', 'de': 'Whitelist: unerwünschter Fang ({name}) -> Minispiel abgebrochen ({how}) und neu auswerfen'},
     'fishing.whitelist_abort_niete': {'en': 'Whitelist: nibble / no catch -> aborting minigame ({how}) and recasting', 'de': 'Whitelist: Niete / kein Fang -> Minispiel abgebrochen ({how}) und neu auswerfen'},
     'fishing.whitelist_keep': {'en': 'Whitelist: wanted catch ({name}) -> fishing on', 'de': 'Whitelist: gewünschter Fang ({name}) -> weiter angeln'},

@@ -64,7 +64,73 @@ GOLDEN_OK_NCC_MIN = 0.70
 GOLDEN_OK_BAR_MEAN = (20.0, 200.0)
 GOLDEN_OK_BAR_STD_MAX = 12.0
 
+# -- Zweiter Pfad: die ENDEN der OK-Leiste (v1.6.13, User-Log 2026-09-02) ----
+#
+# Der Fall aus dem Log: Options-Klick 13:25:46, danach in 10 s KEIN OK-Klick,
+# obwohl der Dialog stand. Am Screenshot gemessen: der OK-Knopf selbst kommt nur
+# auf 0,68 -- unter der Schwelle -- weil der GILDENNAME der eigenen Figur in Pink
+# quer ueber dem "OK" steht. Die Figur steht mittig im Bild, der Dialog ist
+# halbtransparent, und der Client zeichnet Namensschilder UEBER den Dialog.
+# Ob das passiert, haengt von Kamera und Standort ab -- genau das Muster "mal
+# geht es, mal nicht".
+#
+# Was ein Namensschild NICHT erreicht, sind die ENDEN der Leiste: sie ist
+# 280 px breit (Client x 260..539), Schilder sind ~150 px und haengen mittig an
+# der Figur. Der Dialog-Rahmen steht ausserdem FEST (Client x 49..748, y ab 149;
+# alle fuenf Referenzen identisch) -- nur die Leiste wandert in y mit der
+# Textlaenge. Darum werden beide Enden per Template in SCHMALEN Spalten an
+# fester x-Lage gesucht; ein Treffer braucht BEIDE Enden auf gleicher Hoehe.
+#
+# GEMESSEN (fuenf Dialoge, 25 Negative): schwaechstes Positiv 0,775 (beide
+# Enden, |dy| <= 4), staerkstes Negativ 0,598 bei |dy| = 13 -- zwei getrennte
+# Luecken. Kosten 0,15 ms je Frame gegen 4,7 ms der Vollbild-Suche. Helligkeit
+# der Szene (+45, x1,5, -35) aendert die Werte um < 0,003.
+#
+# Der Knopf-Pfad bleibt als Rueckfall bestehen, jetzt auf den Mittelstreifen
+# des festen Dialogs begrenzt (der Knopf sitzt in allen Referenzen bei x 403).
+GOLDEN_OK_END_LEFT_TEMPLATE = 'images/golden_ok_end_left.png'
+GOLDEN_OK_END_RIGHT_TEMPLATE = 'images/golden_ok_end_right.png'
+GOLDEN_BAR_LEFT_X = 260       # Client-x des linken Leistenanfangs
+GOLDEN_BAR_RIGHT_X = 539      # Client-x des rechten Leistenendes
+GOLDEN_BAR_END_ANCHOR = (6, 17)   # Spalte im Template, die auf LEFT_X/RIGHT_X liegt
+GOLDEN_BAR_END_DX = 8         # Suchspielraum in x je Seite (px)
+GOLDEN_BAR_END_NCC_MIN = 0.70
+GOLDEN_BAR_END_DY_MAX = 6     # beide Enden auf (fast) gleicher Hoehe
+GOLDEN_PANEL_Y = (160, 445)   # y-Bereich des festen Dialog-Rahmens (Client)
+GOLDEN_OK_X = 403             # Client-x der Knopf-Mitte (alle Referenzen)
+GOLDEN_OK_X_HALF = 73         # halbe Breite des Mittelstreifens fuer den Knopf
+
+# -- Dritter Pfad: FESTE GEOMETRIE (v1.6.13, auf Wunsch des Nutzers) ----------
+#
+# "Wenn die Bilder nicht gut erkennbar sind, mach die festen Koordinaten
+# besser." Der Dialog-Rahmen steht fest, also laesst sich der Knopf auch OHNE
+# Template finden: (1) der Rahmen ist da -- eine helle senkrechte Linie bei
+# Client-x 49..53 und eine helle waagerechte bei y 149..153; (2) die OK-Leiste
+# ist die hellste FLACHE Zeile in den beiden Spalten links und rechts der Mitte
+# (x 270..340 und 460..530), wo nie ein Namensschild haengt. Geklickt wird
+# (400, y) -- die Leiste ist 280 px breit, jeder Punkt darauf ist der Knopf.
+#
+# WARUM NICHT BLIND: ohne den Rahmen-Check traefe ein fester Klick die Welt,
+# solange die Server-Antwort noch nicht da ist -- die Figur liefe los (Report
+# 2026-07-22). Der Rahmen ist die billigste harte Evidenz dafuer, dass ein
+# Dialog wirklich steht.
+#
+# GEMESSEN (fuenf Dialoge, 25 Negative): Rahmen-Kontrast links 41,6..55,1 /
+# oben 37,1..55,5 gegen hoechstens 1,6 / 2,7 ohne Dialog. Leiste: Kontrast
+# 19,7..41,9 bei std <= 9,7; ohne Dialog entweder texturiert (std >= 49) oder
+# kontrastarm (<= 8,9). Das Optionsfenster traegt denselben Rahmen -- es wird
+# davor ueber die schwarze Ecke (detect_daily_reward) behandelt.
+GOLDEN_FRAME_LEFT_X = (47, 56)       # Suchbereich der linken Rahmenlinie
+GOLDEN_FRAME_TOP_Y = (147, 156)      # Suchbereich der oberen Rahmenlinie
+GOLDEN_FRAME_MIN = 15.0              # Mindest-Kontrast je Rahmenlinie
+GOLDEN_BAND_COLS = ((270, 340), (460, 530))   # schildfreie Spalten
+GOLDEN_BAND_Y = (175, 425)           # y-Suchbereich der Leistenmitte
+GOLDEN_BAND_MIN_CONTRAST = 12.0
+GOLDEN_BAND_MAX_STD = 14.0
+GOLDEN_BAR_CENTER_X = 400            # Klick-x auf der Leiste
+
 _golden_ok_cache = None
+_golden_end_cache = None
 
 
 def _golden_ok_template():
@@ -81,32 +147,205 @@ def _golden_ok_template():
     return _golden_ok_cache
 
 
+def _golden_end_templates():
+    """Die beiden Enden-Templates als Graustufen (gecacht, soft). None = aus."""
+    global _golden_end_cache
+    if _golden_end_cache is not None:
+        return _golden_end_cache
+    if np is None:
+        return None
+    left = cv.imread(resource_path(GOLDEN_OK_END_LEFT_TEMPLATE),
+                     cv.IMREAD_GRAYSCALE)
+    right = cv.imread(resource_path(GOLDEN_OK_END_RIGHT_TEMPLATE),
+                      cv.IMREAD_GRAYSCALE)
+    if left is None or right is None:
+        return None
+    _golden_end_cache = (left, right)
+    return _golden_end_cache
+
+
+def _match_end(gray, tmpl, anchor_x, anchor_col):
+    """Ein Leistenende in seiner schmalen Spalte suchen -> ``(score, y_mitte)``.
+
+    ``anchor_x`` ist die Client-Spalte, auf der ``anchor_col`` des Templates
+    liegen muss; gesucht wird +-GOLDEN_BAR_END_DX in x und ueber den ganzen
+    Dialog-Rahmen in y. ``(0.0, None)`` wenn der Ausschnitt nicht ins Bild passt.
+    """
+    th, tw = tmpl.shape[0], tmpl.shape[1]
+    x0 = anchor_x - anchor_col - GOLDEN_BAR_END_DX
+    x1 = anchor_x - anchor_col + tw + GOLDEN_BAR_END_DX
+    y0, y1 = GOLDEN_PANEL_Y
+    if x0 < 0 or y0 < 0 or x1 > gray.shape[1] or y1 > gray.shape[0]:
+        return (0.0, None)
+    col = gray[y0:y1, x0:x1]
+    if col.shape[0] <= th or col.shape[1] <= tw:
+        return (0.0, None)
+    res = cv.matchTemplate(col, tmpl, cv.TM_CCOEFF_NORMED)
+    _mn, score, _mnl, loc = cv.minMaxLoc(res)
+    return (float(score), int(y0 + loc[1] + th // 2))
+
+
+def golden_bar_ends_find(gray):
+    """Beide Enden der OK-Leiste -> ``(found, score, point, detail)``.
+
+    ``score`` ist das SCHWAECHERE der beiden Enden (beide muessen tragen),
+    ``point`` die Klick-Mitte ``(GOLDEN_OK_X, y)`` in Client-Koordinaten,
+    ``detail`` ein Dict mit ``links``/``rechts``/``dy`` fuer die Diagnose.
+    Rein, wirft nie; fehlende Templates -> ``(False, 0.0, None, {})``.
+    """
+    tm = _golden_end_templates()
+    if tm is None or gray is None:
+        return (False, 0.0, None, {})
+    try:
+        s_l, y_l = _match_end(gray, tm[0], GOLDEN_BAR_LEFT_X,
+                              GOLDEN_BAR_END_ANCHOR[0])
+        s_r, y_r = _match_end(gray, tm[1], GOLDEN_BAR_RIGHT_X,
+                              GOLDEN_BAR_END_ANCHOR[1])
+        score = min(s_l, s_r)
+        detail = {'links': round(s_l, 3), 'rechts': round(s_r, 3),
+                  'dy': (abs(y_l - y_r) if None not in (y_l, y_r) else None)}
+        if y_l is None or y_r is None or score < GOLDEN_BAR_END_NCC_MIN:
+            return (False, score, None, detail)
+        if abs(y_l - y_r) > GOLDEN_BAR_END_DY_MAX:
+            return (False, score, None, detail)
+        return (True, score, (GOLDEN_OK_X, (y_l + y_r) // 2), detail)
+    except Exception:
+        return (False, 0.0, None, {})
+
+
+def golden_panel_frame(gray):
+    """Kontrast der beiden festen Rahmenlinien -> ``(links, oben)``.
+
+    Jede Linie: hellste Spalte/Zeile im Suchbereich, gemessen gegen den Mittel-
+    wert vier Pixel davor und dahinter. Ohne Dialog liegen beide nahe 0.
+    Wirft nie -> ``(0.0, 0.0)`` im Zweifel.
+    """
+    try:
+        y0, y1 = GOLDEN_PANEL_Y
+        if gray is None or gray.shape[0] <= y1 + 40 or gray.shape[1] < 600:
+            return (0.0, 0.0)
+        g = gray.astype('float32')
+        col = g[y0 + 10:y1 - 15, :].mean(axis=0)
+        row = g[:, 60:600].mean(axis=1)
+        lo, hi = GOLDEN_FRAME_LEFT_X
+        links = max(float(col[x] - (col[x - 4] + col[x + 4]) / 2)
+                    for x in range(lo, hi))
+        lo, hi = GOLDEN_FRAME_TOP_Y
+        oben = max(float(row[y] - (row[y - 4] + row[y + 4]) / 2)
+                   for y in range(lo, hi))
+        return (links, oben)
+    except Exception:
+        return (0.0, 0.0)
+
+
+def golden_bar_band_find(gray):
+    """Die OK-Leiste als hellste FLACHE Zeile in den schildfreien Spalten.
+
+    :return: ``(y, kontrast, std)`` der besten Zeile -- der Aufrufer prueft
+        gegen GOLDEN_BAND_MIN_CONTRAST / GOLDEN_BAND_MAX_STD. Wirft nie ->
+        ``(None, 0.0, 999.0)`` im Zweifel.
+    """
+    try:
+        y0, y1 = GOLDEN_BAND_Y
+        if gray is None or gray.shape[0] <= y1 + 31 or gray.shape[1] < 540:
+            return (None, 0.0, 999.0)
+        g = gray.astype('float32')
+        cols = [g[:, a:b] for a, b in GOLDEN_BAND_COLS]
+        prof = sum(c.mean(axis=1) for c in cols) / len(cols)
+        # Fenstermittel per Praefixsumme: band = 19 Zeilen um y, umfeld = je 18
+        # Zeilen darueber (y-30..y-13) und darunter (y+13..y+30).
+        csum = np.concatenate(([0.0], np.cumsum(prof, dtype='float64')))
+
+        def fenster(a_off, b_off):
+            ys = np.arange(y0, y1)
+            return (csum[ys + b_off] - csum[ys + a_off]) / float(b_off - a_off)
+
+        band = fenster(-9, 10)
+        umfeld = (fenster(-30, -12) + fenster(13, 31)) / 2.0
+        kontrast = band - umfeld
+        i = int(np.argmax(kontrast))
+        y = y0 + i
+        std = float(np.hstack([c[y - 6:y + 7] for c in cols]).std())
+        return (int(y), float(kontrast[i]), std)
+    except Exception:
+        return (None, 0.0, 999.0)
+
+
+def golden_fixed_geometry_find(gray):
+    """Pfad 3: Rahmen steht UND Leiste gefunden -> ``(found, score, point, detail)``.
+
+    ``score`` ist der Leisten-Kontrast, ``point`` = (GOLDEN_BAR_CENTER_X, y).
+    """
+    links, oben = golden_panel_frame(gray)
+    detail = {'rahmen_links': round(links, 1), 'rahmen_oben': round(oben, 1)}
+    if links < GOLDEN_FRAME_MIN or oben < GOLDEN_FRAME_MIN:
+        return (False, 0.0, None, detail)
+    # Das OPTIONSFENSTER traegt denselben Rahmen und ebenfalls flache Balken --
+    # seine Kennung ist die schwarze Bildecke (wie detect_daily_reward). Es ist
+    # KEIN Bestaetigungs-Dialog; im Angel-Loop wird es vorher behandelt, aber
+    # diese Funktion muss es auch allein sauber ablehnen.
+    try:
+        if not gray[10:15, 10:15].any():
+            detail['optionsfenster'] = True
+            return (False, 0.0, None, detail)
+    except Exception:
+        pass
+    y, kontrast, std = golden_bar_band_find(gray)
+    detail.update({'leiste_y': y, 'leiste_kontrast': round(kontrast, 1),
+                   'leiste_std': round(std, 1)})
+    if y is None or kontrast < GOLDEN_BAND_MIN_CONTRAST \
+            or std > GOLDEN_BAND_MAX_STD:
+        return (False, kontrast, None, detail)
+    return (True, kontrast, (GOLDEN_BAR_CENTER_X, y), detail)
+
+
 def golden_confirm_find(image_bgr):
-    """Sucht den OK-Knopf des Bestaetigungs-Dialogs im ganzen Frame.
+    """Sucht den OK-Knopf des Bestaetigungs-Dialogs -- drei Pfade nacheinander.
 
     :return: ``(found, score, point)`` -- ``point`` ist die Knopf-MITTE in
         Client-Koordinaten (der Klickpunkt), ``None`` wenn nicht gefunden.
-        Rein, headless-testbar, wirft nie; fehlendes Template/numpy oder ein
-        zu kleiner Frame -> ``(False, 0.0, None)`` (kein Klick -- die sichere
-        Richtung).
+        ``score`` ist der NCC-Wert der Enden-Suche bzw. des Knopfs (der
+        Geometrie-Pfad hat keinen NCC; seine Werte liefert
+        :func:`golden_confirm_scores`). Rein, headless-testbar, wirft nie;
+        fehlende Templates/numpy oder ein zu kleiner Frame -> kein Klick (die
+        sichere Richtung).
     """
-    tmpl = _golden_ok_template()
-    if tmpl is None or image_bgr is None or np is None:
+    if image_bgr is None or np is None:
         return (False, 0.0, None)
     try:
         img = np.asarray(image_bgr)
         if img.ndim != 3 or img.shape[2] < 3:
             return (False, 0.0, None)
         gray = cv.cvtColor(img[:, :, :3], cv.COLOR_BGR2GRAY)
-        th, tw = tmpl.shape[0], tmpl.shape[1]
-        if gray.shape[0] <= th or gray.shape[1] <= tw:
-            return (False, 0.0, None)
-        res = cv.matchTemplate(gray, tmpl, cv.TM_CCOEFF_NORMED)
-        _mn, score, _mnl, loc = cv.minMaxLoc(res)
-        score = float(score)
-        if score < GOLDEN_OK_NCC_MIN:
+
+        # PFAD 1 -- die Leisten-Enden (0,15 ms, unempfindlich gegen ein
+        # Namensschild ueber dem "OK"; siehe Konstanten-Doku).
+        found, score, point, _detail = golden_bar_ends_find(gray)
+        if found:
+            return (True, score, point)
+
+        # PFAD 2 -- feste Geometrie: Rahmen steht + hellste flache Zeile in den
+        # schildfreien Spalten (kein Template; siehe Konstanten-Doku).
+        found, _k, point, _detail = golden_fixed_geometry_find(gray)
+        if found:
+            return (True, score, point)
+
+        # PFAD 3 -- der Knopf selbst, im Mittelstreifen des festen Dialogs.
+        tmpl = _golden_ok_template()
+        if tmpl is None:
             return (False, score, None)
-        cx, cy = int(loc[0] + tw // 2), int(loc[1] + th // 2)
+        th, tw = tmpl.shape[0], tmpl.shape[1]
+        sx0 = max(0, GOLDEN_OK_X - GOLDEN_OK_X_HALF)
+        sx1 = min(gray.shape[1], GOLDEN_OK_X + GOLDEN_OK_X_HALF)
+        strip = gray[:, sx0:sx1]
+        if strip.shape[0] <= th or strip.shape[1] <= tw:
+            return (False, score, None)
+        res = cv.matchTemplate(strip, tmpl, cv.TM_CCOEFF_NORMED)
+        _mn, knob, _mnl, loc = cv.minMaxLoc(res)
+        score = max(score, float(knob))
+        if float(knob) < GOLDEN_OK_NCC_MIN:
+            return (False, score, None)
+        cx, cy = int(sx0 + loc[0] + tw // 2), int(loc[1] + th // 2)
         # Leisten-Check: beide Flanken flach + plausibel hell.
         for x0, x1 in ((cx - 48, cx - 24), (cx + 24, cx + 48)):
             y0, y1 = cy - 7, cy + 8
@@ -121,6 +360,36 @@ def golden_confirm_find(image_bgr):
         return (True, score, (cx, cy))
     except Exception:
         return (False, 0.0, None)
+
+
+def golden_confirm_scores(image_bgr):
+    """Alle Teil-Werte der Erkennung fuer EINE Diagnosezeile -> Dict.
+
+    ``knopf`` = bester NCC des OK-Knopfs im Mittelstreifen, ``links``/``rechts``
+    = die Enden, ``dy`` = ihr Hoehenversatz. Nur fuers Log, wenn ein erwarteter
+    Dialog NICHT gefunden wurde -- damit der naechste Report entscheidbar ist
+    ("nicht erkannt" gegen "geklickt, aber nicht angenommen"). Wirft nie.
+    """
+    out = {'knopf': None, 'links': None, 'rechts': None, 'dy': None,
+           'rahmen_links': None, 'rahmen_oben': None}
+    if image_bgr is None or np is None:
+        return out
+    try:
+        img = np.asarray(image_bgr)
+        gray = cv.cvtColor(img[:, :, :3], cv.COLOR_BGR2GRAY)
+        _f, _s, _p, detail = golden_bar_ends_find(gray)
+        out.update({k: detail.get(k) for k in ('links', 'rechts', 'dy')})
+        _f, _s, _p, geo = golden_fixed_geometry_find(gray)
+        out.update(geo)
+        tmpl = _golden_ok_template()
+        if tmpl is not None:
+            sx0 = max(0, GOLDEN_OK_X - GOLDEN_OK_X_HALF)
+            sx1 = min(gray.shape[1], GOLDEN_OK_X + GOLDEN_OK_X_HALF)
+            res = cv.matchTemplate(gray[:, sx0:sx1], tmpl, cv.TM_CCOEFF_NORMED)
+            out['knopf'] = round(float(cv.minMaxLoc(res)[1]), 3)
+    except Exception:
+        pass
+    return out
 
 
 def golden_confirm_present(image_bgr):
@@ -250,3 +519,8 @@ class FishingDetectMixin:
         fester Position, geklickt wird der Fund; siehe Konstanten-Doku oben.
         """
         return golden_confirm_find(image)
+
+    def golden_confirm_diag(self, image):
+        """Teil-Werte der Erkennung fuer die Diagnosezeile (siehe
+        :func:`golden_confirm_scores`). Wirft nie."""
+        return golden_confirm_scores(image)

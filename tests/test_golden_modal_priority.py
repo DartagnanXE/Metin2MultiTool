@@ -384,8 +384,11 @@ class TestEchtesBildImLoop(_FrameHarness):
         self.assertEqual(len(confirm), 1,
                          'OK wurde auf dem echten Bild nicht gedrueckt')
         _tag, x, y = confirm[0]
-        self.assertEqual((x, y), (403 + self.bot.wincap.offset_x,
-                                  266 + self.bot.wincap.offset_y))
+        # Seit v1.6.13 sitzt der Klick an der Leisten-Geometrie (bis 3 px
+        # neben der alten Knopf-Mitte) -- derselbe 20 px hohe Knopf.
+        ex = (403 + self.bot.wincap.offset_x, 266 + self.bot.wincap.offset_y)
+        self.assertLessEqual(abs(x - ex[0]) + abs(y - ex[1]), 6,
+                             'Klick %s nicht auf dem Knopf um %s' % ((x, y), ex))
 
 
 if __name__ == '__main__':
