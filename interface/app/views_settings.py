@@ -117,6 +117,35 @@ class SettingsViewMixin:
                 row=0, column=i + 1, padx=(0, 6))
         InfoBadge(pagerow, text=t('ui.inventory_pages_help')).grid(
             row=0, column=5, padx=(6, 0))
+
+        # MAUS-HOVER vor dem Scan (Default AUS). Frisch erhaltene Items tragen
+        # einen Leuchtrahmen, der die Erkennung verdirbt -- ein Zeiger-Sweep
+        # ueber alle Slots loescht ihn. Daneben die Geschwindigkeit: 0 ms ist
+        # volle Geschwindigkeit, hoeher nur, wenn der Client die schnellen
+        # Bewegungen nicht mitbekommt.
+        hoverrow = ctk.CTkFrame(ibody, fg_color='transparent')
+        hoverrow.grid(row=3, column=0, columnspan=2, sticky='w', pady=(2, 2))
+        inv_cfg = self._cfg.get('inventory', {})
+        self._inv_hover_var = ctk.BooleanVar(
+            value=bool(inv_cfg.get('hover_clear', False)))
+        ctk.CTkCheckBox(hoverrow, text=t('ui.inventory_hover_label'),
+                        variable=self._inv_hover_var,
+                        command=self._on_inventory_hover_change).grid(
+            row=0, column=0, sticky='w')
+        ctk.CTkLabel(hoverrow, text=t('ui.inventory_hover_speed_label'),
+                     text_color=TEXT_FAINT,
+                     font=ctk.CTkFont(size=12)).grid(row=0, column=1,
+                                                     padx=(12, 4))
+        self._inv_hover_speed = ctk.CTkEntry(hoverrow, width=48)
+        self._inv_hover_speed.insert(
+            0, str(inv_cfg.get('hover_speed_ms', 0)))
+        self._inv_hover_speed.grid(row=0, column=2)
+        self._inv_hover_speed.bind(
+            '<FocusOut>', lambda _e: self._on_inventory_hover_change())
+        self._inv_hover_speed.bind(
+            '<Return>', lambda _e: self._on_inventory_hover_change())
+        InfoBadge(hoverrow, text=t('ui.inventory_hover_help')).grid(
+            row=0, column=3, padx=(6, 0))
         # (Der "Schnelle Erkennung"-Schalter entfaellt: der Scan laeuft jetzt
         # IMMER vektorisiert/bit-identisch -- der Schalter waere ohne Wirkung. Die
         # Einstellung bleibt als interner Debug-Default True in der Config, ohne

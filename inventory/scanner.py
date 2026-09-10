@@ -311,7 +311,8 @@ def _page_has_item(slots):
 # -- TWO-PHASE FAST PATH: capture (fast) then parallel recognise -------------
 
 def capture_pages(capture_fn, switch_page_fn, pages=PAGES,
-                  verify_page_fn=None, settle_fn=None, return_to_first=True):
+                  verify_page_fn=None, settle_fn=None, return_to_first=True,
+                  hover_fn=None):
     """PHASE 1 -- click each tab and BUFFER one raw screenshot per page (fast).
 
     Switches I->II->III->IV (``switch_page_fn(page)``), grabs ONE frame per tab
@@ -330,6 +331,14 @@ def capture_pages(capture_fn, switch_page_fn, pages=PAGES,
     the wrong page. With ``return_to_first`` the cursor/tab is returned to the
     first page at the end (cosmetic: leaves the inventory as the user expects).
 
+    ``hover_fn(page)`` (optional) laeuft NACH dem Reiter-Wechsel und VOR der
+    Aufnahme: der Zeiger faehrt einmal ueber alle 45 Slots und loescht damit den
+    Leucht-Rahmen, den frisch gefangene Items tragen. Ohne das werden solche
+    Items schlechter erkannt -- gemessen (2026-08-11): ein Yabbie im dunklen
+    Slot hat Match-Distanz 0,1, im leuchtenden 26,45 gegen die Schwelle 22, gilt
+    also als "unbekannt" und wird nie gegrillt. Der Sweep ist reines ``moveTo``,
+    nie ein Klick. Default ``None`` -> Verhalten unveraendert.
+
     Defensive: never raises. ``capture_fn``/``switch_page_fn`` may be ``None``
     (then nothing is captured / switched). Pure of recognition, so it is fully
     testable with fake capture/switch callbacks.
@@ -341,6 +350,10 @@ def capture_pages(capture_fn, switch_page_fn, pages=PAGES,
                 switch_page_fn(page)
             if settle_fn is not None:
                 settle_fn(page)
+            if hover_fn is not None:
+                # Leuchtrahmen loeschen, BEVOR aufgenommen wird -- danach waere
+                # es fuer diese Seite zu spaet.
+                hover_fn(page)
             image = capture_fn() if capture_fn is not None else None
         except Exception as exc:
             _log('inventory.scan_page_failed', page=page, detail=str(exc)[:120])

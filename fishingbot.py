@@ -377,6 +377,27 @@ class FishingBot(FishingDetectMixin):
     # Zeitpunkt des letzten Frames MIT Optionsfenster -- die Flanken-Marke einer
     # Episode (siehe GOLDEN_EPISODE_GAP_S). 0.0 = noch nie gesehen.
     _golden_daily_seen = 0.0
+
+    # -- ESC nur bei OFFENEM Minispiel (v1.6.14, User-Report 2026-09-10) -----
+    #
+    # Der Abbruch drueckte ESC bedingungslos. Der Kommentar dazu lautete "raeumt
+    # ein evtl. offenes Minispiel weg" -- bei einer NIETE ist aber keines offen,
+    # es hat ja nichts angebissen. Im Live-Log des Testers (2026-09-02, 13:25:31)
+    # steht genau das nebeneinander: "kind=niete" und im selben Moment
+    # "Minigame match confidence this cast: 0.33" gegen die Schwelle 0,90.
+    #
+    # Ein ESC ins Leere trifft im Client das naechste Fenster: das INVENTAR --
+    # das der Angel-Bot zwingend offen braucht (er oeffnet es nie selbst, siehe
+    # _maybe_refill_bait) -- oder, wenn nichts offen ist, das Systemmenue. Und
+    # es passiert oft: im selben Log enden 56 % aller Zyklen im Abbruch.
+    #
+    # Die Fehlerrichtung ist bewusst gewaehlt: LIEBER EIN ESC ZU WENIG. Bleibt
+    # ein Minispiel faelschlich offen, laeuft seine eigene Uhr ab, der
+    # Koeder-Sensor meldet die abgelehnte Aktion und der 15-s-Timeout greift --
+    # alles protokolliert. Ein ESC zu viel schliesst dagegen still das Inventar
+    # und das Nachlegen stirbt unbemerkt.
+    ESC_WATCH_S = 3.0            # so lange nach einem Abbruch aufs Minispiel warten
+    _esc_pending_until = 0.0     # > time(): ESC ist noch offen (Minispiel fehlte)
     # True ab einem Options-Klick bis zum ersten OK-Klick: dann WIRD eine
     # Bestaetigung erwartet. Laeuft das Fenster ohne Klick ab, gibt es genau
     # EINE Diagnosezeile mit allen Teilwerten der Erkennung.
@@ -735,7 +756,33 @@ class FishingBot(FishingDetectMixin):
                                     x=ok_x, y=ok_y))
         return True
 
-    def _abort_minigame(self):
+    def _minigame_open(self, screenshot):
+        """``(offen, guete)`` -- steht das Angel-Minispiel gerade im Bild?
+
+        Nutzt denselben Uhr-Vergleich wie der Minispiel-Zweig
+        (:meth:`detect_minigame`), damit es keine zweite, abweichende Wahrheit
+        gibt. Gegen alle 33 Referenzbilder geprueft (2026-09-10): Angel-Szenen
+        MIT offenem Fenster liegen bei Guete 0,98-0,99, Szenen ohne bei unter
+        0,5 -- und die unabhaengige Zweitmessung ueber die blaue Wasserflaeche
+        des Fensters (94,8 % gegen 0,2 % Blau-Anteil) stimmt auf JEDEM Bild mit
+        diesem Urteil ueberein.
+
+        Wirft nie: laesst sich nichts messen, gilt das Minispiel als NICHT offen
+        (dann unterbleibt ESC -- die sichere Richtung, siehe ESC_WATCH_S).
+        """
+        try:
+            x0 = self.FISH_WINDOW_POSITION[0]
+            y0 = self.FISH_WINDOW_POSITION[1]
+            crop = screenshot[y0:y0 + self.FISH_WINDOW_SIZE[1],
+                              x0:x0 + self.FISH_WINDOW_SIZE[0]]
+            ok, guete, _loc = _match_template_max(crop, self.needle_img_clock)
+            if not ok:
+                return (False, 0.0)
+            return (bool(guete > 0.9), float(guete))
+        except Exception:
+            return (False, 0.0)
+
+    def _abort_minigame(self, screenshot=None, minigame_open=None):
         """Bricht den aktuellen Angel-Versuch SOFORT ab und startet den Zyklus neu.
 
         KEIN Klick mehr (die alte FISH_WINDOW_CLOSE-Koordinate war eine falsche
@@ -744,13 +791,38 @@ class FishingBot(FishingDetectMixin):
         Mount-Cancel-Sequenz (auf-/absteigen, setzt den Figuren-Zustand sauber
         zurueck), und auf State 0 stellen, sodass der naechste Tick Koeder setzt +
         neu auswirft. Gibt den genutzten Weg fuers Logging zurueck. Wirft nie."""
-        how = 'esc'
-        try:
-            _input.key('esc')                 # keyDown+keyUp atomar (ein Lease)
-        except Exception:
-            # Geht ESC nicht, reicht der State-Reset unten -> naechster Zyklus
-            # wirft ohnehin neu aus.
-            how = 'recast_only'
+        # Den im selben Frame bereits berechneten Wert benutzen, wenn er da ist
+        # -- dann kostet das Gate KEINE zusaetzliche Zeit und ESC kommt ohne
+        # jede Verzoegerung. Nur wenn er fehlt (Direktaufruf, Test), wird
+        # gemessen; ganz ohne Bild gilt "nicht offen" (sichere Richtung).
+        if minigame_open is not None:
+            offen, guete = bool(minigame_open), -2.0
+        elif screenshot is not None:
+            offen, guete = self._minigame_open(screenshot)
+        else:
+            offen, guete = False, -1.0
+        if offen:
+            how = 'esc'
+            try:
+                _input.key('esc')             # keyDown+keyUp atomar (ein Lease)
+            except Exception:
+                # Geht ESC nicht, reicht der State-Reset unten -> naechster
+                # Zyklus wirft ohnehin neu aus.
+                how = 'recast_only'
+        else:
+            # KEIN ESC ins Leere. Das Fenster kann aber gleich noch aufgehen
+            # (Chat-Zeile kommt teils einen Wimpernschlag vor dem Fenster) --
+            # deshalb bleibt der Druck kurz "offen" und wird nachgeholt, sobald
+            # runHack das Minispiel sieht.
+            how = 'kein-minispiel'
+            self._esc_pending_until = time() + getattr(
+                self, 'ESC_WATCH_S', 3.0)
+        # DEBUG: warum so entschieden wurde -- die Guete steht daneben, damit im
+        # naechsten Report nachvollziehbar ist, ob die Erkennung oder die
+        # Entscheidung schuld war. -1 = es lag kein Bild vor.
+        _flog(self.state, t('fishing.abort_esc_gate'),
+              weg=how, minispiel=('ja' if offen else 'nein'),
+              guete=('%.3f' % guete))
         # Falls Mount aktiviert: wie nach einem Fang auf-/absteigen -> sauberer
         # Neustart (Pferd -> Koeder -> Auswerfen).
         if self.mount_enabled:
@@ -811,7 +883,7 @@ class FishingBot(FishingDetectMixin):
         except Exception:
             return 60.0
 
-    def _apply_whitelist(self, screenshot):
+    def _apply_whitelist(self, screenshot, minigame_open=None):
         """Wertet beim Biss den Chat-Streifen aus und bricht ab, falls der Fang
         unerwuenscht (REMOVE) oder eine Niete ist. Gibt True zurueck, wenn das
         Minispiel abgebrochen wurde (Aufrufer soll diese Runde nicht weiterspielen).
@@ -849,7 +921,7 @@ class FishingBot(FishingDetectMixin):
             self._whitelist_decided = True
 
             if decision == _wl.ABORT:
-                how = self._abort_minigame()
+                how = self._abort_minigame(screenshot, minigame_open)
                 name = str(getattr(result, 'name', '?'))
                 if kind == _fc.NIETE:
                     _flog(0, t('fishing.whitelist_abort_niete', how=how))
@@ -1518,10 +1590,6 @@ class FishingBot(FishingDetectMixin):
         # und sofort neu koedern/auswerfen -- in ein offenes Fenster hinein, wo
         # der Client die Aktion ohnehin ablehnt. Die Chat-Zeile bleibt stehen und
         # wird ausgewertet, sobald der Dialog weg ist; verloren geht nichts.
-        if self.state >= 2 and not golden_modal \
-                and self._apply_whitelist(screenshot):
-            return crop_img
-
         # Solange ein Dialog steht (oder gerade eben stand: Grace), macht der
         # Angel-Automat PAUSE. User-Log 2026-09-02, 13:25:46: Options-Klick,
         # und in DERSELBEN Sekunde "Bait set" und "Cast out" -- der Bot angelte
@@ -1529,7 +1597,22 @@ class FishingBot(FishingDetectMixin):
         # Runden ("No bite") liefen weiter, waehrend der Dialog stehen blieb.
         # Die Sperre haengt an echter Evidenz + 3 s Grace, nicht am Suchfenster
         # -- ein Fehlalarm kostet also hoechstens 3 s Angeln.
+        #
+        # STEHT JETZT VOR der Whitelist statt dahinter. Verhalten identisch --
+        # die Whitelist war ohnehin mit ``not golden_modal`` gesperrt --, aber
+        # so faellt bei stehendem Dialog die Minispiel-Messung unten weg.
         if golden_modal:
+            return crop_img
+
+        # Minispiel-Erkennung EINMAL pro Frame, und zwar HIER: der Abbruch der
+        # Whitelist braucht sie (ESC nur bei offenem Minispiel, siehe
+        # _abort_minigame), und der Fischklick weiter unten ebenfalls. Frueher
+        # stand sie erst hinter der Whitelist; das ESC-Gate haette sie dann ein
+        # zweites Mal rechnen muessen (gemessen 4,5 ms). So kostet das Gate
+        # NICHTS und urteilt zudem auf demselben Frame statt auf einem eigenen.
+        detected_end = self.detect_minigame(detect_end_img)
+
+        if self.state >= 2 and self._apply_whitelist(screenshot, detected_end):
             return crop_img
 
         # Verify total time
@@ -1588,12 +1671,25 @@ class FishingBot(FishingDetectMixin):
 
         # Countdown to finish the state
 
-        detected_end = self.detect_minigame(detect_end_img)
+        # (detected_end wurde oben schon berechnet -- einmal pro Frame.)
 
         # DEBUG-Klick-Tracker: Minispiel-Gate fuer den kommenden Fischklick
         # nachziehen (reines Logging, wirft nie).
         if click_tracker is not None:
             click_tracker.set_gate(detected_end)
+
+        # NACHGEHOLTES ESC: Beim Abbruch war kein Minispiel zu sehen, also wurde
+        # ESC bewusst nicht gedrueckt (siehe _abort_minigame). Geht das Fenster
+        # gleich darauf doch noch auf -- die Chat-Zeile kommt teils einen
+        # Wimpernschlag vor dem Fenster --, wird der Druck jetzt nachgeholt.
+        # Kostet nichts: ``detected_end`` ist hier ohnehin schon berechnet.
+        if detected_end and time() < getattr(self, '_esc_pending_until', 0.0):
+            self._esc_pending_until = 0.0
+            try:
+                _input.key('esc')
+                _flog(self.state, t('fishing.abort_esc_nachgeholt'))
+            except Exception:
+                pass
 
         if self.state == 3:
 

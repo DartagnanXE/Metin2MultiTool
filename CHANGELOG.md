@@ -3,6 +3,87 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.6.14] — 2026-09-10
+
+### Escape wird nur noch gedrückt, wenn das Minispiel wirklich offen ist
+
+Bricht der Bot einen Fang ab — weil eine Niete kam oder der Fisch auf
+„Wegwerfen" markiert ist —, drückte er bisher **immer** Escape. Der Kommentar im
+Code sagte, das räume ein offenes Minispiel weg. Bei einer Niete ist aber gar
+keines offen, es hat ja nichts angebissen. Das eingeschickte Log zeigt beides
+nebeneinander:
+
+```
+13:25:31 | WL-DBG kind=niete
+13:25:31 | Minigame match confidence this cast: 0.33   (Schwelle 0,90)
+13:25:31 | Whitelist: Niete -> Minispiel abgebrochen (esc)
+```
+
+Ein Escape ins Leere trifft im Spiel das **nächste Fenster: das Inventar** — das
+der Angel-Bot zwingend offen braucht, denn er öffnet es nie selbst und legt den
+Köder direkt aus dem offenen Beutel nach. Ist gar nichts offen, geht das
+Systemmenü auf. Und es passiert oft: Im selben Log enden **56 % aller Würfe** im
+Abbruch.
+
+Jetzt wird vorher nachgesehen. Die Erkennung nutzt denselben Uhr-Vergleich wie
+der Minispiel-Zweig, damit es keine zweite, abweichende Wahrheit gibt. Auf allen
+33 Referenzbildern sauber getrennt: offenes Fenster 0,983–0,992, kein Fenster
+0,264–0,321. Eine unabhängige Zweitmessung über die blaue Wasserfläche des
+Fensters (96 % gegen 0,2 % Blau-Anteil) kommt auf **jedem** Bild zum selben
+Urteil.
+
+**Ohne jede Verzögerung.** Die Erkennung wurde im Ablauf nach vorn gezogen,
+sodass Abbruch und Fischklick sich denselben Messwert teilen. Nachgemessen: Auch
+im Abbruch-Bild läuft sie genau **einmal**; das Nachsehen kostet also nichts und
+Escape kommt im selben Moment wie vorher.
+
+Die Fehlerrichtung ist bewusst gewählt: **lieber ein Escape zu wenig.** Bleibt
+ein Minispiel fälschlich offen, läuft seine eigene Uhr ab, der Köder-Sensor
+meldet die abgelehnte Aktion und der 15-Sekunden-Notausstieg greift — alles
+protokolliert. Ein Escape zu viel schließt dagegen still das Inventar, und das
+Köder-Nachlegen stirbt unbemerkt. Kommt die Chat-Zeile doch einmal einen
+Wimpernschlag vor dem Fenster, wird Escape innerhalb von drei Sekunden
+nachgeholt.
+
+Jede Entscheidung steht mit ihrem Messwert im Debug-Log:
+
+```
+Abbruch: ESC nur bei wirklich offenem Minispiel | guete=0.331 minispiel=nein weg=kein-minispiel
+```
+
+### Neu: Maus-Hover vor dem Inventar-Scan (Einstellungen, standardmäßig aus)
+
+Frisch erhaltene Gegenstände tragen einen **Leuchtrahmen**, bis der Zeiger
+einmal darüber gefahren ist. Der verfälscht die Erkennung erheblich. Gemessen am
+echten Spiel: Derselbe Yabbie hat im dunklen Feld die Match-Distanz **0,1**, im
+leuchtenden **26,45** — gegen die Schwelle 22. Er gilt damit als unbekannt und
+landet nie auf dem Lagerfeuer. Genau das war gemeldet worden.
+
+Die Schwelle einfach anzuheben scheidet aus: Bei Distanz 29,5 sitzt ein
+dokumentierter Fehltreffer, ein bronzenes Abzeichen, das als Köder gelesen
+wurde. Zwischen 26,45 und 29,5 passt keine Schwelle. Das Leuchten muss weg,
+statt toleriert zu werden.
+
+Der neue Schalter fährt vor jedem Scan einmal über alle 45 Felder. Er ist in
+**alle drei** Scan-Wege eingehängt: Inventar, Lagerfeuer und Wegwerfen. Beim
+Grillen zählt er am meisten, denn dort geht es gerade um frisch Gefangenes —
+dieser Nachscan kannte den Sweep bisher überhaupt nicht.
+
+Zwei Zusagen sind fest verdrahtet und durch Tests gehalten: Der Sweep **klickt
+nie** (ein Klick würde den Gegenstand aufnehmen), und er parkt den Zeiger danach
+unter dem Raster, damit er auf der folgenden Aufnahme kein Feld verdeckt.
+
+Daneben steht ein **Tempo-Feld**: 0 Millisekunden ist volle Geschwindigkeit,
+begrenzt auf 50. Nur hochsetzen, wenn das Spiel die schnellen Bewegungen nicht
+mitbekommt.
+
+### Was noch nicht geprüft ist
+
+Beides ist am echten Code und an echten Bildschirmfotos nachgestellt und mit
+36 neuen Tests festgehalten (Gesamtprüfung 1821 grün). **Im Spiel getestet ist
+nichts davon.** Ob das Spiel die schnellen Mausbewegungen registriert und das
+Leuchten wirklich verschwindet, zeigt erst ein echter Durchlauf.
+
 ## [1.6.13] — 2026-09-02
 
 ### Thunfisch-Bestätigung: der OK-Knopf wird auch unter einem Namensschild gefunden

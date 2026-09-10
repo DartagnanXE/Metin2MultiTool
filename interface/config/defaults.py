@@ -253,6 +253,23 @@ DEFAULTS = {
         # User-Wahl); der Schluessel bleibt nur als interner Debug-Default
         # erhalten, falls man den Schleifen-Pfad je wieder einschalten will.
         'fast_recognition': True,
+        # MAUS-HOVER vor dem Scan (Default AUS -> Verhalten unveraendert).
+        #
+        # Frisch gefangene Items tragen einen LEUCHT-RAHMEN, bis der Zeiger
+        # einmal darueber gefahren ist. Der verfaelscht die Erkennung massiv:
+        # gemessen (2026-08-11) hat ein Yabbie im dunklen Slot Match-Distanz
+        # 0,1, im leuchtenden 26,45 -- gegen die Schwelle 22. Er gilt damit als
+        # "unbekannt" und wird nie gegrillt. Ein Zeiger-Sweep ueber alle 45
+        # Slots loescht das Leuchten und macht die Slots sauber lesbar.
+        #
+        # Der Sweep ist reines Bewegen, NIE ein Klick -- ein Klick wuerde ein
+        # Item aufnehmen. Default AUS, weil er Zeit kostet und die meisten
+        # Items ihn nicht brauchen.
+        'hover_clear': False,
+        # Zusaetzliche Pause je Slot in Millisekunden. 0 = volle Geschwindigkeit
+        # (der Sweep laeuft dann mit pydirectinput.PAUSE = 0). Nur hochsetzen,
+        # wenn der Client die schnellen Bewegungen nicht mitbekommt.
+        'hover_speed_ms': 0,
     },
     # Selbstgewaehlter Ranking-Name (einzige "PII"). Leer = anonym (man erscheint
     # unter dem generierten Anon-Namen). Setzen = Opt-in, diesen Namen zu zeigen.

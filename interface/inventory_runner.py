@@ -43,6 +43,7 @@ import time
 
 from inventory import grid as grid_mod
 from inventory import scanner, report, hover
+from inventory import glow as _glow
 from inventory import open_probe
 from inventory import pages as _inv_pages
 from inventory.diff import diff_maps
@@ -588,11 +589,33 @@ def run_inventory_scan(cfg, previous_map=None, *, log_fn=None, db=None,
     # Reiter-Klick samt Settle, einen Screenshot und 45 Slot-Vergleiche.
     allowed_pages = _inv_pages.roman_pages(
         (cfg or {}).get('inventory', {}).get('pages'))
+    # MAUS-HOVER (opt-in, Default AUS): vor JEDER Aufnahme einmal ueber alle
+    # 45 Slots fahren, damit frisch erhaltene Items ihren Leuchtrahmen
+    # verlieren. Ohne das liegt ein leuchtender Yabbie bei Match-Distanz 26,45
+    # statt 0,1 -- ueber der Schwelle 22, also "unbekannt" (gemessen
+    # 2026-08-11). Die Schwelle anzuheben geht nicht: bei 29,5 sitzt ein
+    # dokumentierter Fehltreffer.
+    #
+    # RASTER: hier laeuft PHASE 1, das Auto-Align kommt erst in PHASE 2 -- also
+    # wird das KALIBRIER-Raster benutzt. Das genuegt: ein Slot ist 32 px breit,
+    # und selbst ein um ~10 px danebenliegendes Raster trifft ihn noch. Fuer das
+    # Loeschen des Leuchtens reicht "irgendwo auf dem Slot".
+    inv_cfg = (cfg or {}).get('inventory', {}) or {}
+    hover_fn = None
+    if inv_cfg.get('hover_clear'):
+        _lat = grid_mod.lattice_from_calibration(runner.calib)
+        hover_fn = _glow.make_hover_fn(
+            pydirectinput, lambda _p: _lat, offset=runner.offset,
+            speed_ms=inv_cfg.get('hover_speed_ms', 0),
+            log_fn=lambda page, n: _emit_line(
+                sink, t('inventory.hover_done', page=page, slots=n)))
+
     captured = scanner.capture_pages(
         capture_fn,
         runner.switch_page,
         pages=allowed_pages,
         verify_page_fn=runner.verify,
+        hover_fn=hover_fn,
     )
     # Hand the buffer to the runner so PHASE-2 can map an aligned frame back to
     # its page label for the per-page unknown crop.

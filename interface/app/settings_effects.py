@@ -36,6 +36,36 @@ class SettingsEffectsMixin:
             'inventory', 'auto_scan_after_fishing',
             bool(self._auto_scan_var.get()))
 
+    def _on_inventory_hover_change(self):
+        """Persistiert den Maus-Hover-Schalter und seine Geschwindigkeit.
+
+        Der Sweep faehrt vor jedem Scan einmal ueber alle 45 Slots und loescht
+        den Leuchtrahmen frisch erhaltener Items -- ohne ihn liegt ein
+        leuchtender Yabbie bei Match-Distanz 26,45 statt 0,1 und faellt damit
+        ueber die Schwelle 22 aus der Erkennung (gemessen 2026-08-11).
+
+        Die Geschwindigkeit kommt als TEXT aus dem Eingabefeld: Muell faellt auf
+        0 zurueck (volle Geschwindigkeit), der Wert wird auf 0..50 ms begrenzt
+        und sichtbar ins Feld zurueckgeschrieben, damit der Nutzer sieht, was
+        wirklich gilt. Wirft nie.
+        """
+        try:
+            an = bool(self._inv_hover_var.get())
+            roh = self._inv_hover_speed.get()
+            try:
+                ms = max(0, min(50, int(str(roh).strip() or 0)))
+            except (TypeError, ValueError):
+                ms = 0
+            if str(ms) != str(roh).strip():
+                self._inv_hover_speed.delete(0, 'end')
+                self._inv_hover_speed.insert(0, str(ms))
+            self._cfg = self.controller.update_config(
+                'inventory', 'hover_clear', an)
+            self._cfg = self.controller.update_config(
+                'inventory', 'hover_speed_ms', ms)
+        except Exception:
+            pass
+
     def _on_inventory_pages_change(self):
         """Persistiert die freigegebenen Inventar-Seiten (I-IV).
 

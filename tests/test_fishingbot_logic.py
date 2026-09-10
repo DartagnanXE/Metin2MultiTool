@@ -293,14 +293,17 @@ class TestWhitelistDecision(unittest.TestCase):
         defaults.update(kw)
         return fc.HookResult(**defaults)
 
-    def _run(self, bot, hook):
+    def _run(self, bot, hook, minigame_open=True):
         clicks, keys = [], []
         fake = mock.Mock()
         fake.click.side_effect = lambda **k: clicks.append(k)
         fake.keyDown.side_effect = lambda k: keys.append(k)
         with mock.patch.object(fishingbot, 'pydirectinput', fake), \
                 mock.patch('fishing_chat.read_hook', return_value=hook):
-            aborted = bot._apply_whitelist(object())   # screenshot ignored (patched)
+            # minigame_open=True seit v1.6.14: ESC kommt nur bei offenem
+            # Minispiel (siehe tests/test_esc_gate.py). Diese Alt-Tests pruefen
+            # den ABBRUCH, nicht das Gate -- deshalb hier ausdruecklich "offen".
+            aborted = bot._apply_whitelist(object(), minigame_open)
         self._last_keys = keys      # ESC-Pruefung ohne die (aborted, clicks)-Signatur
         return aborted, clicks
 
@@ -316,6 +319,20 @@ class TestWhitelistDecision(unittest.TestCase):
         # The abort ENDS the cycle (_on_cycle_end), which clears the per-cycle
         # decision flag so the NEXT cast re-evaluates from scratch.
         self.assertFalse(bot._whitelist_decided)
+
+    def test_unwanted_fish_without_open_minigame_sends_no_esc(self):
+        """Gegenprobe (v1.6.14): steht KEIN Minispiel offen, darf kein ESC
+        kommen -- es traefe sonst das Inventar oder das Systemmenue.
+        Abgebrochen und zurueckgesetzt wird trotzdem."""
+        import fishing_chat as fc
+        from interface import inventory_manage as im
+        bot = self._bot(states={'Lachs': im.REMOVE})
+        aborted, clicks = self._run(bot, self._hook(kind=fc.FISH, name='Lachs'),
+                                    minigame_open=False)
+        self.assertTrue(aborted)
+        self.assertEqual(bot.state, 0)
+        self.assertEqual(clicks, [])
+        self.assertNotIn('esc', self._last_keys)
 
     def test_wanted_keep_fish_keeps_playing(self):
         import fishing_chat as fc

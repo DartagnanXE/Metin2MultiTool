@@ -24,6 +24,8 @@ from inventory.constants import DEFAULT_CALIBRATION, PAGES, OPEN_SETTLE_S, TAB_S
 from inventory import pages as _inv_pages
 from inventory import grid as grid_mod
 from inventory import hover
+from inventory import glow as _glow
+from inventory.grid import lattice_from_calibration
 from inventory import open_probe
 from i18n import t
 
@@ -300,10 +302,25 @@ def run_campfire_grill(cfg, states, *, log_fn=None, db=None,
                     _park_cursor(offset, calib)
                     time.sleep(TAB_SETTLE_S)
 
+            # MAUS-HOVER (opt-in, Default AUS): Leuchtrahmen loeschen, bevor
+            # die Seite aufgenommen wird. HIER zaehlt es besonders -- gegrillt
+            # wird, was FRISCH gefangen wurde, und genau diese Items leuchten.
+            # Gemessen (2026-08-11): ein leuchtender Yabbie liegt bei
+            # Match-Distanz 26,45 statt 0,1, also ueber der Schwelle 22 und
+            # damit "unbekannt" -> er wandert nie aufs Feuer. Bis v1.6.13 gab
+            # es diesen Sweep nur im Inventar-Scan, nicht in diesem Nachscan.
+            inv_cfg = (cfg or {}).get('inventory', {}) or {}
+            hover_fn = None
+            if inv_cfg.get('hover_clear'):
+                _lat = lattice_from_calibration(calib)
+                hover_fn = _glow.make_hover_fn(
+                    pydirectinput, lambda _p: _lat, offset=offset,
+                    speed_ms=inv_cfg.get('hover_speed_ms', 0))
             return scan_inventory(
                 capture_fn=wincap.get_screenshot,
                 switch_page_fn=_switch,
-                db=db, calib=calib, pages=allowed_pages)
+                db=db, calib=calib, pages=allowed_pages,
+                hover_fn=hover_fn)
         except Exception:
             return None
 

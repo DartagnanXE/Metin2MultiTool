@@ -347,6 +347,20 @@ def validate(cfg):
         # niemand mehr versehentlich auf dem langsamen Schleifen-Pfad. Der
         # Schluessel bleibt als interner Debug-Default True erhalten.
         inventory['fast_recognition'] = True
+        # Maus-Hover vor dem Scan: reiner Schalter, Default AUS.
+        inventory['hover_clear'] = bool(
+            inventory.get('hover_clear',
+                          DEFAULTS['inventory']['hover_clear']))
+        # Zusatzpause je Slot in ms. Auf 0..50 begrenzt: 0 ist volle
+        # Geschwindigkeit, und schon 50 ms machten den Sweep ueber 45 Slots
+        # 2,3 s lang -- darueber waere er unbrauchbar langsam. Muell (Text,
+        # negativ, None) faellt auf den Default zurueck.
+        try:
+            ms = int(inventory.get('hover_speed_ms',
+                                   DEFAULTS['inventory']['hover_speed_ms']))
+        except (TypeError, ValueError):
+            ms = DEFAULTS['inventory']['hover_speed_ms']
+        inventory['hover_speed_ms'] = max(0, min(50, ms))
 
         # -- Username (einzige PII): gestrippt + auf USERNAME_MAXLEN gekappt.
         try:

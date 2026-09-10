@@ -400,9 +400,21 @@ class TestAbortRecastIsInstant(unittest.TestCase):
         self.assertGreater(_t.time() - bot.timer_action, 9 * 1.15)
 
     def test_esc_is_pressed_and_the_cycle_hook_fires(self):
+        """``minigame_open=True`` seit v1.6.14: ESC kommt nur noch bei offenem
+        Minispiel. Dieser Test prueft den ABBRUCH-Ablauf, nicht das Gate --
+        deshalb hier ausdruecklich "offen"."""
         bot = self._bot()
-        self.assertEqual(bot._abort_minigame(), 'esc')
+        self.assertEqual(bot._abort_minigame(minigame_open=True), 'esc')
         self.assertEqual(self.keys.pressed, ['esc'])
+        self.assertEqual(bot.cycles_ended, 1)
+
+    def test_ohne_offenes_minispiel_kein_esc_aber_zyklus_endet(self):
+        """Gegenprobe zum Test darueber: kein Minispiel -> kein Tastendruck.
+        Der Zyklus muss trotzdem sauber enden, sonst haengt der Bot."""
+        bot = self._bot()
+        self.assertEqual(bot._abort_minigame(minigame_open=False),
+                         'kein-minispiel')
+        self.assertEqual(self.keys.pressed, [])
         self.assertEqual(bot.cycles_ended, 1)
 
     def test_text_times_from_the_gui_never_break_the_abort(self):

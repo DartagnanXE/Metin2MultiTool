@@ -253,7 +253,8 @@ class TestDialogSchlaegtWhitelist(_FrameHarness):
                 mock.patch.object(self.bot, 'detect_golden_confirm',
                                   return_value=(False, 0.0, None)), \
                 mock.patch.object(self.bot, '_apply_whitelist',
-                                  side_effect=lambda s: gerufen.append(1)):
+                                  # 2. Argument seit v1.6.14: der schon berechnete Minispiel-Zustand
+                                  side_effect=lambda s, m=None: gerufen.append(1)):
             self.bot.runHack()
         self.assertEqual(gerufen, [],
                          'Whitelist lief, obwohl ein Dialog stand')
@@ -267,7 +268,8 @@ class TestDialogSchlaegtWhitelist(_FrameHarness):
                 mock.patch.object(self.bot, 'detect_golden_confirm',
                                   return_value=(False, 0.0, None)), \
                 mock.patch.object(self.bot, '_apply_whitelist',
-                                  side_effect=lambda s: gerufen.append(1)):
+                                  # 2. Argument seit v1.6.14: der schon berechnete Minispiel-Zustand
+                                  side_effect=lambda s, m=None: gerufen.append(1)):
             self.bot.runHack()
         self.assertEqual(gerufen, [1])
 
