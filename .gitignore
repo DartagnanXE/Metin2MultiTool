@@ -186,3 +186,11 @@ Metin2MultiTool-Portable.exe
 
 # Autopilot-Session-Scaffolding (nicht versionieren)
 .autopilot/
+
+# Laufzeit-Protokolle und Beweisbilder der Minispiel-Runner. Sie entstehen erst
+# im Betrieb neben der Konfiguration; landen sie doch einmal im Projektordner
+# (Entwicklungslauf), gehoeren sie nicht in den Verlauf.
+okey_results.jsonl
+seherwettstreit_results.jsonl
+okey_debug_*.png
+seher_debug_*.png

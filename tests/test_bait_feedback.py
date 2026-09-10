@@ -516,13 +516,23 @@ class TestTooltipObstruction(unittest.TestCase):
         'GoldenerThunfischEntwischtNass_user2.png',
     )
 
+    #: Bilder, die gar keine Chat-Aufnahmen sind. Der Ordner sammelt
+    #: inzwischen auch Bildschirmfotos anderer Minispiele; bei denen liegt ein
+    #: Fenster ueber dem Chatbereich, und "verdeckt" ist dort die RICHTIGE
+    #: Antwort. Ohne diese Ausnahme meldet der Test die Wahrheit als Fehler --
+    #: genau das passierte, als die zwoelf Okey-Aufnahmen dazukamen.
+    _KEINE_CHATBILDER = ('okey_',)
+
     @unittest.skipUnless(_HAS_DEPS, 'numpy/PIL fehlen')
     def test_real_chat_lines_are_never_called_obstructed(self):
         """Die teure Fehlrichtung: echter Text darf NIE als verdeckt gelten."""
         import glob
         checked = 0
         for path in sorted(glob.glob(os.path.join(_FISCH_DIR, '*.png'))):
-            if os.path.basename(path) in self._ECHT_VERDECKT:
+            name = os.path.basename(path)
+            if name in self._ECHT_VERDECKT:
+                continue
+            if name.startswith(self._KEINE_CHATBILDER):
                 continue
             bgr = np.array(Image.open(path).convert('RGB'))[:, :, ::-1]
             self.assertFalse(fc.chat_zone_obstructed(bgr),

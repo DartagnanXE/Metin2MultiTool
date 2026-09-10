@@ -146,6 +146,13 @@ DEFAULTS = {
         # = angeln, REMOVE = abbrechen), die der RunLoop auf die Bot-Instanz
         # injiziert (kein eigener Config-Block noetig).
         'whitelist_enabled': False,
+        # Nach den Golden-Thunfisch-Fenstern zweimal die Inventar-Taste druecken
+        # (0,3 s Abstand). Die Fenster verschieben das Inventar; der Bot rechnet
+        # aber mit festen Slot-Pixeln und greift sonst ins Leere. Zweimal
+        # druecken laesst den Client das Fenster neu aufbauen -- der ZUSTAND
+        # bleibt (zu bleibt zu, offen bleibt offen), nur die Lage wird
+        # korrigiert. AN auf ausdruecklichen Nutzerwunsch (2026-09-10).
+        'inventar_neu_ordnen': True,
         # Koeder-Nachlegen (opt-in): erkennt der Bot waehrend des Angelns den
         # Koeder-Quickslot (= der bait_key-Slot) leer, legt er EINEN Koeder aus
         # dem Inventar nach (refill.refill_from_inventory). Ist kein Koeder mehr
@@ -314,6 +321,16 @@ DEFAULTS = {
     'controls': {
         'stop_hotkey': 'f6',
     },
+    'okey': {                     # Okey-Kartenspiel (eigener Reiter)
+        # Wie viele Kartensets nacheinander gespielt werden. 0 = endlos, bis
+        # Stop oder bis kein Set mehr da ist.
+        'decks': 1,
+        # Spielstaerke des Loesers. Voreingestellt die staerkste: Okey hat kein
+        # Zeitlimit, und 0,4 s Bedenkzeit je Klick faellt im Spiel nicht auf.
+        # Erlaubt sind die Werte aus okey.strategy.STAERKEN.
+        'solver': 'beste',
+    },
+
     'multiclient': {              # Mehrere Spiel-Clients (1-4); Default = Single
         'count': 1,               # leere 'clients' => Single-Client, byte-identisch
         'auto_restart': False,

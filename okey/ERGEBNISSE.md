@@ -92,6 +92,32 @@ gleicher Laufzeit nominal vorn liegt und die Beschraenkung auf sechs Kandidaten
 eine willkuerliche Sparmassnahme ohne Ersparnis war. Doppelte Stichprobenzahl
 bringt nichts — das Verfahren ist auskonvergiert.
 
+## 2c. Die vier ausgelieferten Stufen (Messung 2026-09-10)
+
+Für den Okey-Reiter brauchte es **vier** wählbare Stufen statt drei. Zwischen
+Rollout-48 (26 ms/Zug) und PIMC-16 (~0,4 s/Zug) klaffte eine Lücke; sie füllt
+jetzt Rollout-240.
+
+Diese Messung ist **eigenständig und in sich gepaart**: 400 identische
+Mischungen (Seed 1), alle vier Stufen auf genau denselben. Sie ist damit nicht
+direkt mit Abschnitt 2 vergleichbar (anderer Seed, andere Deal-Zahl) — dafür
+untereinander sauber.
+
+| Stufe | Zeit/Zug | Zeit/Set | Punkte ø | Gold | Silber | Bronze |
+|---|---|---|---|---|---|---|
+| Maximum (PIMC 16) | 394 ms | 5,5 s | 320,4 | 10,0 % | 58,2 % | 31,8 % |
+| Hoch (Rollout 240) | 129 ms | 1,7 s | 314,7 | 5,8 % | 61,3 % | 33,0 % |
+| Mittel (Rollout 48) | 26 ms | 0,3 s | 311,8 | 4,5 % | 59,5 % | 36,0 % |
+| Sofort (Faustregel) | < 1 ms | 0,0 s | 280,1 | 3,2 % | 38,2 % | 58,5 % |
+
+Ablesbar ist vor allem, **wo die Rechenzeit aufhört zu zahlen**: von „Sofort"
+zu „Mittel" kosten 26 ms je Zug rund 32 Punkte. Von „Mittel" zu „Hoch" kosten
+weitere 103 ms nur noch etwa 3 Punkte. Wer die Bedenkzeit scheut, verliert
+zwischen den oberen drei Stufen wenig — zwischen „Sofort" und dem Rest viel.
+
+Die Zahlen liegen maschinenlesbar in `okey/stufen.py` und werden von dort in
+den Reiter gespiegelt, damit Oberfläche und Dokument nicht auseinanderlaufen.
+
 ## 3. Wo die Grenze liegt — und wo nicht
 
 **Mehr Stichproben helfen nicht mehr.** PIMC mit 32 Stichproben (313,3) ist

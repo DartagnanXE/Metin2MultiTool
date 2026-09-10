@@ -422,8 +422,20 @@ class InventoryViewMixin:
             try:
                 # Erst grillen, dann wegwerfen: warte, bis ein evtl. laufendes
                 # Braten den Cursor freigibt (beide nutzen dieselbe Maus).
+                #
+                # Der Not-Aus bricht die Wartezeit ab UND verhindert den Start:
+                # sonst laeuft nach einem F6 waehrend des Grillens noch der
+                # ganze Wegwerf-Anlauf an (Fenster, Inventar-Probe, Scan), bevor
+                # er merkt, dass abgebrochen wurde (User-Report 2026-09-10).
                 while getattr(self, '_campfire_running', False):
+                    if getattr(self, '_inv_manage_abort', False):
+                        break
                     time.sleep(0.1)
+                if getattr(self, '_inv_manage_abort', False):
+                    from inventory_discard import DiscardResult
+                    self.after(0, lambda: self._item_discard_done(
+                        DiscardResult('aborted')))
+                    return
                 from interface import inventory_discard_runner as dr
                 res = dr.run_discard_items(
                     cfg, states,

@@ -626,6 +626,15 @@ class RunLoop:
             # Mount-Taste fuer Symmetrie auf die Instanz spiegeln (set_to_begin
             # liest zusaetzlich -MOUNT-/-MOUNTKEY- aus values -> beides konsistent).
             self.fishbot.mount_key = fish_cfg['mount_key']
+            # Inventar-Taste + Schalter fuer die Neuordnung nach den
+            # Golden-Thunfisch-Fenstern (User-Wunsch 2026-09-10): die Fenster
+            # verschieben das Inventar, zweimal "i" setzt es wieder an seinen
+            # Platz. Ohne das greift das Koeder-Nachlegen an die alte Stelle.
+            voll_cfg = self.controller.current_config()
+            self.fishbot.inventory_key = (
+                voll_cfg.get('inventory', {}).get('hotkey', 'i'))
+            self.fishbot.inventar_neu_ordnen = bool(
+                fish_cfg.get('inventar_neu_ordnen', True))
             # Angel-Whitelist: den an/aus-Schalter spiegeln (set_to_begin liest
             # zusaetzlich -WHITELIST- aus values) und die konkreten Fisch-
             # Entscheidungen (DE-Name -> KEEP/REMOVE/CAMPFIRE) aus der Inventar-

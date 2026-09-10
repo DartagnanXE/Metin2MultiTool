@@ -64,6 +64,7 @@ RAIL_GLYPHS = {
     'console': '>_',
     'inventory': '\U0001F392',  # Rucksack (Inventar-Scan)
     'seher': '\U0001F52E',    # Kristallkugel (Seherwettstreit)
+    'okey': '\U0001F0CF',    # Spielkarte (Okey-Kartenspiel)
     'energiesplitter': '⚡',  # Blitz (Energiesplitter: Hammer+Dolch)
     'multiclient': '\U0001F465',  # zwei Koepfe (mehrere Clients parallel)
     'ranking': '\U0001F3C6',   # Pokal (Rangliste/Stats/Events)
@@ -74,7 +75,7 @@ RAIL_GLYPHS = {
 # [sichtbarer Trenner], Inventory (separat + zuletzt: TEMPORAER, bis kalibriert),
 # [Spacer], Settings (unten angepinnt).
 RAIL_ORDER = ('fishing', 'puzzle', 'ranking', 'roadmap', 'console',
-              'inventory', 'seher', 'energiesplitter', 'multiclient',
+              'inventory', 'seher', 'okey', 'energiesplitter', 'multiclient',
               'settings')
 
 # Key-Capture: which -> (config-section, config-key). Macht den Tasten-Aufnahme-

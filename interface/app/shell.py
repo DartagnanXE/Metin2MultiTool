@@ -86,26 +86,32 @@ class ShellMixin:
         rail.grid(row=0, column=0, sticky='ns')
         rail.grid_propagate(False)
         rail.grid_columnconfigure(0, weight=1)
-        # Top-Gruppe (rows 0-8: Fishing/Puzzle/Inventory/Seher/Energie/Multiclient/
-        # Ranking/Roadmap/Console). Die Spacer-Zeile (row 9) waechst und drueckt das
-        # unten angepinnte Settings (row 10) nach unten.
-        rail.grid_rowconfigure(9, weight=1)
+        # Top-Gruppe (rows 0-9: Fishing/Puzzle/Inventar/Seher/Okey/Energie/
+        # Multiclient/Rangliste/Roadmap/Konsole). Die Spacer-Zeile waechst und
+        # drueckt das unten angepinnte Settings nach unten.
+        #
+        # ACHTUNG: Spacer und Settings muessen UNTER dem letzten Item liegen.
+        # Beim Einbau des Okey-Reiters rutschte die Konsole auf genau die
+        # Spacer-Zeile -- dann waechst die Zeile MIT dem Knopf darin und das
+        # Layout kippt. Wer hier ein Item ergaenzt, zieht diese zwei Zahlen mit.
+        rail.grid_rowconfigure(10, weight=1)
 
         self._rail_items = {}
         self._rail_dots = {}
-        # Grid-Zeile je Rail-Item. Top-Gruppe 0..7, Spacer 8 (waechst), Settings
-        # unten angepinnt 9. Energiesplitter ist ein BOT-MODUS -> bei den Modi
+        # Grid-Zeile je Rail-Item. Top-Gruppe 0..9, Spacer 10 (waechst),
+        # Settings unten angepinnt 11. Energiesplitter ist ein BOT-MODUS -> bei den Modi
         # oben, UEBER der Rangliste (User-Wunsch): Angeln, Puzzle, Inventar,
         # Seher, Energie, Rangliste, Roadmap, Console.
         # WICHTIG: JEDER Eintrag in RAIL_ORDER (_common.py) MUSS hier eine Zeile
         # haben -- sonst fehlt das Item (defensiv via .get: kein App-Crash mehr).
         rows = {'fishing': 0, 'puzzle': 1, 'inventory': 2, 'seher': 3,
-                'energiesplitter': 4, 'multiclient': 5, 'ranking': 6,
-                'roadmap': 7, 'console': 8, 'settings': 10}
+                'okey': 4, 'energiesplitter': 5, 'multiclient': 6,
+                'ranking': 7, 'roadmap': 8, 'console': 9, 'settings': 11}
         tip_keys = {'fishing': 'ui.view_fishing', 'puzzle': 'ui.view_puzzle',
                     'console': 'ui.view_console',
                     'inventory': 'ui.view_inventory',
                     'seher': 'ui.view_seher',
+                    'okey': 'ui.view_okey',
                     'energiesplitter': 'ui.view_energiesplitter',
                     'multiclient': 'ui.view_multiclient',
                     'ranking': 'ui.view_ranking',
@@ -182,6 +188,7 @@ class ShellMixin:
         self._build_console_view(self.panel_wrap)
         self._build_inventory_view(self.panel_wrap)
         self._build_seher_view(self.panel_wrap)
+        self._build_okey_view(self.panel_wrap)
         self._build_energiesplitter_view(self.panel_wrap)
         self._build_multiclient_view(self.panel_wrap)
         self._build_ranking_view(self.panel_wrap)

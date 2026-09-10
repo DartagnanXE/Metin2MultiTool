@@ -398,6 +398,26 @@ class FishingBot(FishingDetectMixin):
     # und das Nachlegen stirbt unbemerkt.
     ESC_WATCH_S = 3.0            # so lange nach einem Abbruch aufs Minispiel warten
     _esc_pending_until = 0.0     # > time(): ESC ist noch offen (Minispiel fehlte)
+
+    # -- Inventar nach den Thunfisch-Fenstern neu ordnen (User-Wunsch 2026-09-10)
+    #
+    # Die Golden-Thunfisch-Fenster verschieben das Inventar-Fenster; danach sitzt
+    # es nicht mehr an seiner alten Stelle. Der Bot rechnet aber mit festen
+    # Slot-Pixeln (Koeder-Nachlegen, Scan) -- eine Verschiebung laesst ihn ins
+    # Leere greifen.
+    #
+    # Zweimal "i" stellt den alten Zustand wieder her: einmal schliesst, einmal
+    # oeffnet -- das Fenster wird dabei neu aufgebaut und sitzt wieder richtig.
+    # War es zu, ist es danach wieder zu. Der Zustand bleibt also, nur die Lage
+    # wird korrigiert.
+    #
+    # NICHT blockierend: der zweite Druck wird ueber einen Zeitstempel geplant,
+    # statt den Angel-Loop 0,3 s schlafen zu legen.
+    INVENTAR_NEUORDNEN_DELAY_S = 0.3
+    inventory_key = 'i'            # In-Game-Taste fuers Inventar (aus der Config)
+    inventar_neu_ordnen = True     # Schalter; AN auf ausdruecklichen Wunsch
+    _inv_reorder_second_at = 0.0   # > time(): zweiter "i"-Druck steht aus
+    _golden_seen_any = False       # in dieser Episode stand wirklich ein Fenster
     # True ab einem Options-Klick bis zum ersten OK-Klick: dann WIRD eine
     # Bestaetigung erwartet. Laeuft das Fenster ohne Klick ab, gibt es genau
     # EINE Diagnosezeile mit allen Teilwerten der Erkennung.
@@ -629,6 +649,27 @@ class FishingBot(FishingDetectMixin):
         except Exception:
             return False
 
+    def _inventar_neu_ordnen(self):
+        """Erster "i"-Druck; der zweite folgt zeitversetzt aus runHack.
+
+        Zweimal "i" laesst den Client das Inventar-Fenster neu aufbauen -- nach
+        den Golden-Thunfisch-Fenstern sitzt es sonst verschoben, und der Bot
+        greift beim Nachlegen an die alte Stelle. Der Fenster-ZUSTAND bleibt
+        gleich (zu -> auf -> zu bzw. auf -> zu -> auf), nur die Lage wird
+        korrigiert.
+
+        Abschaltbar ueber ``inventar_neu_ordnen`` (Default AN, User-Wunsch
+        2026-09-10). Wirft nie.
+        """
+        if not getattr(self, 'inventar_neu_ordnen', True):
+            return
+        try:
+            _input.key(self.inventory_key)
+            self._inv_reorder_second_at = (
+                time() + self.INVENTAR_NEUORDNEN_DELAY_S)
+        except Exception:
+            self._inv_reorder_second_at = 0.0
+
     def _log_golden_confirm_missed(self, screenshot):
         """Eine Zeile: erwarteter OK-Dialog nicht gefunden + Teilwerte. Wirft nie."""
         try:
@@ -683,6 +724,7 @@ class FishingBot(FishingDetectMixin):
         neue_episode = (now - getattr(self, '_golden_daily_seen', 0.0)
                         > self.GOLDEN_EPISODE_GAP_S)
         self._golden_daily_seen = now
+        self._golden_seen_any = True
         if neue_episode:
             self._golden_confirm_hard = now + self.GOLDEN_CONFIRM_MAX_S
             self._golden_confirm_clicks = 0
@@ -732,6 +774,7 @@ class FishingBot(FishingDetectMixin):
             ok_x = int(ox + point[0])
             ok_y = int(oy + point[1])
             _input.click(ok_x, ok_y, tag='confirm')
+            self._golden_seen_any = True
             self._golden_expect_confirm = False
             self._last_confirm_click = now
             self._golden_confirm_clicks = (
@@ -1603,6 +1646,26 @@ class FishingBot(FishingDetectMixin):
         # so faellt bei stehendem Dialog die Minispiel-Messung unten weg.
         if golden_modal:
             return crop_img
+
+        # FALLENDE FLANKE der Golden-Episode: eben stand noch ein Fenster, jetzt
+        # nicht mehr. Die Thunfisch-Fenster verschieben das Inventar; zweimal
+        # "i" baut es neu auf und setzt es wieder an seine Stelle (siehe
+        # INVENTAR_NEUORDNEN_DELAY_S). Ohne das greift der Bot beim naechsten
+        # Koeder-Nachlegen an die alte, jetzt falsche Slot-Position.
+        if getattr(self, '_golden_seen_any', False):
+            self._golden_seen_any = False
+            self._inventar_neu_ordnen()
+
+        # Zweiter "i"-Druck, sobald seine Zeit gekommen ist. Bewusst ueber einen
+        # Zeitstempel statt ueber sleep: der Angel-Loop darf nicht 0,3 s stehen.
+        if self._inv_reorder_second_at and \
+                time() >= self._inv_reorder_second_at:
+            self._inv_reorder_second_at = 0.0
+            try:
+                _input.key(self.inventory_key)
+                _flog(self.state, t('fishing.inventar_neu_geordnet'))
+            except Exception:
+                pass
 
         # Minispiel-Erkennung EINMAL pro Frame, und zwar HIER: der Abbruch der
         # Whitelist braucht sie (ESC nur bei offenem Minispiel, siehe

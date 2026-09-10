@@ -316,11 +316,24 @@ def run_campfire_grill(cfg, states, *, log_fn=None, db=None,
                 hover_fn = _glow.make_hover_fn(
                     pydirectinput, lambda _p: _lat, offset=offset,
                     speed_ms=inv_cfg.get('hover_speed_ms', 0))
+            # NOT-AUS auch WAEHREND des Scans (User-Report 2026-09-10).
+            # Der Scan dauert rund 1,6 s (4 Seiten a ~0,35 s Erkennung plus
+            # Reiter-Klicks) und laeuft nach JEDEM Feuer erneut. Ohne diese
+            # Pruefung lief F6 dort ungebremst durch -- am simulierten Lauf
+            # gemessen die groesste Luecke von allen. ``early_stop_fn`` fragt
+            # nach JEDER Seite nach, der Scan endet also spaetestens nach der
+            # laufenden Seite statt nach allen vieren.
+            def _abbruch(_page, _slots):
+                try:
+                    return bool(abort_fn is not None and abort_fn())
+                except Exception:
+                    return False
+
             return scan_inventory(
                 capture_fn=wincap.get_screenshot,
                 switch_page_fn=_switch,
                 db=db, calib=calib, pages=allowed_pages,
-                hover_fn=hover_fn)
+                hover_fn=hover_fn, early_stop_fn=_abbruch)
         except Exception:
             return None
 

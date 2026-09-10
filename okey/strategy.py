@@ -28,13 +28,10 @@ from .solver import make_base_smart, pimc_action, rollout_action, smart_action
 
 VOLL_MASKE = (1 << 24) - 1
 
-#: Die ausgelieferten Spielstaerken. Gemessene Mittelwerte und Truhen-Raten
-#: siehe ERGEBNISSE.md; die Zeitangabe ist der Rechenaufwand je Klick.
-#:
-#:   'beste'    PIMC   -- 320,6 Punkte, 9,5 % Gold, 56,0 % Silber   ~0,42 s
-#:   'schnell'  Rollout-- 313,9 Punkte, 6,1 % Gold, 57,9 % Silber   ~0,03 s
-#:   'sofort'   Regel  -- 287,0 Punkte, 4,8 % Gold, 40,5 % Silber   <0,001 s
-STAERKEN = ('beste', 'schnell', 'sofort')
+#: Die vier ausgelieferten Spielstaerken, von stark nach schnell. Die
+#: gemessenen Zahlen stehen in :data:`STUFEN_TABELLE` -- dort und nur dort,
+#: damit die Oberflaeche keine zweite, abweichende Wahrheit erzaehlt.
+STAERKEN = ('beste', 'stark', 'schnell', 'sofort')
 
 #: Voreinstellung. Auf Wunsch des Nutzers (2026-09-08) die staerkste Variante:
 #: Okey hat kein Zeitlimit, und 0,42 s Bedenkzeit je Klick faellt im Spiel nicht
@@ -95,6 +92,15 @@ def naechster_zug(feld, verbraucht=(), staerke=STANDARD_STAERKE, rng=None):
     if staerke == 'sofort':
         art, maske, punkte = smart_action(feld_maske, deck_maske, deck_rest)
         wie = 'Faustregel'
+    elif staerke == 'stark':
+        # Dieselbe Mechanik wie 'schnell', nur mit fuenfmal so vielen
+        # Probepartien und einer breiteren Kandidatenliste. Fuellt die Luecke
+        # zwischen 0,03 s und 0,42 s je Zug, die sonst zwischen den Stufen
+        # klaffte.
+        art, maske, punkte = rollout_action(
+            feld_maske, deck_maske, make_base_smart(), rollouts=240, rng=rng,
+            top_k=12)
+        wie = '240 simulierte Partien je Zug'
     elif staerke == 'schnell':
         art, maske, punkte = rollout_action(
             feld_maske, deck_maske, make_base_smart(), rollouts=48, rng=rng,

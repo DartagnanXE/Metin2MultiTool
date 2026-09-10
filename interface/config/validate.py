@@ -348,6 +348,9 @@ def validate(cfg):
         # Schluessel bleibt als interner Debug-Default True erhalten.
         inventory['fast_recognition'] = True
         # Maus-Hover vor dem Scan: reiner Schalter, Default AUS.
+        fishing['inventar_neu_ordnen'] = bool(
+            fishing.get('inventar_neu_ordnen',
+                        DEFAULTS['fishing']['inventar_neu_ordnen']))
         inventory['hover_clear'] = bool(
             inventory.get('hover_clear',
                           DEFAULTS['inventory']['hover_clear']))
@@ -417,6 +420,20 @@ def validate(cfg):
                 merged.get('multiclient'))
         except Exception:
             merged['multiclient'] = copy.deepcopy(DEFAULTS['multiclient'])
+
+        # -- Okey-Kartenspiel -------------------------------------------
+        # Die erlaubten Stufen kommen aus der Strategie selbst, damit es nicht
+        # zwei Listen gibt, die auseinanderlaufen koennen. Faellt der Import
+        # aus (kein OpenCV o.ae.), bleibt der Default stehen statt zu werfen.
+        okey = merged['okey']
+        okey['decks'] = max(0, min(999, _coerce_int(okey.get('decks'),
+                                                    DEFAULTS['okey']['decks'])))
+        try:
+            from okey.strategy import STAERKEN
+        except Exception:
+            STAERKEN = (DEFAULTS['okey']['solver'],)
+        okey['solver'] = _enum(okey.get('solver'), STAERKEN,
+                               DEFAULTS['okey']['solver'])
 
         return merged
     except Exception:

@@ -46,6 +46,7 @@ from interface.app.window_picker import WindowPickerMixin
 from interface.app.config_widgets import ConfigWidgetsMixin
 from interface.app.views_run import FishingPuzzleConsoleViewsMixin
 from interface.app.views_inventory import InventoryViewMixin
+from interface.app.views_okey import OkeyViewMixin
 from interface.app.views_seher import SeherViewMixin
 from interface.app.views_energiesplitter import EnergiesplitterViewMixin
 from interface.app.views_multiclient import MulticlientViewMixin
@@ -76,6 +77,7 @@ class App(
     RankingViewMixin,
     InventoryViewMixin,
     SeherViewMixin,
+    OkeyViewMixin,
     EnergiesplitterViewMixin,
     MulticlientViewMixin,
     FishingPuzzleConsoleViewsMixin,

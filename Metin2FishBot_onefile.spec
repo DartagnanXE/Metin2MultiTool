@@ -80,6 +80,7 @@ a = Analysis(
         ('fishing_chat_templates', 'fishing_chat_templates'),  # Chat-OCR-Vorlagen (fishing_chat: Biss/Name-Whitelist)
         ('inventory_tab_templates', 'inventory_tab_templates'),  # Tab-Templates Offen-Erkennung (inventory.open_probe)
         ('seher/templates', 'seher/templates'),  # Seherwettstreit-Anker+Kreuz (seher.detect)
+        ('okey_templates', 'okey_templates'),  # Okey: Ablauf-Schablonen + Ziffern (okey.flow/okey.vision) -- OHNE diese findet der Okey-Reiter im gebauten Programm NICHTS
         ('energiesplitter/templates', 'energiesplitter/templates'),  # Hammer/Dolch/NPC-Templates (energiesplitter.detect) -- OHNE diese ist der Phase-0-GATE in der EXE IMMER rot (item/npc 'nicht gefunden')
         ('pieces_second.json', '.'),
         ('trained_V.npz', '.'),  # vorberechnete KI-Wertfunktion (trained_solver.load_V) -- OHNE diese rechnet der erste 'KI optimiert'-Zug ~19s und der Bot wirkt EINGEFROREN
@@ -99,6 +100,9 @@ a = Analysis(
         'inventory_discard', 'interface.inventory_discard_runner',
         # Seherwettstreit: lazy im Worker importiert -> ohne Pin
         # ModuleNotFoundError in der EXE (gleiches Muster wie oben).
+        'interface.okey_runner', 'okey', 'okey.flow', 'okey.vision',
+        'okey.coords', 'okey.partie', 'okey.strategy', 'okey.stufen',
+        'okey.solver', 'okey.combos', 'okey.engine',
         'interface.seher_runner', 'seher', 'seher.detect',
         'seher.flow', 'seher.geometry',
         # Run 1: Ranking/Events/Mount -- z.T. lazy in app.py/hack.py importiert.

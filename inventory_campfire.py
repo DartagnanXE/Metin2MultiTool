@@ -388,9 +388,44 @@ class CampfireResult:
                    self.remaining))
 
 
+def abbrechbar_schlafen(sleep, sekunden, abort_fn, scheibe=0.05):
+    """Schlaeft in kleinen Scheiben und bricht ab, sobald der Not-Aus greift.
+
+    WOZU (User-Report 2026-09-10, gemessen): F6 wirkte waehrend des Grillens
+    nicht sofort. Die Flagge wurde nur vor jedem Fisch und zwischen den Feuern
+    geprueft -- die langen Wartezeiten dazwischen liefen ungebremst durch. Am
+    simulierten Lauf gemessen: bis zu **1,60 s** Verzoegerung waehrend des
+    Inventar-Scans und **0,80 s** waehrend Vogelperspektive und Feuersuche.
+
+    Eine feste Pause von 0,8 s wird hier zu 16 Scheiben a 0,05 s, von denen
+    jede den Not-Aus prueft -- die Wartezeit bleibt gleich, die Reaktion sinkt
+    auf hoechstens eine Scheibe.
+
+    :return: ``False``, wenn abgebrochen wurde (der Aufrufer soll aussteigen),
+        sonst ``True``. Wirft nie.
+    """
+    rest = float(sekunden or 0)
+    while rest > 0:
+        try:
+            if abort_fn is not None and abort_fn():
+                return False
+        except Exception:
+            pass
+        d = scheibe if rest > scheibe else rest
+        try:
+            sleep(d)
+        except Exception:
+            pass
+        rest -= d
+    try:
+        return not (abort_fn is not None and abort_fn())
+    except Exception:
+        return True
+
+
 def locate_fire(capture_rgb_fn, *, template=None, rotate_fn=None,
                 max_attempts=MAX_ROTATE_ATTEMPTS, settle=ROTATE_SETTLE_S,
-                sleep=None):
+                sleep=None, abort_fn=None):
     """Scan for the "Lagerfeuer" label, rotating the camera until it appears.
 
     ``capture_rgb_fn`` returns the current frame as an RGB array (the runner
@@ -410,13 +445,22 @@ def locate_fire(capture_rgb_fn, *, template=None, rotate_fn=None,
     attempts = 0
     # attempt 0 is the initial look; each extra attempt rotates first.
     for i in range(max(1, int(max_attempts))):
+        # Not-Aus VOR jedem Drehversuch: die Suche darf bis zu acht Mal drehen,
+        # jedes Mal mit Settle und Aufnahme -- ohne diese Pruefung lief F6 hier
+        # ungebremst durch (gemessen 0,80 s).
+        try:
+            if abort_fn is not None and abort_fn():
+                return (None, best, attempts)
+        except Exception:
+            pass
         if i > 0 and rotate_fn is not None:
             try:
                 rotate_fn()
             except Exception:
                 pass
             try:
-                sleep(settle)
+                if not abbrechbar_schlafen(sleep, settle, abort_fn):
+                    return (None, best, attempts)
             except Exception:
                 pass
             attempts += 1
@@ -627,19 +671,31 @@ def _grill_one_fire(env, tool, targets):
     # Ab JETZT laeuft die Feuer-Lebensdauer (~35 s) -- die Bird's-Eye-/Such-Phase
     # frisst davon schon etwas auf, darum ab dem Platzieren messen.
     fire_deadline = time.monotonic() + FIRE_LIFETIME_S
-    sleep(PLACE_SETTLE_S)
+    if not abbrechbar_schlafen(sleep, PLACE_SETTLE_S, env.abort_fn):
+        _flog('-', 'campfire.aborted', count=len(grilled))
+        return 'aborted', grilled, None, 0.0, 0
 
     # Vogelperspektive per Rechtsklick-Drag (dieselbe Geste, die der
     # Energiesplitter fuer NPCs nutzt): von oben ist der gruene "Lagerfeuer"-Name
     # zuverlaessig klickbar. Der Platzier-Doppelklick hat das Fenster bereits
     # aktiviert, eine Maus-Geste aktiviert ohnehin selbst.
     _birds_eye_drag(inp, ox, oy, sleep)
-    sleep(BIRDS_EYE_SETTLE_S)
+    # 0,8 s feste Pause -- die laengste Einzelwartezeit im ganzen Ablauf.
+    if not abbrechbar_schlafen(sleep, BIRDS_EYE_SETTLE_S, env.abort_fn):
+        _flog('-', 'campfire.aborted', count=len(grilled))
+        return 'aborted', grilled, None, 0.0, 0
 
     # Feuer am Namens-Label finden, dabei die Kamera drehen ("E").
     fire, score, rotations = locate_fire(
         env.capture_rgb_fn, template=env.template,
-        rotate_fn=lambda: _tap_key(inp, env.rotate_key), sleep=sleep)
+        rotate_fn=lambda: _tap_key(inp, env.rotate_key), sleep=sleep,
+        abort_fn=env.abort_fn)
+    try:
+        if env.abort_fn is not None and env.abort_fn():
+            _flog('-', 'campfire.aborted', count=len(grilled))
+            return 'aborted', grilled, fire, score, rotations
+    except Exception:
+        pass
     if fire is None:
         _flog('-', 'campfire.label_not_found', score=round(score, 3),
               attempts=rotations)
@@ -663,7 +719,10 @@ def _grill_one_fire(env, tool, targets):
         _switch_page(inp, env.calib, ox, oy, page, sleep)
         fx, fy = _slot_screen(row, col, env.calib, ox, oy, lattice=env.lattice)
         drag(inp, fx, fy, fire_screen[0], fire_screen[1], sleep=sleep)
-        sleep(GRILL_SETTLE_S)
+        if not abbrechbar_schlafen(sleep, GRILL_SETTLE_S, env.abort_fn):
+            grilled.append((page, row, col, name))
+            _flog('-', 'campfire.aborted', count=len(grilled))
+            return 'aborted', grilled, fire, score, rotations
         grilled.append((page, row, col, name))
         _flog('0', 'campfire.grilled_one', name=name, page=page,
               slot=_slot_no(row, col))
