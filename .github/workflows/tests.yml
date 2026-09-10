@@ -24,7 +24,7 @@ jobs:
       - name: Abhaengigkeiten installieren
         run: |
           pip install --prefer-binary -r requirements.txt
-          pip install --prefer-binary pytest
+          pip install --prefer-binary pytest pytest-timeout
 
       - name: Tests
         # pytest statt 'unittest discover': Teile der Suite (z.B. seher) sind
@@ -34,4 +34,22 @@ jobs:
         # lokal gruen ist, plus die GUI-Tests (customtkinter via requirements;
         # Windows-Runner hat Desktop -> test_gui_smoke laeuft real und faengt
         # App-Start-/Rail-Regressionen wie den v1.2.6-KeyError).
-        run: python -m pytest tests -q
+        #
+        # ZEITLIMIT JE TEST (neu 2026-09-10). Bisher hing dieser Lauf regelmaessig
+        # bis in den 20-Minuten-Backstop des Jobs und wurde dann hart abgebrochen
+        # -- ohne eine einzige Zeile darueber, WO er haengt. Seit v1.6.6 war die
+        # Windows-Pruefung damit faktisch blind.
+        #
+        # release.yml hat dasselbe Problem anders geloest: es waehlt eine
+        # Logik-Teilmenge aus und umgeht die Haenger. Hier wird bewusst NICHT
+        # ausgewaehlt -- sonst verliert man genau die Tests, die nur auf Windows
+        # etwas beweisen (GUI-Aufbau, pywin32). Stattdessen bekommt jeder Test
+        # 120 s; wer laenger braucht, haengt, und pytest-timeout schreibt seinen
+        # Stacktrace ins Protokoll. Der naechste Lauf benennt den Schuldigen also
+        # selbst, statt dass jemand raten muss.
+        #
+        # 'thread' ist auf Windows die einzige Methode, die funktioniert
+        # (signal-basierte Unterbrechung gibt es dort nicht).
+        run: >
+          python -m pytest tests -q -p no:cacheprovider
+          --timeout=120 --timeout-method=thread
