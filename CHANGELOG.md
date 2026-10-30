@@ -80,13 +80,14 @@ Welt und bestätigt blind mit „Ja“. Auf der falschen Seite hätte er so ein 
 markiertes Item fallen lassen, im Spielmodell eine Deluxe-Puzzlebox. Jetzt prüft
 er jeden Seitenwechsel genauso; auf einer Seite, die sich nicht belegen lässt,
 wird nie gezogen und nie „Ja“ geklickt. Bleibt eine Seite unberührt, meldet er
-„Wegwerfen unvollständig“ statt „fertig“.
+„Wegwerfen unvollständig“ statt „fertig“. Beendet F6 schon den Scan, heißt das
+„gestoppt“, nicht „unvollständig“.
 
 ### Was noch nicht geprüft ist
 
 Alles ist an einem Spielmodell nachgestellt, das Reiterklicks verschlucken und
-Reiter tot stellen kann, und mit 48 neuen Tests festgehalten (Gesamtprüfung
-2057 grün). **Im Spiel getestet ist nichts davon.** Dass das Spiel genau diese
+Reiter tot stellen kann, und mit 49 neuen Tests festgehalten (Gesamtprüfung
+2058 grün). **Im Spiel getestet ist nichts davon.** Dass das Spiel genau diese
 Reiterklicks verschluckt, ist nicht gemessen; es ist eine von drei möglichen
 Ursachen für die Meldung. Die neuen Console-Zeilen sind dafür da, das am nächsten
 Log zu entscheiden:

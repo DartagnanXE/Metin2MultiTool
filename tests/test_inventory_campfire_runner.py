@@ -385,17 +385,17 @@ class TestErsterGrillScanHovert(_GrillStartBase):
         self.assertTrue(callable(aufrufe[0]['hover_fn']))
         self.assertTrue(callable(aufrufe[1]['hover_fn']))
 
-    def test_sweep_faehrt_das_eingerastete_raster_ab(self):
-        from inventory.grid import lattice_from_calibration
-        locked = GridLattice(origin=(632, 245), pitch=(32, 32))
-        # Sonst unterschiede der Test nichts.
-        self.assertNotEqual(
-            lattice_from_calibration(DEFAULT_CALIBRATION).origin, locked.origin)
+    def test_sweep_folgt_dem_raster_des_scanners(self):
+        """Der Scanner reicht jeder Seite ihr eigenes eingerastetes Raster in
+        ``hover_fn(page, lattice)`` -- genau das faehrt der Sweep ab. Ein
+        Rueckfall-Raster greift auf diesem Weg nie (Pre-Release-Review
+        2026-10-30: der vorige Test pruefte nur diesen toten Rueckfall)."""
         aufrufe = self._scans({'inventory': {'hotkey': 'i', 'pages': [1]}},
                               anzahl=1)
+        seite = GridLattice(origin=(640, 250), pitch=(32, 32))
         self.pdi.ev[:] = []
-        aufrufe[0]['hover_fn']('II')
-        erster = hover.to_screen(hover.slot_centres(locked), (1000, 500))[0]
+        aufrufe[0]['hover_fn']('II', seite)
+        erster = hover.to_screen(hover.slot_centres(seite), (1000, 500))[0]
         moves = [e for e in self.pdi.ev if e[0] == 'mv']
         self.assertEqual(moves[0], ('mv',) + tuple(erster))
 

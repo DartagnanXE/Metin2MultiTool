@@ -269,6 +269,13 @@ def run_discard(states, *, inp, capture_fn, scan_fn, client_size, abort_fn=None,
             _flog('-', 'discard.scan_failed')
             return DiscardResult('error')
 
+        # F6 kann den Scan vorzeitig beenden (early_stop_fn). Dann fehlen
+        # Seiten, weil abgebrochen wurde -- nicht, weil sie sich nicht
+        # aufschlagen liessen.
+        if _stopp(abort_fn):
+            _flog('-', 'discard.aborted', count=0)
+            return DiscardResult('aborted')
+
         # Ueber Seiten, die der Scan nicht lesen konnte, gibt es keine Aussage
         # -- also auch kein "fertig" und kein "nichts zu tun".
         fehlend = _fehlende_seiten(inv, expected_pages)

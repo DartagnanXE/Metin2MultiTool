@@ -265,6 +265,18 @@ class TestEhrlichesEnde(unittest.TestCase):
         spiel = _ohne_seite(_Spiel(_beutel()), 'III')
         self.assertEqual(_wirf(spiel, expected_pages=None).status, 'done')
 
+    def test_f6_im_scan_ist_abbruch_nicht_unvollstaendig(self):
+        """Stoppt F6 den Scan nach Seite I, fehlen II-IV, weil abgebrochen
+        wurde -- nicht, weil sie sich nicht aufschlagen liessen
+        (Pre-Release-Review 2026-10-30)."""
+        spiel = _Spiel(_beutel())
+        spiel.scan = lambda: types.SimpleNamespace(pages={'I': []})
+        with _LogMitschnitt() as log:
+            res = _wirf(spiel, abort_fn=lambda: True)
+        self.assertEqual(res.status, 'aborted')
+        self.assertNotIn('discard.scan_incomplete', log.keys)
+        self.assertEqual(spiel.am_boden, [])
+
 
 @unittest.skipUnless(np is not None, 'numpy required for the captured frame')
 class TestVerdrahtung(unittest.TestCase):

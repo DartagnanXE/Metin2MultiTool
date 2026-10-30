@@ -300,13 +300,6 @@ def run_campfire_grill(cfg, states, *, log_fn=None, db=None,
         except Exception:
             return None
 
-    # Lock the inventory grid ONCE on the live window (identical across all four
-    # tabs -> one lock serves every page). Threaded into run_campfire so the tool
-    # double-click + every fish drag SOURCE hit the SAME grid recognition uses,
-    # not the raw (un-aligned) DEFAULT_CALIBRATION that grabs ~1 slot too low.
-    # Defensive: None -> run_campfire falls back to the calibration lattice.
-    # Vor ``scan_fn``, weil auch der Maus-Sweep dieses Raster abfaehrt.
-    locked = _lock_lattice(wincap, db, calib)
     erster_scan = {'offen': True}
 
     def scan_fn():
@@ -338,14 +331,15 @@ def run_campfire_grill(cfg, states, *, log_fn=None, db=None,
             # die Option (Nutzer-Meldung 2026-10-30: auf II-IV liegen frisch
             # gefangene Fische, ueber die nie ein Zeiger fuhr). Ueberfahren
             # loescht den Rahmen dauerhaft -- die Nachscans zwischen den
-            # Feuern hovern nur mit der Option. Raster: das eingerastete; das
-            # Kalibrier-Raster sitzt beim Nutzer ~1 Slot daneben.
+            # Feuern hovern nur mit der Option. Raster: der Scanner reicht
+            # jeder Seite ihr eigenes eingerastetes Raster herein
+            # (``hover_fn(page, lattice)``); ``_lat`` ist nur der Rueckfall.
             inv_cfg = (cfg or {}).get('inventory', {}) or {}
             hovern = bool(inv_cfg.get('hover_clear')) or erster_scan['offen']
             erster_scan['offen'] = False
             hover_fn = None
             if hovern:
-                _lat = locked or lattice_from_calibration(calib)
+                _lat = lattice_from_calibration(calib)
                 hover_fn = _glow.make_hover_fn(
                     pydirectinput, lambda _p: _lat, offset=offset,
                     speed_ms=inv_cfg.get('hover_speed_ms', 0),
@@ -404,6 +398,13 @@ def run_campfire_grill(cfg, states, *, log_fn=None, db=None,
             return grid_mod.active_page(frame, calib)
         except Exception:
             return None
+
+    # Lock the inventory grid ONCE on the live window (identical across all four
+    # tabs -> one lock serves every page). Threaded into run_campfire so the tool
+    # double-click + every fish drag SOURCE hit the SAME grid recognition uses,
+    # not the raw (un-aligned) DEFAULT_CALIBRATION that grabs ~1 slot too low.
+    # Defensive: None -> run_campfire falls back to the calibration lattice.
+    locked = _lock_lattice(wincap, db, calib)
 
     _emit('0', 'campfire.started')
     _emit_seiten(allowed_pages)
