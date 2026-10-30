@@ -41,6 +41,7 @@ import time
 
 from inventory.constants import DEFAULT_CALIBRATION, INPUT_SETTLE_S
 from inventory.grid import lattice_from_calibration
+from inventory import tab_switch
 
 try:  # pragma: no cover - numpy present in production
     import numpy as _np
@@ -352,6 +353,9 @@ class CampfireResult:
           waere hier eine unbelegte Behauptung.
         * ``'max_cycles'``     -- die Endlos-Bremse griff (siehe
           :data:`MAX_FIRE_CYCLES`).
+        * ``'page_switch_failed'`` -- die Seite mit dem Lagerfeuer liess sich
+          nicht belegt aufschlagen; es wurde KEIN Feuer gelegt (der Doppelklick
+          haette sonst ein Item der falschen Seite benutzt).
         * ``'label_not_found'`` / ``'not_open'`` / ``'aborted'`` / ``'error'``.
 
         Historisch gab es hier nur ``'done'`` -- auch bei abgelaufener Feuerfrist
@@ -479,7 +483,7 @@ def locate_fire(capture_rgb_fn, *, template=None, rotate_fn=None,
 def run_campfire(states, *, inp, capture_rgb_fn, scan_fn, offset=(0, 0),
                  calib=DEFAULT_CALIBRATION, sleep=None, template=None,
                  birds_eye_key='g', rotate_key='e', lattice=None,
-                 abort_fn=None):
+                 abort_fn=None, verify_page_fn=None, expected_pages=None):
     """Full grill flow: place the campfire, find the fire, drag the fish on.
 
     All live dependencies are INJECTED so the orchestration is headless-testable
@@ -500,6 +504,13 @@ def run_campfire(states, *, inp, capture_rgb_fn, scan_fn, offset=(0, 0),
         -- the user's bag sits ~1 slot above the bundled DEFAULT_CALIBRATION, so
         the un-aligned calib alone grabs one slot too low + off-centre. ``None``
         falls back to the calibration lattice (the historical headless behaviour).
+      * ``verify_page_fn`` -- optional ``() -> page label | None``: welche
+        Inventar-Seite ist JETZT offen? Mit ihr wird jeder Reiter-Wechsel
+        belegt, bevor gezogen oder doppelgeklickt wird (siehe
+        :func:`_switch_page_checked`). ``None`` = blinder Klick wie bisher.
+      * ``expected_pages`` -- optional die freigegebenen Seiten. Fehlt eine
+        davon im Scan, heisst das Ende ``'scan_incomplete'`` statt
+        ``'complete'``. ``None`` = die Seiten des ersten Scans zaehlen.
 
     Returns a :class:`CampfireResult`. STRICTLY defensive: any failure short-
     circuits to a clear status (and the button is released in :func:`drag`'s
@@ -519,22 +530,28 @@ def run_campfire(states, *, inp, capture_rgb_fn, scan_fn, offset=(0, 0),
         env = _GrillEnv(inp=inp, capture_rgb_fn=capture_rgb_fn, offset=(ox, oy),
                         calib=calib, sleep=sleep, template=template,
                         rotate_key=rotate_key, lattice=lattice,
-                        abort_fn=abort_fn)
+                        abort_fn=abort_fn, verify_page_fn=verify_page_fn)
 
         inv = scan_fn()
         if inv is None:
             _flog('-', 'campfire.scan_failed')
             return CampfireResult('error')
-        pages_first = _pages_seen(inv)
+        # Gegen DIESE Seiten wird "fertig" geprueft. Kennt der Aufrufer die
+        # freigegebenen Seiten, zaehlen die: ueberspringt schon der erste Scan
+        # eine Seite (Reiter liess sich nicht aufschlagen), waere "complete"
+        # sonst eine Behauptung ueber eine Seite, die nie gelesen wurde.
+        pages_first = (set(expected_pages) if expected_pages
+                       else _pages_seen(inv))
 
         grilled_all = []
         cycles = 0
-        prev_remaining = None
+        prev_targets, prev_seen = None, set()
         fire, score, rotations = None, 0.0, 0
 
         while True:
             targets = fish_slots_to_grill(inv, fish_names)
             remaining = len(targets)
+            seen = _pages_seen(inv)
 
             def _result(status):
                 return CampfireResult(status, grilled=grilled_all,
@@ -555,14 +572,14 @@ def run_campfire(states, *, inp, capture_rgb_fn, scan_fn, offset=(0, 0),
 
             # -- FERTIG? Nur ein VOLLSTAENDIGER Nullscan zaehlt --------------
             if not targets:
-                if cycles == 0:
-                    _flog('-', 'campfire.no_fish')
-                    return _result('no_fish')
-                if _pages_seen(inv) < pages_first:
+                if pages_first - seen:
                     # "Nichts mehr da" waere hier unbelegt -- es fehlen Seiten.
                     _flog('-', 'campfire.scan_incomplete', zyklen=cycles,
                           count=len(grilled_all))
                     return _result('scan_incomplete')
+                if cycles == 0:
+                    _flog('-', 'campfire.no_fish')
+                    return _result('no_fish')
                 _flog('0', 'campfire.all_done', count=len(grilled_all),
                       zyklen=cycles)
                 return _result('complete')
@@ -576,16 +593,24 @@ def run_campfire(states, *, inp, capture_rgb_fn, scan_fn, offset=(0, 0),
             tool = _find_item_slot(inv, CAMPFIRE_ITEM_NAME, calib, ox, oy,
                                    lattice=lattice)
             if tool is None:
+                if pages_first - seen:
+                    # Das Lagerfeuer kann auf der ungelesenen Seite liegen --
+                    # "keins mehr da" waere unbelegt und hiesse: nachkaufen.
+                    _flog('-', 'campfire.scan_incomplete', zyklen=cycles,
+                          count=len(grilled_all))
+                    return _result('scan_incomplete')
                 _flog('-', 'campfire.no_campfire_item', rest=remaining,
                       count=len(grilled_all))
                 return _result('no_campfire_item')
 
             # -- STILLSTAND? Ein Zyklus ohne Wirkung darf sich nicht wiederholen
-            if prev_remaining is not None and remaining >= prev_remaining:
+            if (prev_targets is not None
+                    and _kein_fortschritt(targets, seen, prev_targets,
+                                          prev_seen)):
                 _flog('-', 'campfire.stalled', rest=remaining, zyklen=cycles,
                       count=len(grilled_all))
                 return _result('stalled')
-            prev_remaining = remaining
+            prev_targets, prev_seen = targets, seen
 
             if cycles >= MAX_FIRE_CYCLES:
                 _flog('-', 'campfire.max_cycles', zyklen=cycles, rest=remaining)
@@ -623,7 +648,8 @@ class _GrillEnv(object):
     """
 
     __slots__ = ('inp', 'capture_rgb_fn', 'offset', 'calib', 'sleep',
-                 'template', 'rotate_key', 'lattice', 'abort_fn')
+                 'template', 'rotate_key', 'lattice', 'abort_fn',
+                 'verify_page_fn')
 
     def __init__(self, **kw):
         for name in self.__slots__:
@@ -644,6 +670,72 @@ def _pages_seen(inv):
         return set()
 
 
+def _kein_fortschritt(targets, seen, prev_targets, prev_seen):
+    """``True``, wenn das letzte Feuer auf den vergleichbaren Seiten nichts bewirkt hat.
+
+    Verglichen wird nur auf Seiten, die BEIDE Scans gelesen haben. Fehlt eine
+    Seite in einem Nachscan (Reiter liess sich nicht aufschlagen), fehlen auch
+    ihre Fische in der Summe; taucht sie im naechsten Scan wieder auf, stiege
+    die Gesamtzahl -- und ein nackter Summenvergleich meldete faelschlich
+    Stillstand. Bei gleichen Seiten ist das exakt der alte Vergleich
+    ``len(targets) >= len(prev_targets)``. Ohne gemeinsame Seite gibt es
+    nichts zu vergleichen (die Endlos-Bremse :data:`MAX_FIRE_CYCLES` bleibt).
+    Wirft nie.
+    """
+    try:
+        gemeinsam = set(seen) & set(prev_seen)
+        if not gemeinsam:
+            return False
+        jetzt = sum(1 for t in targets if t[0] in gemeinsam)
+        vorher = sum(1 for t in prev_targets if t[0] in gemeinsam)
+        return jetzt >= vorher
+    except Exception:
+        return False
+
+
+def _switch_page_checked(env, page):
+    """Reiter ``page`` anklicken und BELEGEN, dass die Seite offen ist.
+
+    WARUM (Nutzer-Meldung 2026-10-30, "Seite I klappt fast immer, II-IV fast
+    nie"): Das Spiel kann Reiter-Klicks verschlucken -- belegt seit v1.1.2
+    ("Scan blieb auf Seite I"). Der Haupt-Scan prueft deshalb jeden Wechsel nach
+    und klickt notfalls ein zweites Mal (``inventory.scanner._scan_one_page``).
+    Das Grillen tat das nicht: Blieb der Klick aus, stand noch die alte Seite
+    offen, und der Zug griff dort an derselben Stelle zu. Seite I merkt davon
+    nichts, sie ist beim Angeln ohnehin offen. An einem simulierten Spiel
+    nachgestellt: Lagerfeuer, Wurm und Puzzlebox von Seite I landeten im Feuer,
+    und pro Feuer kam hoechstens eine neue Seite dran.
+
+    Ablauf und Vertrag: :func:`inventory.tab_switch.switch_checked` (gemeinsam
+    mit dem Wegwerfen). Ohne Pruefung (``env.verify_page_fn is None``) bleibt
+    es beim blinden Klick -- Klick fuer Klick wie bisher.
+
+    :return: ``(ok, gesehen)``. Wer ``ok=False`` bekommt, darf auf dieser Seite
+        NICHTS anfassen; ``gesehen`` ist die Seite, die stattdessen offen war
+        (``None``: kein Bild). Wirft nie.
+    """
+    ox, oy = env.offset
+    return tab_switch.switch_checked(
+        page,
+        click_fn=lambda: _switch_page(env.inp, env.calib, ox, oy, page,
+                                      env.sleep),
+        verify_fn=env.verify_page_fn,
+        wait_fn=lambda s: abbrechbar_schlafen(env.sleep, s, env.abort_fn))
+
+
+def _seite_im_bild(gesehen):
+    """Logtext fuer die Seite, die stattdessen offen war."""
+    return gesehen if gesehen else _t('inventory.page_no_frame')
+
+
+def _abgebrochen(env):
+    """``True``, wenn der Not-Aus gesetzt ist. Wirft nie."""
+    try:
+        return bool(env.abort_fn is not None and env.abort_fn())
+    except Exception:
+        return False
+
+
 def _grill_one_fire(env, tool, targets):
     """EIN Feuer legen, finden und bis zur Frist bebraten.
 
@@ -655,6 +747,13 @@ def _grill_one_fire(env, tool, targets):
         NUR dieser Fall rechtfertigt ein weiteres Feuer.
       * ``'aborted'``          -- F6 / Cutoff.
       * ``'label_not_found'``  -- das Feuer war nicht auffindbar.
+      * ``'page_switch_failed'`` -- die Werkzeug-Seite liess sich nicht
+        aufschlagen; KEIN Doppelklick (er traefe ein Item der falschen Seite).
+
+    Eine Fisch-Seite, die sich nicht aufschlagen laesst, wird fuer DIESES Feuer
+    uebersprungen (Log-Zeile), die uebrigen Seiten laufen weiter. Ihre Fische
+    bleiben im Beutel; der Nachscan zaehlt sie, das naechste Feuer versucht es
+    erneut, und ohne jeden Fortschritt greift die Stillstands-Bremse.
 
     Bewusst OHNE eigene Scans: der Aufrufer entscheidet ueber Nachscan und
     naechsten Zyklus. Wirft nie nach aussen (der Aufrufer kapselt zusaetzlich).
@@ -664,9 +763,20 @@ def _grill_one_fire(env, tool, targets):
     inp = env.inp
     grilled = []
 
-    # Feuer legen: DOPPELKLICK auf den Werkzeug-Slot.
+    # Feuer legen: DOPPELKLICK auf den Werkzeug-Slot -- nur auf der BELEGT
+    # offenen Seite. Ein Doppelklick auf der falschen Seite BENUTZT das Item,
+    # das dort zufaellig an derselben Stelle liegt.
     tool_page, tool_xy = tool
-    _switch_page(inp, env.calib, ox, oy, tool_page, sleep)
+    ok, gesehen = _switch_page_checked(env, tool_page)
+    # Not-Aus auch NACH gelungenem Nachsehen: das Nachsehen selbst dauert
+    # (Zeiger parken, Bild holen) -- ein F6 in dieser Zeit legt kein Feuer mehr.
+    if _abgebrochen(env):
+        _flog('-', 'campfire.aborted', count=len(grilled))
+        return 'aborted', grilled, None, 0.0, 0
+    if not ok:
+        _flog('-', 'campfire.tool_page_failed', page=tool_page,
+              got=_seite_im_bild(gesehen))
+        return 'page_switch_failed', grilled, None, 0.0, 0
     _double_click(inp, tool_xy[0], tool_xy[1])
     # Ab JETZT laeuft die Feuer-Lebensdauer (~35 s) -- die Bird's-Eye-/Such-Phase
     # frisst davon schon etwas auf, darum ab dem Platzieren messen.
@@ -704,6 +814,11 @@ def _grill_one_fire(env, tool, targets):
     _flog('0', 'campfire.fire_located', x=fire[0], y=fire[1],
           score=round(score, 3))
 
+    # Die zuletzt BELEGT offene Seite (``None``: keine). Nur ein Seiten-WECHSEL
+    # wird nachgeprueft; die Ziele kommen seitenweise sortiert (I -> IV).
+    # Innerhalb einer Seite bleibt der Klick je Fisch wie bisher.
+    offen = tool_page
+    gesperrt = set()
     for (page, row, col, name) in targets:
         try:
             if env.abort_fn is not None and env.abort_fn():
@@ -711,12 +826,33 @@ def _grill_one_fire(env, tool, targets):
                 return 'aborted', grilled, fire, score, rotations
         except Exception:
             pass
+        if page in gesperrt:
+            continue
+        if page != offen:
+            ok, gesehen = _switch_page_checked(env, page)
+            if _abgebrochen(env):
+                _flog('-', 'campfire.aborted', count=len(grilled))
+                return 'aborted', grilled, fire, score, rotations
+            if not ok:
+                gesperrt.add(page)
+                # Gerade wurde zweimal ein Reiter geklickt -- welche Seite
+                # jetzt offen ist, weiss niemand. Also gilt KEINE als belegt,
+                # auch die alte nicht: der naechste Fisch wechselt mit Beleg.
+                offen = None
+                _flog('-', 'campfire.page_switch_failed', page=page,
+                      got=_seite_im_bild(gesehen))
+                continue
+            offen = page
+        else:
+            _switch_page(inp, env.calib, ox, oy, page, sleep)
         # FEUER-FRIST: nach ~35 s ist das Feuer weg -> NICHT weiter grillen
         # (sonst Fisch-Drag ins Leere). Der Aufrufer legt dann ein neues.
+        # Geprueft wird erst NACH dem Seitenwechsel, direkt vor dem Zug: der
+        # belegte Wechsel kann mit zweitem Klick und Nachsehen ~0,5 s dauern,
+        # und zaehlen muss der Moment, in dem der Fisch losgelassen wird.
         if time.monotonic() >= fire_deadline:
             _flog('0', 'campfire.fire_expired', count=len(grilled))
             return 'expired', grilled, fire, score, rotations
-        _switch_page(inp, env.calib, ox, oy, page, sleep)
         fx, fy = _slot_screen(row, col, env.calib, ox, oy, lattice=env.lattice)
         drag(inp, fx, fy, fire_screen[0], fire_screen[1], sleep=sleep)
         if not abbrechbar_schlafen(sleep, GRILL_SETTLE_S, env.abort_fn):

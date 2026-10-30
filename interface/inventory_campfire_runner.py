@@ -65,6 +65,23 @@ def _emit(state, key, **fmt):
         pass
 
 
+def _emit_seiten(allowed_pages):
+    """Console-Zeile beim Start: auf welchen Seiten gegrillt wird.
+
+    Die Seitenwahl ("Inventar-Seiten nutzen") gilt fuer Angeln UND Grillen. Wer
+    nur mit Seite I angelt und den Timer-Cleanup grillen laesst, bekam bis
+    v1.6.15 still nur Seite I gegrillt -- samt der Meldung "fertig"
+    (Nutzer-Meldung 2026-10-30). Jetzt steht es beim Start in der Console.
+    """
+    fehlen = [p for p in PAGES if p not in allowed_pages]
+    seiten = ', '.join(allowed_pages)
+    if fehlen:
+        _emit('0', 'campfire.pages_limited', pages=seiten,
+              missing=', '.join(fehlen))
+    else:
+        _emit('0', 'campfire.pages_all', pages=seiten)
+
+
 def _bgr_to_rgb(bgr):
     """Convert a captured BGR frame to RGB (what the matcher expects). Soft.
 
@@ -283,6 +300,15 @@ def run_campfire_grill(cfg, states, *, log_fn=None, db=None,
         except Exception:
             return None
 
+    # Lock the inventory grid ONCE on the live window (identical across all four
+    # tabs -> one lock serves every page). Threaded into run_campfire so the tool
+    # double-click + every fish drag SOURCE hit the SAME grid recognition uses,
+    # not the raw (un-aligned) DEFAULT_CALIBRATION that grabs ~1 slot too low.
+    # Defensive: None -> run_campfire falls back to the calibration lattice.
+    # Vor ``scan_fn``, weil auch der Maus-Sweep dieses Raster abfaehrt.
+    locked = _lock_lattice(wincap, db, calib)
+    erster_scan = {'offen': True}
+
     def scan_fn():
         """One headless I->IV inventory scan (tab-click page switch + offset)."""
         try:
@@ -302,20 +328,29 @@ def run_campfire_grill(cfg, states, *, log_fn=None, db=None,
                     _park_cursor(offset, calib)
                     time.sleep(TAB_SETTLE_S)
 
-            # MAUS-HOVER (opt-in, Default AUS): Leuchtrahmen loeschen, bevor
-            # die Seite aufgenommen wird. HIER zaehlt es besonders -- gegrillt
-            # wird, was FRISCH gefangen wurde, und genau diese Items leuchten.
-            # Gemessen (2026-08-11): ein leuchtender Yabbie liegt bei
-            # Match-Distanz 26,45 statt 0,1, also ueber der Schwelle 22 und
-            # damit "unbekannt" -> er wandert nie aufs Feuer. Bis v1.6.13 gab
-            # es diesen Sweep nur im Inventar-Scan, nicht in diesem Nachscan.
+            # MAUS-HOVER: Leuchtrahmen loeschen, bevor die Seite aufgenommen
+            # wird. HIER zaehlt es besonders -- gegrillt wird, was FRISCH
+            # gefangen wurde, und genau diese Items leuchten. Gemessen
+            # (2026-08-11): ein leuchtender Yabbie liegt bei Match-Distanz
+            # 26,45 statt 0,1, also ueber der Schwelle 22 und damit
+            # "unbekannt" -> er wandert nie aufs Feuer.
+            # Seit v1.6.16 IMMER beim ERSTEN Scan eines Grill-Laufs, auch ohne
+            # die Option (Nutzer-Meldung 2026-10-30: auf II-IV liegen frisch
+            # gefangene Fische, ueber die nie ein Zeiger fuhr). Ueberfahren
+            # loescht den Rahmen dauerhaft -- die Nachscans zwischen den
+            # Feuern hovern nur mit der Option. Raster: das eingerastete; das
+            # Kalibrier-Raster sitzt beim Nutzer ~1 Slot daneben.
             inv_cfg = (cfg or {}).get('inventory', {}) or {}
+            hovern = bool(inv_cfg.get('hover_clear')) or erster_scan['offen']
+            erster_scan['offen'] = False
             hover_fn = None
-            if inv_cfg.get('hover_clear'):
-                _lat = lattice_from_calibration(calib)
+            if hovern:
+                _lat = locked or lattice_from_calibration(calib)
                 hover_fn = _glow.make_hover_fn(
                     pydirectinput, lambda _p: _lat, offset=offset,
-                    speed_ms=inv_cfg.get('hover_speed_ms', 0))
+                    speed_ms=inv_cfg.get('hover_speed_ms', 0),
+                    log_fn=lambda page, n: _emit(
+                        '0', 'inventory.hover_done', page=page, slots=n))
             # NOT-AUS auch WAEHREND des Scans (User-Report 2026-09-10).
             # Der Scan dauert rund 1,6 s (4 Seiten a ~0,35 s Erkennung plus
             # Reiter-Klicks) und laeuft nach JEDEM Feuer erneut. Ohne diese
@@ -329,22 +364,49 @@ def run_campfire_grill(cfg, states, *, log_fn=None, db=None,
                 except Exception:
                     return False
 
+            # REITER NACHPRUEFEN wie im Haupt-Scan (inventory_runner): Zeigt
+            # das Bild nach dem Klick nicht die erwartete Seite, klickt der
+            # Scanner ein zweites Mal und laesst die Seite sonst aus. Ohne
+            # diese Pruefung lief ein verschluckter Reiter-Klick als
+            # "Seite II" durch, obwohl noch Seite I offen war -- und der Grill
+            # zog dann an Stellen, an denen auf Seite II etwas ganz anderes
+            # liegt (Nutzer-Meldung 2026-10-30).
+            def _verify(image):
+                return grid_mod.active_page(image, calib)
+
             return scan_inventory(
                 capture_fn=wincap.get_screenshot,
                 switch_page_fn=_switch,
                 db=db, calib=calib, pages=allowed_pages,
-                hover_fn=hover_fn, early_stop_fn=_abbruch)
+                hover_fn=hover_fn, early_stop_fn=_abbruch,
+                verify_page_fn=_verify)
         except Exception:
             return None
 
-    # Lock the inventory grid ONCE on the live window (identical across all four
-    # tabs -> one lock serves every page). Threaded into run_campfire so the tool
-    # double-click + every fish drag SOURCE hit the SAME grid recognition uses,
-    # not the raw (un-aligned) DEFAULT_CALIBRATION that grabs ~1 slot too low.
-    # Defensive: None -> run_campfire falls back to the calibration lattice.
-    locked = _lock_lattice(wincap, db, calib)
+    def visible_page_fn():
+        """Welche Inventar-Seite ist JETZT offen? (Belegt jeden Grill-Wechsel.)
+
+        Erst den Zeiger vom Reiter wegparken und einen Moment warten -- ein
+        Reiter unter dem Zeiger kann im Bild heller wirken als der offene und
+        die Helligkeits-Pruefung taeuschen. Dann aufnehmen und den offenen
+        Reiter ablesen (dieselbe Pruefung wie im Scan). ``None``, wenn kein
+        Bild kam: dann gilt die Seite als NICHT belegt. Wirft nie.
+        """
+        _park_cursor(offset, calib)
+        time.sleep(TAB_SETTLE_S)
+        try:
+            frame = wincap.get_screenshot()
+        except Exception:
+            return None
+        if frame is None:
+            return None
+        try:
+            return grid_mod.active_page(frame, calib)
+        except Exception:
+            return None
 
     _emit('0', 'campfire.started')
+    _emit_seiten(allowed_pages)
     result = campfire.run_campfire(
         states,
         abort_fn=abort_fn,
@@ -353,6 +415,8 @@ def run_campfire_grill(cfg, states, *, log_fn=None, db=None,
         scan_fn=scan_fn,
         offset=offset,
         calib=calib,
-        lattice=locked)
+        lattice=locked,
+        verify_page_fn=visible_page_fn,
+        expected_pages=allowed_pages)
     _restore_page(offset, calib, prev_page)
     return result

@@ -35,6 +35,7 @@ shares no code with the grill flow and the two stay disjoint.
 
 from inventory.constants import DEFAULT_CALIBRATION, SLOT_PX, INPUT_SETTLE_S
 from inventory.grid import lattice_from_calibration
+from inventory import tab_switch
 
 # Diagnose-Logging (soft) -- macht das Wegwerfen in der Live-Console sichtbar; ein
 # fehlender/kaputter Logger darf den Ablauf nie stoppen (Projekt-Disziplin).
@@ -195,7 +196,9 @@ class DiscardResult:
 
     Not a dataclass to stay import-light + Py-version-proof; treated read-only.
 
-    :ivar status: ``'done'`` / ``'no_items'`` / ``'not_open'`` / ``'aborted'`` / ``'error'``.
+    :ivar status: ``'done'`` / ``'no_items'`` / ``'not_open'`` / ``'aborted'`` /
+        ``'error'`` / ``'incomplete'`` (mindestens eine freigegebene Seite liess
+        sich nicht aufschlagen; dort wurde nichts angefasst).
     :ivar dropped: list of ``(page, row, col, name)`` actually dropped.
     :ivar drop_point: the SCREEN ``(x, y)`` the items were dragged to (or ``None``).
     """
@@ -214,7 +217,7 @@ class DiscardResult:
 
 def run_discard(states, *, inp, capture_fn, scan_fn, client_size, abort_fn=None,
                 offset=(0, 0), calib=DEFAULT_CALIBRATION, lattice=None,
-                sleep=None):
+                sleep=None, verify_page_fn=None, expected_pages=None):
     """Full discard flow: drag each REMOVE-marked item out + confirm "Ja".
 
     All live dependencies are INJECTED so the orchestration is headless-testable
@@ -236,6 +239,12 @@ def run_discard(states, *, inp, capture_fn, scan_fn, client_size, abort_fn=None,
         the runner's one-shot ``auto_align``; when ``None`` we fall back to
         ``lattice_from_calibration(calib)``. Using the locked grid makes the drag
         hit the slot CENTRE (the raw calibration sits ~1 slot too low).
+      * ``verify_page_fn`` -- optional ``() -> page label | None``: welche
+        Inventar-Seite ist JETZT offen? Mit ihr wird jeder Reiter-Wechsel
+        belegt (:func:`inventory.tab_switch.switch_checked`), BEVOR gezogen
+        und "Ja" geklickt wird. ``None`` = blinder Klick wie bisher.
+      * ``expected_pages`` -- optional die freigegebenen Seiten. Fehlt eine im
+        Scan, endet der Lauf mit ``'incomplete'`` statt ``'done'``.
 
     Returns a :class:`DiscardResult`. STRICTLY defensive: any failure short-
     circuits to a clear status (and the button is released in :func:`drag`'s
@@ -260,8 +269,16 @@ def run_discard(states, *, inp, capture_fn, scan_fn, client_size, abort_fn=None,
             _flog('-', 'discard.scan_failed')
             return DiscardResult('error')
 
+        # Ueber Seiten, die der Scan nicht lesen konnte, gibt es keine Aussage
+        # -- also auch kein "fertig" und kein "nichts zu tun".
+        fehlend = _fehlende_seiten(inv, expected_pages)
+        if fehlend:
+            _flog('-', 'discard.scan_incomplete', pages=', '.join(fehlend))
+
         targets = item_slots_to_discard(inv, names)
         if not targets:
+            if fehlend:
+                return DiscardResult('incomplete')
             _flog('-', 'discard.no_items')
             return DiscardResult('no_items')
 
@@ -281,7 +298,12 @@ def run_discard(states, *, inp, capture_fn, scan_fn, client_size, abort_fn=None,
         # ``abort_fn`` (optional) wird VOR jedem Item geprueft: F6 bzw. der
         # Cleanup-Cutoff stoppen den Lauf sauber NACH dem aktuellen Item
         # (nie mitten im Drag) -> Status 'aborted' mit dem bisherigen Stand.
+        # Jeder Seiten-WECHSEL wird belegt, bevor gezogen und "Ja" geklickt
+        # wird: auf einer unbelegten Seite liesse das "Ja" das Item fallen, das
+        # dort zufaellig an derselben Stelle liegt (Review 2026-10-30, G12).
         dropped = []
+        offen = None            # zuletzt BELEGT offene Seite (None: keine)
+        gesperrt = set()
         for (page, row, col, name) in targets:
             try:
                 if abort_fn is not None and abort_fn():
@@ -290,7 +312,29 @@ def run_discard(states, *, inp, capture_fn, scan_fn, client_size, abort_fn=None,
                                          drop_point=world)
             except Exception:
                 pass
-            _switch_page(inp, calib, ox, oy, page, sleep)
+            if page in gesperrt:
+                continue
+            if page != offen:
+                ok, gesehen = tab_switch.switch_checked(
+                    page,
+                    click_fn=lambda p=page: _switch_page(inp, calib, ox, oy,
+                                                         p, sleep),
+                    verify_fn=verify_page_fn,
+                    wait_fn=lambda s: _warten(sleep, s, abort_fn))
+                if _stopp(abort_fn):
+                    _flog('-', 'discard.aborted', count=len(dropped))
+                    return DiscardResult('aborted', dropped=dropped,
+                                         drop_point=world)
+                if not ok:
+                    gesperrt.add(page)
+                    offen = None
+                    _flog('-', 'discard.page_switch_failed', page=page,
+                          got=gesehen if gesehen else
+                          _t('inventory.page_no_frame'))
+                    continue
+                offen = page
+            else:
+                _switch_page(inp, calib, ox, oy, page, sleep)
             sx, sy = _slot_screen(row, col, calib, ox, oy, lattice=lat)
             drag(inp, sx, sy, world[0], world[1], sleep=sleep)
             sleep(DROP_SETTLE_S)
@@ -300,11 +344,47 @@ def run_discard(states, *, inp, capture_fn, scan_fn, client_size, abort_fn=None,
             _flog('0', 'discard.dropped_one', name=name, page=page,
                   slot=_slot_no(row, col))
 
+        if fehlend or gesperrt:
+            _flog('-', 'discard.incomplete', count=len(dropped))
+            return DiscardResult('incomplete', dropped=dropped,
+                                 drop_point=world)
         _flog('0', 'discard.done', count=len(dropped))
         return DiscardResult('done', dropped=dropped, drop_point=world)
     except Exception as exc:                # pragma: no cover - last-ditch guard
         _flog('-', 'discard.error', detail=str(exc)[:120])
         return DiscardResult('error')
+
+
+def _fehlende_seiten(inv, expected_pages):
+    """Freigegebene Seiten, die der Scan NICHT geliefert hat (Reiter-Reihenfolge).
+
+    ``expected_pages=None`` -> keine Erwartung, also nichts fehlt. Wirft nie.
+    """
+    if not expected_pages:
+        return []
+    try:
+        gelesen = set((getattr(inv, 'pages', None) or {}).keys())
+    except Exception:
+        gelesen = set()
+    erwartet = set(expected_pages)
+    return [p for p in PAGE_ORDER if p in erwartet and p not in gelesen]
+
+
+def _stopp(abort_fn):
+    """``True``, wenn der Not-Aus gesetzt ist. Wirft nie."""
+    try:
+        return bool(abort_fn is not None and abort_fn())
+    except Exception:
+        return False
+
+
+def _warten(sleep, sekunden, abort_fn):
+    """Kurz warten; ``False``, wenn danach der Not-Aus gesetzt ist. Wirft nie."""
+    try:
+        sleep(sekunden)
+    except Exception:
+        pass
+    return not _stopp(abort_fn)
 
 
 # -- input primitives (pure given an injected api) --------------------------

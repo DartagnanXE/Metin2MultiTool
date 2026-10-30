@@ -36,6 +36,7 @@ from inventory.constants import (
 from inventory import hover
 from inventory import glow as _glow
 from inventory.grid import lattice_from_calibration
+from inventory import grid as grid_mod
 from inventory import pages as _inv_pages
 from inventory import open_probe
 from i18n import t
@@ -339,11 +340,40 @@ def run_discard_items(cfg, states, *, log_fn=None, db=None,
                 except Exception:
                     return False
 
+            # REITER NACHPRUEFEN wie im Haupt-Scan und beim Grillen: ein
+            # verschluckter Reiter-Klick lief sonst als "Seite II" durch,
+            # obwohl noch Seite I offen war -- und der Zug liesse dann fallen,
+            # was auf Seite I an derselben Stelle liegt (Review 2026-10-30).
+            def _verify(image):
+                return grid_mod.active_page(image, calib)
+
             return scan_inventory(
                 capture_fn=wincap.get_screenshot,
                 switch_page_fn=_switch,
                 db=db, calib=calib, pages=allowed_pages,
-                hover_fn=hover_fn, early_stop_fn=_abbruch)
+                hover_fn=hover_fn, early_stop_fn=_abbruch,
+                verify_page_fn=_verify)
+        except Exception:
+            return None
+
+    def visible_page_fn():
+        """Welche Inventar-Seite ist JETZT offen? (Belegt jeden Wechsel.)
+
+        Erst den Zeiger vom Reiter wegparken und einen Moment warten -- ein
+        Reiter unter dem Zeiger kann im Bild heller wirken als der offene und
+        die Helligkeits-Pruefung taeuschen. ``None``, wenn kein Bild kam: dann
+        gilt die Seite als NICHT belegt. Wirft nie.
+        """
+        _park_cursor(offset, calib)
+        time.sleep(TAB_SETTLE_S)
+        try:
+            frame = wincap.get_screenshot()
+        except Exception:
+            return None
+        if frame is None:
+            return None
+        try:
+            return grid_mod.active_page(frame, calib)
         except Exception:
             return None
 
@@ -357,6 +387,8 @@ def run_discard_items(cfg, states, *, log_fn=None, db=None,
         client_size=client_size,
         offset=offset,
         calib=calib,
-        lattice=lattice)
+        lattice=lattice,
+        verify_page_fn=visible_page_fn,
+        expected_pages=allowed_pages)
     _restore_page(offset, calib, prev_page)
     return result

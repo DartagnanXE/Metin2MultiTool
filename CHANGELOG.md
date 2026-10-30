@@ -3,6 +3,98 @@
 Alle nennenswerten Aenderungen an diesem Projekt werden hier festgehalten.
 Format angelehnt an [Keep a Changelog](https://keepachangelog.com/de/1.1.0/).
 
+## [1.6.16] — 2026-10-30
+
+### Grillen auf den Seiten II bis IV: jeder Seitenwechsel wird jetzt geprüft
+
+Gemeldet war: „Seite I klappt fast immer, II–IV fast nie.“ Der Melder angelt nur
+mit Seite I und hakt zum Grillen alle vier Seiten an.
+
+Das Spiel kann einen Klick auf einen Inventar-Reiter verschlucken — seit v1.1.2
+bekannt, der normale Inventar-Scan prüft deshalb jeden Wechsel nach. Das Grillen
+tat das nicht, weder beim eigenen Scan noch beim Ziehen. Ging ein Klick verloren,
+stand noch die alte Seite offen, und der Bot zog an derselben Stelle von der
+falschen Seite. Seite I merkt davon nichts, weil sie beim Angeln ohnehin offen
+ist. Im Spielmodell nachgestellt landeten so Lagerfeuer, Wurm und Puzzlebox von
+Seite I im Feuer.
+
+Jetzt sieht der Bot nach jedem Reiterklick im Bild nach, welche Seite offen ist,
+und klickt notfalls ein zweites Mal. Gezogen oder ein Feuer gelegt wird erst,
+wenn die richtige Seite belegt ist. Lässt sich eine Seite nicht aufschlagen,
+überspringt er sie für dieses Feuer und schreibt in die Console, was
+stattdessen offen war:
+
+```
+Inventarseite III ließ sich nicht aufschlagen (Reiter zweimal geklickt, offen war: II) - ihre Fische werden bei diesem Feuer übersprungen
+```
+
+Liegt das Lagerfeuer selbst auf so einer Seite, legt er kein Feuer: Ein
+Doppelklick auf der falschen Seite würde das Item benutzen, das dort zufällig
+liegt.
+
+### Frisch gefangene Fische werden beim Grillen erkannt
+
+Neue Gegenstände tragen einen Leuchtrahmen, bis der Zeiger einmal darüber
+gefahren ist (siehe 1.6.14), und leuchtende Fische erkennt der Bot nicht. Auf den
+Seiten II–IV landen beim Angeln genau die frisch gefangenen Fische, und über die
+fährt sonst nie ein Zeiger. Der **erste** Scan jedes Grill-Laufs fährt deshalb
+jetzt immer einmal über alle Felder, auch wenn „Maus-Hover vor dem Scan“
+ausgeschaltet ist. Das Überfahren löscht den Rahmen dauerhaft; die Nachscans
+zwischen den Feuern bleiben ohne den Schalter so schnell wie bisher.
+
+### Die Console sagt, auf welchen Seiten gegrillt wird
+
+Die Auswahl „Inventar-Seiten nutzen“ gilt fürs Angeln **und** fürs Grillen. Wer
+nur mit Seite I angelt und den Timer-Cleanup grillen lässt, bekam bisher still
+nur Seite I gegrillt — samt der Meldung „fertig“. Jetzt steht beim Start eine
+dieser Zeilen:
+
+```
+Gegrillt wird auf allen Inventarseiten (I, II, III, IV)
+Gegrillt wird nur auf Seite(n) I - Seite(n) II, III, IV sind unter „Inventar-Seiten nutzen“ abgewählt und bleiben unberührt
+```
+
+### Ehrlichere Meldungen am Ende
+
+- Lässt sich die Seite mit dem Lagerfeuer im Scan nicht lesen, heißt es jetzt
+  „Nicht alle Inventarseiten ließen sich lesen“ statt „Kein Lagerfeuer-Item im
+  Inventar“ — sonst kauft man nach, obwohl noch welche da sind.
+- Diese Meldung begann bisher mit „Gegrillt, aber …“, auch wenn gar nichts
+  gegrillt worden war.
+- „Fertig“ heißt nur noch fertig, wenn alle freigegebenen Seiten gelesen wurden.
+
+### Kleinere Absicherungen beim Grillen
+
+- Nach einem gescheiterten Seitenwechsel gilt keine Seite mehr als sicher offen,
+  auch die vorherige nicht. Vorher kam der nächste Fisch auf der alten Seite mit
+  einem blinden Klick aus und konnte von der falschen Seite gezogen werden.
+- F6 während der Seitenprüfung legt kein Feuer mehr.
+- Die 35-Sekunden-Frist des Feuers wird direkt vor jedem Zug geprüft statt vor
+  dem Seitenwechsel. Sonst konnte ein Fisch nach Ablauf ins Leere gezogen werden.
+
+### Wegwerfen: dieselbe Absicherung
+
+Der Wegwerf-Ablauf läuft in derselben Aktion „Inventar managen“ direkt nach dem
+Grillen und hatte dieselbe Lücke, mit schlimmerer Folge: Er zieht das Feld in die
+Welt und bestätigt blind mit „Ja“. Auf der falschen Seite hätte er so ein nie
+markiertes Item fallen lassen, im Spielmodell eine Deluxe-Puzzlebox. Jetzt prüft
+er jeden Seitenwechsel genauso; auf einer Seite, die sich nicht belegen lässt,
+wird nie gezogen und nie „Ja“ geklickt. Bleibt eine Seite unberührt, meldet er
+„Wegwerfen unvollständig“ statt „fertig“.
+
+### Was noch nicht geprüft ist
+
+Alles ist an einem Spielmodell nachgestellt, das Reiterklicks verschlucken und
+Reiter tot stellen kann, und mit 48 neuen Tests festgehalten (Gesamtprüfung
+2057 grün). **Im Spiel getestet ist nichts davon.** Dass das Spiel genau diese
+Reiterklicks verschluckt, ist nicht gemessen; es ist eine von drei möglichen
+Ursachen für die Meldung. Die neuen Console-Zeilen sind dafür da, das am nächsten
+Log zu entscheiden:
+
+- „ließ sich nicht aufschlagen“ → Reiterklick
+- „Gegrillt wird nur auf Seite(n) I“ → Seitenauswahl
+- alle Seiten gescannt, aber keine „gegrillt (Seite II …)“-Zeilen → Erkennung
+
 ## [1.6.14] — 2026-09-10
 
 ### Escape wird nur noch gedrückt, wenn das Minispiel wirklich offen ist

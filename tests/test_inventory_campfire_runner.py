@@ -163,7 +163,10 @@ class TestLockOnceAndThread(_CampfireRunnerBase):
         self._sc.scan_inventory = _scan_sequence(
             inv, _inv({'I': [_slot('Lagerfeuer', 0, 0)]}))
 
-        res = cr.run_campfire_grill({'inventory': {'hotkey': 'i'}},
+        # Nur Seite I freigegeben -- der Fake-Scan liefert auch nur sie. Mit
+        # allen vier Seiten waere "complete" unbelegt (scan_incomplete).
+        res = cr.run_campfire_grill({'inventory': {'hotkey': 'i',
+                                                   'pages': [1]}},
                                     {'Carp': 2}, db=object())
 
         self.assertEqual(res.status, 'complete')
@@ -192,7 +195,8 @@ class TestLockOnceAndThread(_CampfireRunnerBase):
         self._sc.scan_inventory = _scan_sequence(
             inv, _inv({'I': [_slot('Lagerfeuer', 0, 0)]}))
 
-        res = cr.run_campfire_grill({'inventory': {'hotkey': 'i'}},
+        res = cr.run_campfire_grill({'inventory': {'hotkey': 'i',
+                                                   'pages': [1]}},
                                     {'Carp': 2}, db=object())
         self.assertEqual(res.status, 'complete')
         # Drag SOURCE = calibration-lattice slot (1,2) + offset (NOT the 245 lock).
@@ -219,14 +223,18 @@ class TestManagedScanParksCursor(_CampfireRunnerBase):
         campfire.find_label = lambda *a, **k: (True, 0.99, (300, 400))
 
         inv = _inv({'I': [_slot('Lagerfeuer', 0, 0), _slot('Carp', 1, 2)]})
+        abfolgen = []
 
         # A scan_inventory that DRIVES switch_page_fn for every page, so _switch
-        # (and its park) actually runs -- then returns the map.
-        def fake_scan(capture_fn=None, switch_page_fn=None, db=None, calib=None,
-                      pages=()):
+        # (and its park) actually runs -- then returns the map. ``**_kw`` nimmt
+        # hover_fn / early_stop_fn / verify_page_fn an: ohne ihn warf der Fake
+        # einen TypeError, scan_fn schluckte ihn, und _switch lief NIE -- der
+        # Test war gruen, ohne etwas zu pruefen (Review 2026-10-30, G10).
+        def fake_scan(switch_page_fn=None, pages=(), **_kw):
             for p in pages:
-                if switch_page_fn is not None:
-                    switch_page_fn(p)
+                start = len(pdi.ev)
+                switch_page_fn(p)
+                abfolgen.append((p, pdi.ev[start:]))
             return inv
 
         self._sc.scan_inventory = fake_scan
@@ -237,13 +245,186 @@ class TestManagedScanParksCursor(_CampfireRunnerBase):
         park = hover.to_screen(
             [hover.tab_park_point(DEFAULT_CALIBRATION)],
             (1000, 500))[0]
-        # A park MOVE to the off-grid point fired after a tab click.
-        self.assertIn(('mv',) + park, pdi.ev)
+        # Der Fake lief wirklich -- fuer alle vier Seiten.
+        self.assertEqual([p for p, _ev in abfolgen][:4],
+                         ['I', 'II', 'III', 'IV'])
+        # Jeder Reiter-Klick wird SOFORT weggeparkt, noch vor der Aufnahme --
+        # die Reiter-Pruefung liest das Bild direkt danach.
+        for seite, ev in abfolgen:
+            tx, ty = DEFAULT_CALIBRATION['tabs'][seite]
+            self.assertEqual(ev[:2], [('click', 1000 + tx, 500 + ty),
+                                      ('mv',) + tuple(park)], seite)
         # PAUSE was restored to its original value after each parked move.
         self.assertEqual(pdi.PAUSE, 0.0)
         # The park x sits LEFT of the grid's left edge (clear of every slot).
         grid_left = int(DEFAULT_CALIBRATION['grid']['tl'][0]) + 1000
         self.assertLess(park[0], grid_left)
+
+
+def _frame_mit_offener_seite(seite):
+    """Synthetischer Frame (Inventar offen), auf dem ``seite`` der hellste
+    Reiter ist -- genau das, was ``grid.active_page`` als offen liest."""
+    frame = _WinCap('METIN2').get_screenshot()
+    cx, cy = DEFAULT_CALIBRATION['tabs'][seite]
+    dx, dy = DEFAULT_CALIBRATION['tab_active']['offset']
+    frame[cy + dy - 2:cy + dy + 3, cx + dx - 2:cx + dx + 3] = 255
+    return frame
+
+
+class _GrillStartBase(_CampfireRunnerBase):
+    """Startet ``run_campfire_grill`` gegen ein Fake-``run_campfire`` und
+    liefert dessen Keyword-Argumente (``scan_fn``, ``verify_page_fn`` ...)."""
+
+    def _starte(self, cfg, wincap_cls=_WinCap):
+        cr.pydirectinput = self.pdi = _PDI()
+        cr.WindowCapture = wincap_cls
+        cr.grid_mod.auto_align = lambda f, d, c: GridLattice(
+            origin=(632, 245), pitch=(32, 32))
+        got = {}
+        orig_run = campfire.run_campfire
+
+        def fake_run(states, **kw):
+            got.update(kw)
+            return campfire.CampfireResult('complete')
+
+        campfire.run_campfire = fake_run
+        try:
+            cr.run_campfire_grill(cfg, {'Carp': 2}, db=object())
+        finally:
+            campfire.run_campfire = orig_run
+        return got
+
+
+@unittest.skipUnless(np is not None, 'numpy required for the captured frame')
+class TestReiterPruefungVerdrahtet(_GrillStartBase):
+    """Grill-Scan und Grill-Zug belegen jeden Reiter-Wechsel.
+
+    Nutzer-Meldung 2026-10-30: "Seite I klappt fast immer, II-IV fast nie".
+    Der Haupt-Scan prueft den offenen Reiter seit jeher nach, das Grillen tat
+    es nicht -- ein verschluckter Klick liess die alte Seite offen.
+    """
+
+    def test_grill_scan_prueft_den_offenen_reiter(self):
+        got = self._starte({'inventory': {'hotkey': 'i', 'pages': [1, 3]}})
+        mitschnitt = {}
+
+        def fake_scan(**kw):
+            mitschnitt.update(kw)
+            return _inv({'I': [], 'III': []})
+
+        self._sc.scan_inventory = fake_scan
+        got['scan_fn']()
+        self.assertEqual(tuple(mitschnitt['pages']), ('I', 'III'))
+        verify = mitschnitt['verify_page_fn']
+        self.assertEqual(verify(_frame_mit_offener_seite('III')), 'III')
+        self.assertEqual(verify(_frame_mit_offener_seite('I')), 'I')
+
+    def test_grill_zug_bekommt_pruefung_und_freigegebene_seiten(self):
+        got = self._starte({'inventory': {'hotkey': 'i', 'pages': [2, 4]}})
+        self.assertEqual(tuple(got['expected_pages']), ('II', 'IV'))
+        self.assertTrue(callable(got['verify_page_fn']))
+
+    def test_nachsehen_parkt_den_zeiger_vorher_und_liest_den_reiter(self):
+        class _WinCapSeiteII(_WinCap):
+            def get_screenshot(self):
+                return _frame_mit_offener_seite('II')
+
+        got = self._starte({'inventory': {'hotkey': 'i'}}, _WinCapSeiteII)
+        self.pdi.ev[:] = []
+        self.assertEqual(got['verify_page_fn'](), 'II')
+        park = hover.to_screen(
+            [hover.tab_park_point(DEFAULT_CALIBRATION)], (1000, 500))[0]
+        # Erst weg vom Reiter (ein Reiter unter dem Zeiger kann heller wirken
+        # als der offene), dann nachsehen.
+        self.assertEqual(self.pdi.ev, [('mv',) + park])
+
+    def test_ohne_bild_gilt_die_seite_als_nicht_belegt(self):
+        class _WinCapBlind(_WinCap):
+            blind = False
+
+            def get_screenshot(self):
+                if _WinCapBlind.blind:
+                    return None
+                return _WinCap.get_screenshot(self)
+
+        got = self._starte({'inventory': {'hotkey': 'i'}}, _WinCapBlind)
+        _WinCapBlind.blind = True
+        self.assertIsNone(got['verify_page_fn']())
+
+
+@unittest.skipUnless(np is not None, 'numpy required for the captured frame')
+class TestErsterGrillScanHovert(_GrillStartBase):
+    """Frisch gefangene Fische leuchten, bis ein Zeiger sie ueberfaehrt -- und
+    leuchtende Fische erkennt die Erkennung nicht. Auf II-IV landen genau die
+    (Nutzer-Meldung 2026-10-30). Der ERSTE Scan jedes Grill-Laufs faehrt
+    deshalb immer einmal ueber alle Slots, auch ohne die Option."""
+
+    def _scans(self, cfg, anzahl=2):
+        got = self._starte(cfg)
+        aufrufe = []
+
+        def fake_scan(**kw):
+            aufrufe.append(kw)
+            return _inv({'I': []})
+
+        self._sc.scan_inventory = fake_scan
+        for _ in range(anzahl):
+            got['scan_fn']()
+        return aufrufe
+
+    def test_erster_scan_hovert_auch_ohne_option(self):
+        aufrufe = self._scans({'inventory': {'hotkey': 'i', 'pages': [1]}})
+        self.assertTrue(callable(aufrufe[0]['hover_fn']))
+        # Ueberfahren loescht den Rahmen dauerhaft -- die Nachscans zwischen
+        # den Feuern bleiben ohne Option so schnell wie bisher.
+        self.assertIsNone(aufrufe[1]['hover_fn'])
+
+    def test_mit_option_hovert_jeder_scan(self):
+        aufrufe = self._scans({'inventory': {'hotkey': 'i', 'pages': [1],
+                                             'hover_clear': True}})
+        self.assertTrue(callable(aufrufe[0]['hover_fn']))
+        self.assertTrue(callable(aufrufe[1]['hover_fn']))
+
+    def test_sweep_faehrt_das_eingerastete_raster_ab(self):
+        from inventory.grid import lattice_from_calibration
+        locked = GridLattice(origin=(632, 245), pitch=(32, 32))
+        # Sonst unterschiede der Test nichts.
+        self.assertNotEqual(
+            lattice_from_calibration(DEFAULT_CALIBRATION).origin, locked.origin)
+        aufrufe = self._scans({'inventory': {'hotkey': 'i', 'pages': [1]}},
+                              anzahl=1)
+        self.pdi.ev[:] = []
+        aufrufe[0]['hover_fn']('II')
+        erster = hover.to_screen(hover.slot_centres(locked), (1000, 500))[0]
+        moves = [e for e in self.pdi.ev if e[0] == 'mv']
+        self.assertEqual(moves[0], ('mv',) + tuple(erster))
+
+
+@unittest.skipUnless(np is not None, 'numpy required for the captured frame')
+class TestSeitenStehenInDerConsole(_GrillStartBase):
+    """Die Seitenwahl gilt fuer Angeln UND Grillen. Wer nur mit Seite I angelt
+    und den Timer-Cleanup grillen laesst, bekam still nur Seite I gegrillt --
+    jetzt nennt der Start, welche Seiten dran sind."""
+
+    def _zeilen(self, cfg):
+        zeilen = []
+        orig = cr._emit
+        cr._emit = lambda _state, key, **fmt: zeilen.append((key, fmt))
+        try:
+            self._starte(cfg)
+        finally:
+            cr._emit = orig
+        return zeilen
+
+    def test_eingeschraenkte_seiten_werden_genannt(self):
+        zeilen = self._zeilen({'inventory': {'hotkey': 'i', 'pages': [1]}})
+        self.assertIn(('campfire.pages_limited',
+                       {'pages': 'I', 'missing': 'II, III, IV'}), zeilen)
+
+    def test_alle_seiten(self):
+        zeilen = self._zeilen({'inventory': {'hotkey': 'i'}})
+        self.assertIn(('campfire.pages_all', {'pages': 'I, II, III, IV'}),
+                      zeilen)
 
 
 class TestParkAndLockHelpersDefensive(unittest.TestCase):
